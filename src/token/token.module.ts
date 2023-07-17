@@ -1,0 +1,24 @@
+import { Module } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
+import { RedisModule } from '../redis/redis.module';
+import { HarvesterModule } from '../harvester/harvester.module';
+import { Token } from './token.entity';
+import { TokenService } from './token.service';
+import { CacheModule } from '../cache/cache.module';
+import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
+
+@Module({
+  imports: [
+    TypeOrmModule.forFeature([Token]),
+    LastProcessedBlockModule,
+    RedisModule,
+    HarvesterModule,
+    CacheModule,
+    PairCreatedEventModule,
+  ],
+  providers: [ConfigService, TokenService],
+  exports: [TokenService, TypeOrmModule.forFeature([Token])],
+})
+export class TokenModule {}
