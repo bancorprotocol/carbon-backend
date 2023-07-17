@@ -10,8 +10,9 @@ import { QuoteService } from '../quote/quote.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
 import moment from 'moment';
-import { MulticallAbi } from 'src/abis/multicall.abi';
+import { MulticallAbi } from '../abis/multicall.abi';
 import { hexToString } from 'web3-utils';
+import { TokensByAddress } from '../token/token.service';
 
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
@@ -31,9 +32,10 @@ export interface ProcessEventsArgs {
   contractAddress?: string;
   contractName?: string;
   eventName: string;
-  upToBlock: number;
+  endBlock: number;
   repository: Repository<unknown>;
-  fields?: string[];
+  stringFields?: string[];
+  numberFields?: string[];
   constants?: ConstantField[];
   pairsDictionary?: PairsDictionary;
   normalizeFields?: string[];
@@ -53,6 +55,8 @@ export interface ProcessEventsArgs {
   skipPreClearing?: boolean;
   terminatesAt?: number;
   startAtBlock?: number;
+  pairs?: PairsDictionary;
+  tokens?: TokensByAddress;
 }
 export interface NormalizeFieldsSourceMap {
   [field: string]: string;
@@ -77,20 +81,12 @@ export interface CustomFnArgs {
   event?: unknown;
   rawEvent?: any;
   configService?: ConfigService;
-  upToBlock?: number;
+  endBlock?: number;
   findQuotesForTimestamp?: AnyFunc;
   blocksDictionary?: BlocksDictionary;
   allQuotes?: Quote[];
   customData?: any;
 }
-
-const RESERVED_FIELDS = [
-  'poolType',
-  'poolCollection',
-  'pool',
-  'prevPoolCollection',
-  'newPoolCollection',
-];
 @Injectable()
 export class HarvesterService {
   constructor(
@@ -191,10 +187,9 @@ export class HarvesterService {
       contractAddress,
       contractName,
       eventName,
-      upToBlock,
+      endBlock,
       repository,
       constants,
-      pairsDictionary,
       tagTimestampFromBlock,
       allQuotes,
       customFns,
@@ -207,8 +202,12 @@ export class HarvesterService {
       skipPreClearing,
       terminatesAt,
       startAtBlock,
+      tokens,
+      pairs,
+      stringFields,
+      numberFields,
     } = args;
-    let { fields } = args;
+
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(
       entity,
     );
@@ -228,13 +227,10 @@ export class HarvesterService {
       contractName,
       eventName,
       startAt,
-      terminatesAt || upToBlock,
+      terminatesAt || endBlock,
       contractAddress,
     );
 
-    if (fields) {
-      fields = fields.filter((f) => !RESERVED_FIELDS.includes(f));
-    }
     let newEvents = [];
     if (events.length > 0) {
       newEvents = await Promise.all(
@@ -250,15 +246,28 @@ export class HarvesterService {
             constants.forEach((c) => (newEvent[c.key] = c.value));
           }
 
-          if (
-            e.returnValues['token0'] &&
-            e.returnValues['token1'] &&
-            pairsDictionary
-          ) {
+          if (e.returnValues['owner']) {
+            newEvent['owner'] = e.returnValues['owner'];
           }
 
-          if (fields) {
-            fields.forEach((f) => (newEvent[f] = e.returnValues[f]));
+          if (e.returnValues['token0'] && e.returnValues['token1'] && tokens) {
+            newEvent['token0'] = tokens[e.returnValues['token0']];
+            newEvent['token1'] = tokens[e.returnValues['token1']];
+          }
+
+          if (e.returnValues['token0'] && e.returnValues['token1'] && pairs) {
+            newEvent['pair'] =
+              pairs[e.returnValues['token0']][e.returnValues['token1']];
+          }
+
+          if (stringFields) {
+            stringFields.forEach((f) => (newEvent[f] = e.returnValues[f]));
+          }
+
+          if (numberFields) {
+            numberFields.forEach(
+              (f) => (newEvent[f] = Number(e.returnValues[f])),
+            );
           }
 
           if (tagTimestampFromBlock) {
@@ -286,7 +295,7 @@ export class HarvesterService {
                 event: newEvent,
                 rawEvent: e,
                 configService: this.configService,
-                upToBlock,
+                endBlock,
                 blocksDictionary,
                 findQuotesForTimestamp,
                 allQuotes,
@@ -304,10 +313,10 @@ export class HarvesterService {
     }
 
     if (skipLastProcessedBlockUpdate !== true) {
-      await this.lastProcessedBlockService.update(entity, upToBlock);
+      await this.lastProcessedBlockService.update(entity, endBlock);
     }
 
-    return newEvents;
+    return newEvents.sort((a, b) => a.block.id - b.block.id);
   }
 
   async latestBlock(): Promise<number> {

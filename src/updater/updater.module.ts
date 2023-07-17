@@ -5,12 +5,14 @@ import { RedisModule } from '../redis/redis.module';
 import { UpdaterService } from './updater.service';
 import { HarvesterModule } from '../harvester/harvester.module';
 import { CacheModule } from '../cache/cache.module';
-import { LastProcessedBlockModule } from 'src/last-processed-block/last-processed-block.module';
-import { QuoteModule } from 'src/quote/quote.module';
-import { StrategyCreatedEventModule } from 'src/events/strategy-created-event/strategy-created-event.module';
-import { TokenModule } from 'src/token/token.module';
-import { PairModule } from 'src/pair/pair.module';
-import { PairCreatedEventModule } from 'src/events/pair-created-event /pair-created-event.module';
+import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
+import { QuoteModule } from '../quote/quote.module';
+import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
+import { TokenModule } from '../token/token.module';
+import { PairModule } from '../pair/pair.module';
+import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
+import { StrategyModule } from '../strategy/strategy.module';
+import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/strategy-updated-event.module';
 
 @Module({
   imports: [
@@ -25,6 +27,8 @@ import { PairCreatedEventModule } from 'src/events/pair-created-event /pair-crea
     TokenModule,
     PairModule,
     PairCreatedEventModule,
+    StrategyModule,
+    StrategyUpdatedEventModule,
   ],
   providers: [UpdaterService],
 })

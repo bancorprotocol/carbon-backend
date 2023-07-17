@@ -18,6 +18,9 @@ export class Token {
   symbol: string;
 
   @Column()
+  name: string;
+
+  @Column()
   decimals: number;
 
   @CreateDateColumn()

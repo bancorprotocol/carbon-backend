@@ -1,20 +1,20 @@
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
-import { StrategyCreatedEvent } from './strategy-created-event.entity';
+import { StrategyUpdatedEvent } from './strategy-updated-event.entity';
 import {
   CustomFnArgs,
   HarvesterService,
 } from '../../harvester/harvester.service';
-import { PairsDictionary } from '../../pair/pair.service';
-import { TokensByAddress } from '../../token/token.service';
+import { PairsDictionary } from 'src/pair/pair.service';
+import { TokensByAddress } from 'src/token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
 
 @Injectable()
-export class StrategyCreatedEventService {
+export class StrategyUpdatedEventService {
   constructor(
-    @InjectRepository(StrategyCreatedEvent)
-    private repository: Repository<StrategyCreatedEvent>,
+    @InjectRepository(StrategyUpdatedEvent)
+    private repository: Repository<StrategyUpdatedEvent>,
     private harvesterService: HarvesterService,
   ) {}
 
@@ -24,27 +24,28 @@ export class StrategyCreatedEventService {
     tokens: TokensByAddress,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
-      entity: 'strategy-created-events',
+      entity: 'strategy-updated-events',
       contractName: 'CarbonController',
-      eventName: 'StrategyCreated',
+      eventName: 'StrategyUpdated',
       endBlock,
       repository: this.repository,
       pairs,
       tokens,
       customFns: [this.parseEvent],
+      numberFields: ['reason'],
     });
   }
 
   async get(
     startBlock: number,
     endBlock: number,
-  ): Promise<StrategyCreatedEvent[]> {
+  ): Promise<StrategyUpdatedEvent[]> {
     return this.repository
-      .createQueryBuilder('strategyCreatedEvents')
-      .leftJoinAndSelect('strategyCreatedEvents.block', 'block')
-      .leftJoinAndSelect('strategyCreatedEvents.pair', 'pair')
-      .leftJoinAndSelect('strategyCreatedEvents.token0', 'token0')
-      .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
+      .createQueryBuilder('strategyUpdatedEvents')
+      .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')
+      .leftJoinAndSelect('strategyUpdatedEvents.pair', 'pair')
+      .leftJoinAndSelect('strategyUpdatedEvents.token0', 'token0')
+      .leftJoinAndSelect('strategyUpdatedEvents.token1', 'token1')
       .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .orderBy('block.id', 'ASC')
@@ -55,7 +56,9 @@ export class StrategyCreatedEventService {
     const { event, rawEvent } = args;
 
     // parse id
-    event['id'] = BigNumber.from(rawEvent.returnValues['id']).toString();
+    event['strategy'] = {
+      id: BigNumber.from(rawEvent.returnValues['id']).toString(),
+    };
 
     // parse orders
     for (let i = 0; i < 2; i++) {

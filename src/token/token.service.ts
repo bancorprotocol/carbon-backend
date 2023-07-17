@@ -1,7 +1,7 @@
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
-import { decimalsABI, symbolABI } from '../abis/erc20.abi';
+import { decimalsABI, nameABI, symbolABI } from '../abis/erc20.abi';
 import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import { Token } from './token.entity';
@@ -78,6 +78,7 @@ export class TokenService {
     // fetch metadata
     const decimals = await this.getDecimals(newAddresses);
     const symbols = await this.getSymbols(newAddresses);
+    const names = await this.getNames(newAddresses);
 
     // create new tokens
     const newTokens = [];
@@ -87,6 +88,7 @@ export class TokenService {
           address: newAddresses[i],
           symbol: symbols[i],
           decimals: decimals[i],
+          name: names[i],
         }),
       );
     }
@@ -105,6 +107,20 @@ export class TokenService {
       symbols[index] = 'ETH';
     }
     return symbols;
+  }
+
+  async getNames(addresses: string[]): Promise<string[]> {
+    const names = await this.harvesterService.stringsWithMulticall(
+      addresses,
+      nameABI,
+      'name',
+    );
+    const eth = this.configService.get('ETH');
+    const index = addresses.indexOf(eth);
+    if (index >= 0) {
+      names[index] = 'Ethereum';
+    }
+    return names;
   }
 
   async getDecimals(addresses: string[]): Promise<number[]> {

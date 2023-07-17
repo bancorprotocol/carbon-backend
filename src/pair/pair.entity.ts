@@ -14,13 +14,13 @@ export class Pair {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Block)
+  @ManyToOne(() => Block, { eager: true })
   block: Block;
 
-  @ManyToOne(() => Token)
+  @ManyToOne(() => Token, { eager: true })
   token0: Token;
 
-  @ManyToOne(() => Token)
+  @ManyToOne(() => Token, { eager: true })
   token1: Token;
 
   @Column()

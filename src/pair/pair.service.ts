@@ -66,6 +66,7 @@ export class PairService {
           token0: tokens[e.token0],
           token1: tokens[e.token1],
           name: `${tokens[e.token0].symbol}_${tokens[e.token1].symbol}`,
+          block: e.block,
         }),
       );
     });

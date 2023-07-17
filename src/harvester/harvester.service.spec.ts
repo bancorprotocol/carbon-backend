@@ -55,7 +55,7 @@ describe('HarvesterService', () => {
       entity: '',
       contractName: '',
       eventName: '',
-      upToBlock: 1000,
+      endBlock: 1000,
       repository,
     };
 

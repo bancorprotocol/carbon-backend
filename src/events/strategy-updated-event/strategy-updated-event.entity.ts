@@ -1,26 +1,30 @@
 import {
   Entity,
   Column,
-  PrimaryColumn,
   CreateDateColumn,
   UpdateDateColumn,
   Index,
   ManyToOne,
   Unique,
+  PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
-import { Token } from 'src/token/token.entity';
+import { Token } from '../../token/token.entity';
+import { Strategy } from '../../strategy/strategy.entity';
 
-@Entity({ name: 'strategy-created-events' })
-@Unique('strategy-created-events-transactionIndex_transactionHash_logIndex', [
+@Entity({ name: 'strategy-updated-events' })
+@Unique('strategy-updated-events-transactionIndex_transactionHash_logIndex', [
   'transactionIndex',
   'transactionHash',
   'logIndex',
 ])
-export class StrategyCreatedEvent {
-  @PrimaryColumn()
-  id: string;
+export class StrategyUpdatedEvent {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @ManyToOne(() => Strategy, { eager: true })
+  strategy: Strategy;
 
   @ManyToOne(() => Pair, { eager: true })
   pair: Pair;
@@ -30,7 +34,7 @@ export class StrategyCreatedEvent {
   block: Block;
 
   @Column()
-  owner: string;
+  reason: number;
 
   @ManyToOne(() => Token, { eager: true })
   token0: Token;

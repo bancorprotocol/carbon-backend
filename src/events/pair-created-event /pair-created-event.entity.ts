@@ -21,7 +21,7 @@ export class PairCreatedEvent {
   id: number;
 
   @Index()
-  @ManyToOne(() => Block)
+  @ManyToOne(() => Block, { eager: true })
   block: Block;
 
   @Column()

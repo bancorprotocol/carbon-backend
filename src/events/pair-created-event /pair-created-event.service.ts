@@ -12,26 +12,23 @@ export class PairCreatedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(upToBlock: number): Promise<any[]> {
+  async update(endBlock: number): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'pair-created-events',
       contractName: 'CarbonController',
       eventName: 'PairCreated',
-      upToBlock,
+      endBlock,
       repository: this.repository,
-      fields: ['token0', 'token1'],
+      stringFields: ['token0', 'token1'],
     });
   }
 
-  async get(
-    startBlock: number,
-    upToBlock: number,
-  ): Promise<PairCreatedEvent[]> {
+  async get(startBlock: number, endBlock: number): Promise<PairCreatedEvent[]> {
     return this.repository
       .createQueryBuilder('pairCreatedEvent')
       .leftJoinAndSelect('pairCreatedEvent.block', 'block')
       .where('block.id > :startBlock', { startBlock })
-      .andWhere('block.id <= :upToBlock', { upToBlock })
+      .andWhere('block.id <= :endBlock', { endBlock })
       .orderBy('block.id', 'ASC')
       .getMany();
   }

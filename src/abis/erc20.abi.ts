@@ -242,3 +242,13 @@ export const symbolABI: any = {
   stateMutability: 'view',
   type: 'function',
 };
+
+export const nameABI: any = {
+  constant: true,
+  inputs: [],
+  name: 'name',
+  outputs: [{ name: '', type: 'string' }],
+  payable: false,
+  stateMutability: 'view',
+  type: 'function',
+};
