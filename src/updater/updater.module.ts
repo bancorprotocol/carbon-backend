@@ -28,7 +28,6 @@ import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/str
     PairModule,
     PairCreatedEventModule,
     StrategyModule,
-    StrategyUpdatedEventModule,
   ],
   providers: [UpdaterService],
 })

@@ -27,6 +27,9 @@ export class Strategy {
   @ManyToOne(() => Token, { eager: true })
   token1: Token;
 
+  @Column({ default: false })
+  deleted: boolean;
+
   @Column()
   liquidity0: string;
 
