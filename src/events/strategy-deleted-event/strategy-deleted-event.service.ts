@@ -20,7 +20,7 @@ export class StrategyDeletedEventService {
 
   async update(
     endBlock: number,
-    pairs: PairsDictionary,
+    pairsDictionary: PairsDictionary,
     tokens: TokensByAddress,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
@@ -29,7 +29,7 @@ export class StrategyDeletedEventService {
       eventName: 'StrategyDeleted',
       endBlock,
       repository: this.repository,
-      pairs,
+      pairsDictionary,
       tokens,
       customFns: [this.parseEvent],
     });

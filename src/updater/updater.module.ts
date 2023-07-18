@@ -12,7 +12,7 @@ import { TokenModule } from '../token/token.module';
 import { PairModule } from '../pair/pair.module';
 import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
 import { StrategyModule } from '../strategy/strategy.module';
-import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/strategy-updated-event.module';
+import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
 
 @Module({
   imports: [
@@ -28,6 +28,7 @@ import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/str
     PairModule,
     PairCreatedEventModule,
     StrategyModule,
+    TokensTradedEventModule,
   ],
   providers: [UpdaterService],
 })

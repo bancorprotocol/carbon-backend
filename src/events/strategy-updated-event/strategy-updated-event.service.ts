@@ -20,7 +20,7 @@ export class StrategyUpdatedEventService {
 
   async update(
     endBlock: number,
-    pairs: PairsDictionary,
+    pairsDictionary: PairsDictionary,
     tokens: TokensByAddress,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
@@ -29,7 +29,7 @@ export class StrategyUpdatedEventService {
       eventName: 'StrategyUpdated',
       endBlock,
       repository: this.repository,
-      pairs,
+      pairsDictionary,
       tokens,
       customFns: [this.parseEvent],
       numberFields: ['reason'],

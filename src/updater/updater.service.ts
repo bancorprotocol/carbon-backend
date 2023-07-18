@@ -9,6 +9,7 @@ import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';
 import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
 import { StrategyService } from 'src/strategy/strategy.service';
+import { TokensTradedEventService } from 'src/events/tokens-traded-event/tokens-traded-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 
@@ -25,6 +26,7 @@ export class UpdaterService {
     private pairService: PairService,
     private pairCreatedEventService: PairCreatedEventService,
     private strategyService: StrategyService,
+    private tokensTradedEventService: TokensTradedEventService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -79,6 +81,9 @@ export class UpdaterService {
 
         // create strategies
         await this.strategyService.update(toBlock, pairs, tokens);
+
+        // create trades
+        await this.tokensTradedEventService.update(toBlock, pairs, tokens);
       }
 
       // finish

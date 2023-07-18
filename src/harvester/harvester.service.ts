@@ -13,6 +13,7 @@ import moment from 'moment';
 import { MulticallAbi } from '../abis/multicall.abi';
 import { hexToString } from 'web3-utils';
 import { TokensByAddress } from '../token/token.service';
+import { BigNumber } from '@ethersproject/bignumber';
 
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
@@ -36,6 +37,8 @@ export interface ProcessEventsArgs {
   repository: Repository<unknown>;
   stringFields?: string[];
   numberFields?: string[];
+  bigNumberFields?: string[];
+  booleanFields?: string[];
   constants?: ConstantField[];
   pairsDictionary?: PairsDictionary;
   normalizeFields?: string[];
@@ -55,7 +58,6 @@ export interface ProcessEventsArgs {
   skipPreClearing?: boolean;
   terminatesAt?: number;
   startAtBlock?: number;
-  pairs?: PairsDictionary;
   tokens?: TokensByAddress;
 }
 export interface NormalizeFieldsSourceMap {
@@ -86,6 +88,8 @@ export interface CustomFnArgs {
   blocksDictionary?: BlocksDictionary;
   allQuotes?: Quote[];
   customData?: any;
+  pairsDictionary?: PairsDictionary;
+  tokens?: TokensByAddress;
 }
 @Injectable()
 export class HarvesterService {
@@ -203,9 +207,11 @@ export class HarvesterService {
       terminatesAt,
       startAtBlock,
       tokens,
-      pairs,
+      pairsDictionary,
       stringFields,
       numberFields,
+      bigNumberFields,
+      booleanFields,
     } = args;
 
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(
@@ -255,9 +261,15 @@ export class HarvesterService {
             newEvent['token1'] = tokens[e.returnValues['token1']];
           }
 
-          if (e.returnValues['token0'] && e.returnValues['token1'] && pairs) {
+          if (
+            e.returnValues['token0'] &&
+            e.returnValues['token1'] &&
+            pairsDictionary
+          ) {
             newEvent['pair'] =
-              pairs[e.returnValues['token0']][e.returnValues['token1']];
+              pairsDictionary[e.returnValues['token0']][
+                e.returnValues['token1']
+              ];
           }
 
           if (stringFields) {
@@ -268,6 +280,19 @@ export class HarvesterService {
             numberFields.forEach(
               (f) => (newEvent[f] = Number(e.returnValues[f])),
             );
+          }
+
+          if (bigNumberFields) {
+            bigNumberFields.forEach(
+              (f) =>
+                (newEvent[f] = BigNumber.from(e.returnValues[f]).toString()),
+            );
+          }
+
+          if (booleanFields) {
+            booleanFields.forEach((f) => {
+              newEvent[f] = e.returnValues[f];
+            });
           }
 
           if (tagTimestampFromBlock) {
@@ -300,6 +325,8 @@ export class HarvesterService {
                 findQuotesForTimestamp,
                 allQuotes,
                 customData,
+                pairsDictionary,
+                tokens,
               });
             }
           }
