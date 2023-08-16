@@ -58,7 +58,7 @@ export class UpdaterService {
       }
 
       await this.blockService.update(endBlock);
-      console.log('V3 SERVICE - Finished blocks');
+      console.log('CARBON SERVICE - Finished blocks');
 
       const firstUnprocessedBlockNumber =
         await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
