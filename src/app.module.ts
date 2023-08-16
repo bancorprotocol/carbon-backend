@@ -3,19 +3,22 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
+import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
 import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { LastProcessedBlockModule } from './last-processed-block/last-processed-block.module';
 import { BlockModule } from './block/block.module';
 import { RedisModule } from './redis/redis.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HarvesterModule } from './harvester/harvester.module';
-import { CacheModule } from './cache/cache.module';
 import { QuoteModule } from './quote/quote.module';
 import { UpdaterModule } from './updater/updater.module';
 import { PairCreatedEventModule } from './events/pair-created-event /pair-created-event.module';
 import { StrategyCreatedEventModule } from './events/strategy-created-event/strategy-created-event.module';
 import { PairModule } from './pair/pair.module';
 import { TokenModule } from './token/token.module';
+import { CmcModule } from './cmc/cmc.module';
+import { APP_INTERCEPTOR } from '@nestjs/core';
+import { redisStore } from 'cache-manager-redis-yet';
 
 @Module({
   imports: [
@@ -66,19 +69,35 @@ import { TokenModule } from './token/token.module';
         };
       },
     }),
+    CacheModule.registerAsync({
+      imports: [ConfigModule],
+      isGlobal: true,
+      useFactory: async (configService: ConfigService) => ({
+        store: await redisStore({
+          url: configService.get('CARBON_REDIS_URL'),
+        }),
+      }),
+      inject: [ConfigService],
+    }),
     ScheduleModule.forRoot(),
     RedisModule,
     LastProcessedBlockModule,
     BlockModule,
     HarvesterModule,
-    CacheModule,
     PairCreatedEventModule,
     StrategyCreatedEventModule,
     PairModule,
     TokenModule,
     UpdaterModule,
+    CmcModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: CacheInterceptor,
+    },
+  ],
 })
 export class AppModule {}
