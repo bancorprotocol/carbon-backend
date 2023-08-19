@@ -1,15 +1,15 @@
 import { Interval } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Inject, Injectable } from '@nestjs/common';
+import * as _ from 'lodash';
 import { HarvesterService } from '../harvester/harvester.service';
 import { BlockService } from '../block/block.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
-import * as _ from 'lodash';
 import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';
 import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
-import { StrategyService } from 'src/strategy/strategy.service';
-import { TokensTradedEventService } from 'src/events/tokens-traded-event/tokens-traded-event.service';
+import { StrategyService } from '../strategy/strategy.service';
+import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 

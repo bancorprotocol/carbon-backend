@@ -1,6 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
@@ -16,9 +14,9 @@ import { PairCreatedEventModule } from './events/pair-created-event /pair-create
 import { StrategyCreatedEventModule } from './events/strategy-created-event/strategy-created-event.module';
 import { PairModule } from './pair/pair.module';
 import { TokenModule } from './token/token.module';
-import { CmcModule } from './cmc/cmc.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { redisStore } from 'cache-manager-redis-yet';
+import { V1Module } from './v1/v1.module';
 
 @Module({
   imports: [
@@ -89,11 +87,10 @@ import { redisStore } from 'cache-manager-redis-yet';
     PairModule,
     TokenModule,
     UpdaterModule,
-    CmcModule,
+    V1Module,
   ],
-  controllers: [AppController],
+
   providers: [
-    AppService,
     {
       provide: APP_INTERCEPTOR,
       useClass: CacheInterceptor,

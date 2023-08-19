@@ -120,12 +120,14 @@ export class StrategyService {
   }
 
   async all(): Promise<Strategy[]> {
-    return this.strategy
+    const strategies = await this.strategy
       .createQueryBuilder('pools')
       .leftJoinAndSelect('pools.block', 'block')
       .leftJoinAndSelect('pools.token0', 'token0')
       .leftJoinAndSelect('pools.token1', 'token1')
       .getMany();
+
+    return strategies.sort((a, b) => b.block.id - a.block.id);
   }
 
   decodeOrder(order: EncodedOrder): DecodedOrder {

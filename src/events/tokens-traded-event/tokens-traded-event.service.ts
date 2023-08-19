@@ -65,4 +65,21 @@ export class TokensTradedEventService {
       .orderBy('block.id', 'ASC')
       .getMany();
   }
+
+  async all(limit = 0, ascending = true): Promise<TokensTradedEvent[]> {
+    const order = ascending ? 'ASC' : 'DESC';
+    let trades = this.repository
+      .createQueryBuilder('tokensTradedEvents')
+      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
+      .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
+      .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
+      .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
+      .orderBy('block.id', order);
+
+    if (limit > 0) {
+      trades = trades.take(limit);
+    }
+
+    return trades.getMany();
+  }
 }
