@@ -1,3 +1,4 @@
+import { Token } from 'src/token/token.entity';
 import {
   Entity,
   Column,
@@ -6,6 +7,7 @@ import {
   UpdateDateColumn,
   PrimaryColumn,
   Index,
+  ManyToOne,
 } from 'typeorm';
 
 @Entity({ name: 'quotes' })
@@ -20,9 +22,8 @@ export class Quote {
   @Index()
   timestamp: Date;
 
-  @Column()
-  @Index()
-  symbol: string;
+  @ManyToOne(() => Token, { eager: true })
+  token: Token;
 
   @Column()
   price: string;

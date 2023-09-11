@@ -4,7 +4,6 @@ import { BlockchainConfigModule } from '../blockchain-config/blockchain-config.m
 import { RedisModule } from '../redis/redis.module';
 import { UpdaterService } from './updater.service';
 import { HarvesterModule } from '../harvester/harvester.module';
-import { CacheModule } from '../cache/cache.module';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { QuoteModule } from '../quote/quote.module';
 import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
@@ -20,7 +19,6 @@ import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-tr
     BlockchainConfigModule,
     RedisModule,
     HarvesterModule,
-    CacheModule,
     LastProcessedBlockModule,
     QuoteModule,
     StrategyCreatedEventModule,

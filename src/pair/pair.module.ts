@@ -6,7 +6,6 @@ import { RedisModule } from '../redis/redis.module';
 import { HarvesterModule } from '../harvester/harvester.module';
 import { Pair } from './pair.entity';
 import { PairService } from './pair.service';
-import { CacheModule } from '../cache/cache.module';
 import { PairController } from './pair.controller';
 import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
 
@@ -16,7 +15,6 @@ import { PairCreatedEventModule } from '../events/pair-created-event /pair-creat
     LastProcessedBlockModule,
     RedisModule,
     HarvesterModule,
-    CacheModule,
     PairCreatedEventModule,
   ],
   providers: [ConfigService, PairService],

@@ -4,17 +4,12 @@ import { Quote } from './quote.entity';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { RedisModule } from '../redis/redis.module';
-import { CoinMarketCapService } from './coin-market-cap/coin-market-cap.service';
-import { CryptoCompareService } from './crypto-compare/crypto-compare.service';
+import { TokenModule } from '../token/token.module';
+import { CoinGeckoService } from './coingecko.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Quote]), RedisModule],
-  providers: [
-    ConfigService,
-    QuoteService,
-    CoinMarketCapService,
-    CryptoCompareService,
-  ],
+  imports: [TypeOrmModule.forFeature([Quote]), RedisModule, TokenModule],
+  providers: [ConfigService, QuoteService, CoinGeckoService],
   exports: [QuoteService, TypeOrmModule.forFeature([Quote])],
 })
 export class QuoteModule {}

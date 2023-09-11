@@ -6,7 +6,6 @@ import { RedisModule } from '../redis/redis.module';
 import { HarvesterModule } from '../harvester/harvester.module';
 import { Token } from './token.entity';
 import { TokenService } from './token.service';
-import { CacheModule } from '../cache/cache.module';
 import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
 
 @Module({
@@ -15,7 +14,6 @@ import { PairCreatedEventModule } from '../events/pair-created-event /pair-creat
     LastProcessedBlockModule,
     RedisModule,
     HarvesterModule,
-    CacheModule,
     PairCreatedEventModule,
   ],
   providers: [ConfigService, TokenService],

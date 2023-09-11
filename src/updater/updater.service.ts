@@ -46,8 +46,7 @@ export class UpdaterService {
     const t = Date.now();
     try {
       this.isUpdating = true;
-      const lockDuration =
-        parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 120;
+      const lockDuration = parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 120;
       await this.redis.client.setex('carbon:isUpdating', lockDuration, 1);
       if (endBlock === -12) {
         if (this.configService.get('IS_FORK') === '1') {
@@ -60,8 +59,7 @@ export class UpdaterService {
       await this.blockService.update(endBlock);
       console.log('CARBON SERVICE - Finished blocks');
 
-      const firstUnprocessedBlockNumber =
-        await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
+      const firstUnprocessedBlockNumber = await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
       const fullRange = range(firstUnprocessedBlockNumber, endBlock);
       const batches = _.chunk(fullRange, 1000000);
 
@@ -70,24 +68,29 @@ export class UpdaterService {
 
         // handle PairCreated events
         await this.pairCreatedEventService.update(toBlock);
+        console.log('CARBON SERVICE - Finished pairs creation events');
 
         // create tokens
         await this.tokenService.update(toBlock);
         const tokens = await this.tokenService.allByAddress();
+        console.log('CARBON SERVICE - Finished tokens');
 
         // create pairs
         await this.pairService.update(toBlock, tokens);
         const pairs = await this.pairService.allAsDictionary();
+        console.log('CARBON SERVICE - Finished pairs');
 
         // create strategies
         await this.strategyService.update(toBlock, pairs, tokens);
+        console.log('CARBON SERVICE - Finished strategies');
 
         // create trades
         await this.tokensTradedEventService.update(toBlock, pairs, tokens);
+        console.log('CARBON SERVICE - Finished trades');
       }
 
       // finish
-      console.log('CARBON SERVICE', Date.now() - t);
+      console.log('CARBON SERVICE', 'Finished update iteration in:', Date.now() - t), 'ms';
       this.isUpdating = false;
       await this.redis.client.set(CARBON_IS_UPDATING, 0);
     } catch (error) {

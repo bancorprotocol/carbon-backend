@@ -28,30 +28,20 @@ export class TokenService {
 
   async update(endBlock: number): Promise<void> {
     // figure out start block
-    const lastProcessedBlockNumber =
-      await this.lastProcessedBlockService.getOrInit(LAST_PROCESSED_ENTITY, 1);
+    const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(LAST_PROCESSED_ENTITY, 1);
 
     // fetch pair created events
-    const newEvents = await this.pairCreatedEventService.get(
-      lastProcessedBlockNumber,
-      endBlock,
-    );
+    const newEvents = await this.pairCreatedEventService.get(lastProcessedBlockNumber, endBlock);
 
     // create new tokens
     const eventBatches = _.chunk(newEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createFromEvents(eventsBatch);
-      await this.lastProcessedBlockService.update(
-        LAST_PROCESSED_ENTITY,
-        eventsBatch[eventsBatch.length - 1].block.id,
-      );
+      await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, eventsBatch[eventsBatch.length - 1].block.id);
     }
 
     // update last processed block number
-    await this.lastProcessedBlockService.update(
-      LAST_PROCESSED_ENTITY,
-      endBlock,
-    );
+    await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, endBlock);
   }
 
   async createFromEvents(events: PairCreatedEvent[]) {
@@ -64,9 +54,7 @@ export class TokenService {
 
     // filter out already existing tokens
     const currentlyExistingTokens: any = await this.token.find();
-    const currentlyExistingAddresses = currentlyExistingTokens.map(
-      (t) => t.address,
-    );
+    const currentlyExistingAddresses = currentlyExistingTokens.map((t) => t.address);
 
     const newAddresses = [];
     Array.from(eventsAddresses).forEach((t) => {
@@ -96,11 +84,7 @@ export class TokenService {
   }
 
   async getSymbols(addresses: string[]): Promise<string[]> {
-    const symbols = await this.harvesterService.stringsWithMulticall(
-      addresses,
-      symbolABI,
-      'symbol',
-    );
+    const symbols = await this.harvesterService.stringsWithMulticall(addresses, symbolABI, 'symbol');
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -110,11 +94,7 @@ export class TokenService {
   }
 
   async getNames(addresses: string[]): Promise<string[]> {
-    const names = await this.harvesterService.stringsWithMulticall(
-      addresses,
-      nameABI,
-      'name',
-    );
+    const names = await this.harvesterService.stringsWithMulticall(addresses, nameABI, 'name');
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -124,11 +104,7 @@ export class TokenService {
   }
 
   async getDecimals(addresses: string[]): Promise<number[]> {
-    const decimals = await this.harvesterService.integersWithMulticall(
-      addresses,
-      decimalsABI,
-      'decimals',
-    );
+    const decimals = await this.harvesterService.integersWithMulticall(addresses, decimalsABI, 'decimals');
     const index = addresses.indexOf(this.configService.get('ETH'));
     if (index >= 0) {
       decimals[index] = 18;
@@ -141,5 +117,9 @@ export class TokenService {
     const tokensByAddress = {};
     all.forEach((t) => (tokensByAddress[t.address] = t));
     return tokensByAddress;
+  }
+
+  async all(): Promise<Token[]> {
+    return this.token.find();
   }
 }

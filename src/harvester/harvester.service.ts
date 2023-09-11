@@ -96,8 +96,6 @@ export class HarvesterService {
   constructor(
     private configService: ConfigService,
     private lastProcessedBlockService: LastProcessedBlockService,
-    // private blockService: BlockService,
-    private quoteService: QuoteService,
     @Inject('BLOCKCHAIN_CONFIG') private blockchainConfig: any,
   ) {}
 
@@ -214,9 +212,7 @@ export class HarvesterService {
       booleanFields,
     } = args;
 
-    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(
-      entity,
-    );
+    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(entity);
 
     // avoid processing terminated contracts/methods
     if (terminatesAt && lastProcessedBlock + 1 > terminatesAt) return;
@@ -225,10 +221,7 @@ export class HarvesterService {
       await this.preClear(repository, lastProcessedBlock);
     }
 
-    const startAt =
-      startAtBlock && startAtBlock > lastProcessedBlock + 1
-        ? startAtBlock
-        : lastProcessedBlock + 1;
+    const startAt = startAtBlock && startAtBlock > lastProcessedBlock + 1 ? startAtBlock : lastProcessedBlock + 1;
     const events = await this.fetchEventsFromBlockchain(
       contractName,
       eventName,
@@ -261,15 +254,8 @@ export class HarvesterService {
             newEvent['token1'] = tokens[e.returnValues['token1']];
           }
 
-          if (
-            e.returnValues['token0'] &&
-            e.returnValues['token1'] &&
-            pairsDictionary
-          ) {
-            newEvent['pair'] =
-              pairsDictionary[e.returnValues['token0']][
-                e.returnValues['token1']
-              ];
+          if (e.returnValues['token0'] && e.returnValues['token1'] && pairsDictionary) {
+            newEvent['pair'] = pairsDictionary[e.returnValues['token0']][e.returnValues['token1']];
           }
 
           if (stringFields) {
@@ -277,16 +263,11 @@ export class HarvesterService {
           }
 
           if (numberFields) {
-            numberFields.forEach(
-              (f) => (newEvent[f] = Number(e.returnValues[f])),
-            );
+            numberFields.forEach((f) => (newEvent[f] = Number(e.returnValues[f])));
           }
 
           if (bigNumberFields) {
-            bigNumberFields.forEach(
-              (f) =>
-                (newEvent[f] = BigNumber.from(e.returnValues[f]).toString()),
-            );
+            bigNumberFields.forEach((f) => (newEvent[f] = BigNumber.from(e.returnValues[f]).toString()));
           }
 
           if (booleanFields) {
@@ -352,10 +333,7 @@ export class HarvesterService {
     return parseInt(blockNumber);
   }
 
-  async preClear(
-    repository: Repository<any>,
-    lastProcessedBlock: number,
-  ): Promise<void> {
+  async preClear(repository: Repository<any>, lastProcessedBlock: number): Promise<void> {
     await repository
       .createQueryBuilder()
       .delete()
@@ -367,20 +345,12 @@ export class HarvesterService {
     return this.configService.get('CONTRACTS_ENV');
   }
 
-  async stringsWithMulticall(
-    addresses: string[],
-    abi: any,
-    fn: string,
-  ): Promise<string[]> {
+  async stringsWithMulticall(addresses: string[], abi: any, fn: string): Promise<string[]> {
     const data = await this.withMulticall(addresses, abi, fn);
     return data.map((r) => hexToString(r.data).replace(/[^a-zA-Z0-9]/g, ''));
   }
 
-  async integersWithMulticall(
-    addresses: string[],
-    abi: any,
-    fn: string,
-  ): Promise<number[]> {
+  async integersWithMulticall(addresses: string[], abi: any, fn: string): Promise<number[]> {
     const data = await this.withMulticall(addresses, abi, fn);
     return data.map((r) => parseInt(r.data));
   }
@@ -388,20 +358,14 @@ export class HarvesterService {
   async withMulticall(addresses: string[], abi: any, fn: string): Promise<any> {
     const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
 
-    const multicall: any = new web3.eth.Contract(
-      MulticallAbi,
-      this.configService.get('MULTICALL_ADDRESS'),
-    );
+    const multicall: any = new web3.eth.Contract(MulticallAbi, this.configService.get('MULTICALL_ADDRESS'));
     let data = [];
     const batches = _.chunk(addresses, 1000);
     for (const batch of batches) {
       const calls = [];
       batch.forEach((address) => {
         const contract = new web3.eth.Contract([abi], address);
-        calls.push([
-          contract.options.address,
-          contract.methods[fn]().encodeABI(),
-        ]);
+        calls.push([contract.options.address, contract.methods[fn]().encodeABI()]);
       });
 
       if (calls.length > 0) {
@@ -413,8 +377,7 @@ export class HarvesterService {
   }
 }
 
-const camelToSnakeCase = (str) =>
-  str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+const camelToSnakeCase = (str) => str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
 
 function createRange(start, end) {
   return Array(end - start + 1)
