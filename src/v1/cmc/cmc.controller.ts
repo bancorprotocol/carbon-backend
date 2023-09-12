@@ -6,10 +6,7 @@ import { PairService } from '../../pair/pair.service';
 
 @Controller({ version: '1', path: 'cmc' })
 export class CmcController {
-  constructor(
-    private tokensTradedEventService: TokensTradedEventService,
-    private pairService: PairService,
-  ) {}
+  constructor(private tokensTradedEventService: TokensTradedEventService, private pairService: PairService) {}
 
   @Get('pairs')
   @CacheTTL(1 * 1000)

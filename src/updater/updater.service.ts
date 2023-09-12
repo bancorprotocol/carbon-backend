@@ -65,6 +65,7 @@ export class UpdaterService {
 
       for (const batch of batches) {
         const toBlock = batch[batch.length - 1];
+        const blocksDictionary = await this.blockService.getBlocksDictionary(batch[0], toBlock);
 
         // handle PairCreated events
         await this.pairCreatedEventService.update(toBlock);
@@ -81,7 +82,7 @@ export class UpdaterService {
         console.log('CARBON SERVICE - Finished pairs');
 
         // create strategies
-        await this.strategyService.update(toBlock, pairs, tokens);
+        await this.strategyService.update(toBlock, pairs, tokens, blocksDictionary);
         console.log('CARBON SERVICE - Finished strategies');
 
         // create trades

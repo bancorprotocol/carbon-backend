@@ -33,6 +33,9 @@ export class StrategyUpdatedEvent {
   @ManyToOne(() => Block, { eager: true })
   block: Block;
 
+  @CreateDateColumn()
+  timestamp: Date;
+
   @Column()
   reason: number;
 

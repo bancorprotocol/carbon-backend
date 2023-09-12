@@ -2,13 +2,11 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyCreatedEvent } from './strategy-created-event.entity';
-import {
-  CustomFnArgs,
-  HarvesterService,
-} from '../../harvester/harvester.service';
+import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
+import { BlocksDictionary } from '../../block/block.service';
 
 @Injectable()
 export class StrategyCreatedEventService {
@@ -22,6 +20,7 @@ export class StrategyCreatedEventService {
     endBlock: number,
     pairsDictionary: PairsDictionary,
     tokens: TokensByAddress,
+    blocksDictionary: BlocksDictionary,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'strategy-created-events',
@@ -32,13 +31,23 @@ export class StrategyCreatedEventService {
       pairsDictionary,
       tokens,
       customFns: [this.parseEvent],
+      tagTimestampFromBlock: true,
+      blocksDictionary,
     });
   }
 
-  async get(
-    startBlock: number,
-    endBlock: number,
-  ): Promise<StrategyCreatedEvent[]> {
+  async all(): Promise<StrategyCreatedEvent[]> {
+    return this.repository
+      .createQueryBuilder('strategyCreatedEvents')
+      .leftJoinAndSelect('strategyCreatedEvents.block', 'block')
+      .leftJoinAndSelect('strategyCreatedEvents.pair', 'pair')
+      .leftJoinAndSelect('strategyCreatedEvents.token0', 'token0')
+      .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
+      .orderBy('block.id', 'ASC')
+      .getMany();
+  }
+
+  async get(startBlock: number, endBlock: number): Promise<StrategyCreatedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyCreatedEvents')
       .leftJoinAndSelect('strategyCreatedEvents.block', 'block')

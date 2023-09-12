@@ -2,13 +2,11 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyUpdatedEvent } from './strategy-updated-event.entity';
-import {
-  CustomFnArgs,
-  HarvesterService,
-} from '../../harvester/harvester.service';
+import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from 'src/pair/pair.service';
 import { TokensByAddress } from 'src/token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
+import { BlocksDictionary } from '../../block/block.service';
 
 @Injectable()
 export class StrategyUpdatedEventService {
@@ -18,10 +16,22 @@ export class StrategyUpdatedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
+  async all(): Promise<StrategyUpdatedEvent[]> {
+    return this.repository
+      .createQueryBuilder('strategyUpdatedEvents')
+      .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')
+      .leftJoinAndSelect('strategyUpdatedEvents.pair', 'pair')
+      .leftJoinAndSelect('strategyUpdatedEvents.token0', 'token0')
+      .leftJoinAndSelect('strategyUpdatedEvents.token1', 'token1')
+      .orderBy('block.id', 'ASC')
+      .getMany();
+  }
+
   async update(
     endBlock: number,
     pairsDictionary: PairsDictionary,
     tokens: TokensByAddress,
+    blocksDictionary: BlocksDictionary,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'strategy-updated-events',
@@ -33,13 +43,12 @@ export class StrategyUpdatedEventService {
       tokens,
       customFns: [this.parseEvent],
       numberFields: ['reason'],
+      tagTimestampFromBlock: true,
+      blocksDictionary,
     });
   }
 
-  async get(
-    startBlock: number,
-    endBlock: number,
-  ): Promise<StrategyUpdatedEvent[]> {
+  async get(startBlock: number, endBlock: number): Promise<StrategyUpdatedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyUpdatedEvents')
       .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')

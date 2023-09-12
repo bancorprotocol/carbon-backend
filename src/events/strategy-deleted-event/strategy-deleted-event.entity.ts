@@ -33,6 +33,9 @@ export class StrategyDeletedEvent {
   @ManyToOne(() => Block, { eager: true })
   block: Block;
 
+  @CreateDateColumn()
+  timestamp: Date;
+
   @ManyToOne(() => Token, { eager: true })
   token0: Token;
 

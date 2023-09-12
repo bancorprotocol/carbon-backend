@@ -7,6 +7,10 @@ import { CoinGeckoService } from './coingecko.service';
 import { Interval } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 
+export interface QuotesByAddress {
+  [address: string]: Quote;
+}
+
 @Injectable()
 export class QuoteService {
   private isPolling = false;
@@ -40,6 +44,17 @@ export class QuoteService {
     }
   }
 
+  async all(): Promise<Quote[]> {
+    return this.quoteRepository.find();
+  }
+
+  async allByAddress(): Promise<QuotesByAddress> {
+    const all = await this.all();
+    const tokensByAddress = {};
+    all.forEach((q) => (tokensByAddress[q.token.address] = q));
+    return tokensByAddress;
+  }
+
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>): Promise<void> {
     const existingQuotes = await this.quoteRepository.find();
     const quoteEntities: Quote[] = [];
@@ -52,14 +67,14 @@ export class QuoteService {
 
         if (existingQuote) {
           // Update the existing quote
-          existingQuote.price = priceWithTimestamp.usd;
+          existingQuote.usd = priceWithTimestamp.usd;
         } else {
           // Create a new quote
           const newQuote = new Quote();
           newQuote.provider = 'CoinGecko';
           newQuote.token = token;
           newQuote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
-          newQuote.price = priceWithTimestamp.usd;
+          newQuote.usd = priceWithTimestamp.usd;
           quoteEntities.push(newQuote);
         }
       }

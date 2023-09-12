@@ -26,7 +26,7 @@ export class Quote {
   token: Token;
 
   @Column()
-  price: string;
+  usd: string;
 
   @CreateDateColumn({
     type: 'timestamp',

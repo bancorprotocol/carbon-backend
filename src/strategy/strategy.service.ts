@@ -12,6 +12,7 @@ import { StrategyUpdatedEvent } from '../events/strategy-updated-event/strategy-
 import { PairsDictionary } from '../pair/pair.service';
 import { TokensByAddress } from '../token/token.service';
 import { StrategyDeletedEventService } from 'src/events/strategy-deleted-event/strategy-deleted-event.service';
+import { BlocksDictionary } from '../block/block.service';
 
 const LAST_PROCESSED_ENTITY = 'strategies';
 
@@ -45,51 +46,34 @@ export class StrategyService {
     endBlock: number,
     pairs: PairsDictionary,
     tokens: TokensByAddress,
+    blocksDictionary: BlocksDictionary,
   ): Promise<void> {
     // create new strategies
-    const newCreateEvents = await this.strategyCreatedEventService.update(
-      endBlock,
-      pairs,
-      tokens,
-    );
+    const newCreateEvents = await this.strategyCreatedEventService.update(endBlock, pairs, tokens, blocksDictionary);
     let eventBatches = _.chunk(newCreateEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch);
     }
 
     // update strategies
-    const newUpdateEvents = await this.strategyUpdatedEventService.update(
-      endBlock,
-      pairs,
-      tokens,
-    );
+    const newUpdateEvents = await this.strategyUpdatedEventService.update(endBlock, pairs, tokens, blocksDictionary);
     eventBatches = _.chunk(newUpdateEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch);
     }
 
     // delete strategies
-    const newDeleteEvents = await this.strategyDeletedEventService.update(
-      endBlock,
-      pairs,
-      tokens,
-    );
+    const newDeleteEvents = await this.strategyDeletedEventService.update(endBlock, pairs, tokens, blocksDictionary);
     eventBatches = _.chunk(newDeleteEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch, true);
     }
 
     // update last processed block number
-    await this.lastProcessedBlockService.update(
-      LAST_PROCESSED_ENTITY,
-      endBlock,
-    );
+    await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, endBlock);
   }
 
-  async createOrUpdateFromEvents(
-    events: StrategyCreatedEvent[] | StrategyUpdatedEvent[],
-    deletionEvent = false,
-  ) {
+  async createOrUpdateFromEvents(events: StrategyCreatedEvent[] | StrategyUpdatedEvent[], deletionEvent = false) {
     const strategies = [];
     events.forEach((e) => {
       const order0 = this.decodeOrder(JSON.parse(e.order0));
@@ -140,9 +124,7 @@ export class StrategyService {
       liquidity: y.toString(),
       lowestRate: this.decodeRate(B).toString(),
       highestRate: this.decodeRate(B.add(A)).toString(),
-      marginalRate: this.decodeRate(
-        y.eq(z) ? B.add(A) : B.add(A.mul(y).div(z)),
-      ).toString(),
+      marginalRate: this.decodeRate(y.eq(z) ? B.add(A) : B.add(A.mul(y).div(z))).toString(),
     };
   }
 

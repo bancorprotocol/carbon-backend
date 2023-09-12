@@ -1,13 +1,4 @@
-import {
-  Entity,
-  Column,
-  PrimaryColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  Index,
-  ManyToOne,
-  Unique,
-} from 'typeorm';
+import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, Unique } from 'typeorm';
 import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
 import { Token } from 'src/token/token.entity';
@@ -28,6 +19,9 @@ export class StrategyCreatedEvent {
   @Index()
   @ManyToOne(() => Block, { eager: true })
   block: Block;
+
+  @CreateDateColumn()
+  timestamp: Date;
 
   @Column()
   owner: string;

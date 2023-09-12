@@ -2,13 +2,11 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyDeletedEvent } from './strategy-deleted-event.entity';
-import {
-  CustomFnArgs,
-  HarvesterService,
-} from '../../harvester/harvester.service';
+import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from 'src/pair/pair.service';
 import { TokensByAddress } from 'src/token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
+import { BlocksDictionary } from '../../block/block.service';
 
 @Injectable()
 export class StrategyDeletedEventService {
@@ -22,6 +20,7 @@ export class StrategyDeletedEventService {
     endBlock: number,
     pairsDictionary: PairsDictionary,
     tokens: TokensByAddress,
+    blocksDictionary: BlocksDictionary,
   ): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'strategy-deleted-events',
@@ -32,13 +31,12 @@ export class StrategyDeletedEventService {
       pairsDictionary,
       tokens,
       customFns: [this.parseEvent],
+      tagTimestampFromBlock: true,
+      blocksDictionary,
     });
   }
 
-  async get(
-    startBlock: number,
-    endBlock: number,
-  ): Promise<StrategyDeletedEvent[]> {
+  async get(startBlock: number, endBlock: number): Promise<StrategyDeletedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyUpdatedEvents')
       .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')
