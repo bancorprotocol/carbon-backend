@@ -39,6 +39,9 @@ export class TokensTradedEvent {
   trader: string;
 
   @Column()
+  type: string;
+
+  @Column()
   sourceAmount: string;
 
   @Column()
@@ -59,7 +62,7 @@ export class TokensTradedEvent {
   @Column()
   logIndex: number;
 
-  @CreateDateColumn()
+  @Column()
   timestamp: Date;
 
   @CreateDateColumn()

@@ -86,7 +86,7 @@ export class UpdaterService {
         console.log('CARBON SERVICE - Finished strategies');
 
         // create trades
-        await this.tokensTradedEventService.update(toBlock, pairs, tokens);
+        await this.tokensTradedEventService.update(toBlock, pairs, tokens, blocksDictionary);
         console.log('CARBON SERVICE - Finished trades');
       }
 

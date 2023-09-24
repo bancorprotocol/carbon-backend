@@ -8,9 +8,6 @@ import { TokensTradedEventService } from './tokens-traded-event.service';
 @Module({
   imports: [TypeOrmModule.forFeature([TokensTradedEvent]), HarvesterModule],
   providers: [ConfigService, TokensTradedEventService],
-  exports: [
-    TokensTradedEventService,
-    TypeOrmModule.forFeature([TokensTradedEvent]),
-  ],
+  exports: [TokensTradedEventService, TypeOrmModule.forFeature([TokensTradedEvent])],
 })
 export class TokensTradedEventModule {}

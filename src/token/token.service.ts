@@ -44,7 +44,18 @@ export class TokenService {
     await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, endBlock);
   }
 
-  async createFromEvents(events: PairCreatedEvent[]) {
+  async allByAddress(): Promise<TokensByAddress> {
+    const all = await this.token.find();
+    const tokensByAddress = {};
+    all.forEach((t) => (tokensByAddress[t.address] = t));
+    return tokensByAddress;
+  }
+
+  async all(): Promise<Token[]> {
+    return this.token.find();
+  }
+
+  private async createFromEvents(events: PairCreatedEvent[]) {
     // map all token addresses in an array
     const eventsAddresses = new Set();
     events.forEach((e) => {
@@ -83,7 +94,7 @@ export class TokenService {
     await this.token.save(newTokens);
   }
 
-  async getSymbols(addresses: string[]): Promise<string[]> {
+  private async getSymbols(addresses: string[]): Promise<string[]> {
     const symbols = await this.harvesterService.stringsWithMulticall(addresses, symbolABI, 'symbol');
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
@@ -93,7 +104,7 @@ export class TokenService {
     return symbols;
   }
 
-  async getNames(addresses: string[]): Promise<string[]> {
+  private async getNames(addresses: string[]): Promise<string[]> {
     const names = await this.harvesterService.stringsWithMulticall(addresses, nameABI, 'name');
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
@@ -103,23 +114,12 @@ export class TokenService {
     return names;
   }
 
-  async getDecimals(addresses: string[]): Promise<number[]> {
+  private async getDecimals(addresses: string[]): Promise<number[]> {
     const decimals = await this.harvesterService.integersWithMulticall(addresses, decimalsABI, 'decimals');
     const index = addresses.indexOf(this.configService.get('ETH'));
     if (index >= 0) {
       decimals[index] = 18;
     }
     return decimals;
-  }
-
-  async allByAddress(): Promise<TokensByAddress> {
-    const all = await this.token.find();
-    const tokensByAddress = {};
-    all.forEach((t) => (tokensByAddress[t.address] = t));
-    return tokensByAddress;
-  }
-
-  async all(): Promise<Token[]> {
-    return this.token.find();
   }
 }

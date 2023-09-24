@@ -1,3 +1,4 @@
+import { TokensTradedEvent } from 'src/events/tokens-traded-event/tokens-traded-event.entity';
 import { Block } from '../block/block.entity';
 import { Token } from '../token/token.entity';
 import {
@@ -7,6 +8,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   PrimaryGeneratedColumn,
+  OneToMany,
 } from 'typeorm';
 
 @Entity({ name: 'pairs' })
@@ -31,4 +33,7 @@ export class Pair {
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @OneToMany(() => TokensTradedEvent, (tokenTradedEvent) => tokenTradedEvent.pair)
+  tokensTradedEvents: TokensTradedEvent[];
 }

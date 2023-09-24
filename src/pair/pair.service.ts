@@ -32,30 +32,20 @@ export class PairService {
 
   async update(endBlock: number, tokens: TokensByAddress): Promise<void> {
     // figure out start block
-    const lastProcessedBlockNumber =
-      await this.lastProcessedBlockService.getOrInit(LAST_PROCESSED_ENTITY, 1);
+    const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(LAST_PROCESSED_ENTITY, 1);
 
     // fetch pair created events
-    const newEvents = await this.pairCreatedEventService.get(
-      lastProcessedBlockNumber,
-      endBlock,
-    );
+    const newEvents = await this.pairCreatedEventService.get(lastProcessedBlockNumber, endBlock);
 
     // create new pairs
     const eventBatches = _.chunk(newEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createFromEvents(eventsBatch, tokens);
-      await this.lastProcessedBlockService.update(
-        LAST_PROCESSED_ENTITY,
-        eventsBatch[eventsBatch.length - 1].block.id,
-      );
+      await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, eventsBatch[eventsBatch.length - 1].block.id);
     }
 
     // update last processed block number
-    await this.lastProcessedBlockService.update(
-      LAST_PROCESSED_ENTITY,
-      endBlock,
-    );
+    await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, endBlock);
   }
 
   async createFromEvents(events: PairCreatedEvent[], tokens: TokensByAddress) {
@@ -75,11 +65,7 @@ export class PairService {
   }
 
   async getSymbols(addresses: string[]): Promise<string[]> {
-    const symbols = await this.harvesterService.stringsWithMulticall(
-      addresses,
-      symbolABI,
-      'symbol',
-    );
+    const symbols = await this.harvesterService.stringsWithMulticall(addresses, symbolABI, 'symbol');
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -89,11 +75,7 @@ export class PairService {
   }
 
   async getDecimals(addresses: string[]): Promise<number[]> {
-    const decimals = await this.harvesterService.integersWithMulticall(
-      addresses,
-      decimalsABI,
-      'decimals',
-    );
+    const decimals = await this.harvesterService.integersWithMulticall(addresses, decimalsABI, 'decimals');
     const index = addresses.indexOf(this.configService.get('ETH'));
     if (index >= 0) {
       decimals[index] = 18;

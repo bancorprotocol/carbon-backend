@@ -6,6 +6,18 @@ import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.servic
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import Decimal from 'decimal.js';
+import { BlocksDictionary } from '../../block/block.service';
+
+type TokensTradedEventQueryParams = {
+  startBlock?: number;
+  endBlock?: number;
+  startTime?: number;
+  endTime?: number;
+  limit?: number;
+  type?: string;
+  pairId?: number;
+};
+
 @Injectable()
 export class TokensTradedEventService {
   constructor(
@@ -14,7 +26,12 @@ export class TokensTradedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    blocksDictionary: BlocksDictionary,
+  ): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'tokens-traded-events',
       contractName: 'CarbonController',
@@ -24,9 +41,11 @@ export class TokensTradedEventService {
       stringFields: ['trader'],
       bigNumberFields: ['sourceAmount', 'targetAmount', 'tradingFeeAmount'],
       booleanFields: ['byTargetAmount'],
+      customFns: [this.parseEvent],
+      tagTimestampFromBlock: true,
       pairsDictionary,
       tokens,
-      customFns: [this.parseEvent],
+      blocksDictionary,
     });
   }
 
@@ -36,21 +55,55 @@ export class TokensTradedEventService {
     event['sourceToken'] = tokens[rawEvent.returnValues['sourceToken']];
     event['targetToken'] = tokens[rawEvent.returnValues['targetToken']];
     event['pair'] = pairsDictionary[event['sourceToken'].address][event['targetToken'].address];
+    event['type'] = event['sourceToken'].id === event['pair'].token0.id ? 'sell' : 'buy';
 
     return event;
   }
 
-  async get(startBlock: number, endBlock: number): Promise<TokensTradedEvent[]> {
-    return this.repository
+  async get(params: TokensTradedEventQueryParams = {}): Promise<TokensTradedEvent[]> {
+    const { startBlock, endBlock, startTime, endTime, limit, type, pairId } = params;
+
+    const queryBuilder = this.repository
       .createQueryBuilder('tokensTradedEvents')
-      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
       .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
+      .leftJoinAndSelect('pair.token0', 'token0')
+      .leftJoinAndSelect('pair.token1', 'token1')
+      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
       .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
       .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
-      .where('block.id > :startBlock', { startBlock })
-      .andWhere('block.id <= :endBlock', { endBlock })
-      .orderBy('block.id', 'ASC')
-      .getMany();
+      .orderBy('block.id', 'ASC');
+
+    if (startBlock !== undefined) {
+      queryBuilder.andWhere('block.id > :startBlock', { startBlock });
+    }
+
+    if (endBlock !== undefined) {
+      queryBuilder.andWhere('block.id <= :endBlock', { endBlock });
+    }
+
+    if (startTime !== undefined) {
+      queryBuilder.andWhere('tokensTradedEvents.timestamp >= :startTime', { startTime: new Date(startTime * 1000) });
+    }
+
+    if (endTime !== undefined) {
+      queryBuilder.andWhere('tokensTradedEvents.timestamp <= :endTime', { endTime: new Date(endTime) });
+    }
+
+    if (type !== undefined) {
+      queryBuilder.andWhere('tokensTradedEvents.type = :type', { type });
+    }
+
+    if (pairId !== undefined) {
+      queryBuilder.andWhere('pair.id = :pairId', { pairId });
+    }
+
+    if (limit !== undefined) {
+      queryBuilder.take(limit);
+    }
+
+    const trades = await queryBuilder.getMany();
+
+    return trades;
   }
 
   async all(limit = 0, ascending = true): Promise<TokensTradedEvent[]> {
