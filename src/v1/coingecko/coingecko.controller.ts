@@ -47,11 +47,19 @@ export class CoinGeckoController {
     return result;
   }
 
-  // @Get('pairs')
-  // @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  // async pairs(): Promise<any> {
-  //   return this.coingeckoService.pairs();
-  // }
+  @Get('pairs')
+  @CacheTTL(1 * 1000)
+  @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
+  async pairs(): Promise<any> {
+    const pairs = await this.pairService.all();
+    return pairs.map((p) => {
+      return {
+        base_currency: p.token0.address,
+        target_currency: p.token1.address,
+        ticker_id: `${p.token0.address}_${p.token1.address}`,
+      };
+    });
+  }
 
   // @Get('tickers')
   // @Header('Cache-Control', 'public, max-age=43200')
