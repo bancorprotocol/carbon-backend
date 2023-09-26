@@ -22,8 +22,11 @@
     "gcloud:build:production": "gcloud builds submit --tag gcr.io/bancor-api/carbon-backend --timeout 3600"
   },
   "dependencies": {
+    "@cowprotocol/ts-dune-client": "^0.0.2",
     "@google-cloud/secret-manager": "^4.2.2",
+    "@nestjs/axios": "^3.0.0",
     "@nestjs/cache-manager": "^2.1.0",
+    "@nestjs/cli": "^10.0.0",
     "@nestjs/common": "^10.0.0",
     "@nestjs/config": "^3.0.0",
     "@nestjs/core": "^10.0.0",
@@ -31,7 +34,6 @@
     "@nestjs/schedule": "^3.0.1",
     "@nestjs/swagger": "^7.1.8",
     "@nestjs/typeorm": "^10.0.0",
-    "@nestjs/cli": "^10.0.0",
     "axios": "^1.4.0",
     "cache-manager": "^5.2.3",
     "cache-manager-redis-yet": "^4.1.2",
