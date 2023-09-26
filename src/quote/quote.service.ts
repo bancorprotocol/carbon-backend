@@ -55,6 +55,15 @@ export class QuoteService {
     return tokensByAddress;
   }
 
+  async fetchLatestPrice(address: string, convert = 'usd'): Promise<any> {
+    try {
+      const price = await this.coingeckoService.getLatestPrices([address], convert);
+      return price;
+    } catch (error) {
+      this.logger.error(`Error fetching price: ${error.message}`);
+    }
+  }
+
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>): Promise<void> {
     const existingQuotes = await this.quoteRepository.find();
     const quoteEntities: Quote[] = [];

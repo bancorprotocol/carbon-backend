@@ -8,14 +8,14 @@ export class CoinGeckoService {
 
   private readonly baseURL = 'https://pro-api.coingecko.com/api/v3';
 
-  async getLatestPrices(contractAddresses: string[]): Promise<any> {
+  async getLatestPrices(contractAddresses: string[], convert = 'usd'): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
 
     try {
       const response = await axios.get(`${this.baseURL}/simple/token_price/ethereum`, {
         params: {
           contract_addresses: contractAddresses.join(','),
-          vs_currencies: 'usd',
+          vs_currencies: convert,
           include_last_updated_at: true,
         },
         headers: {

@@ -60,10 +60,4 @@ export class CoinGeckoController {
       };
     });
   }
-
-  // @Get('tickers')
-  // @Header('Cache-Control', 'public, max-age=43200')
-  // async tickers(): Promise<any> {
-  //   return this.coingeckoService.tickers();
-  // }
 }
