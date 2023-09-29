@@ -24,7 +24,7 @@ export class QuoteService {
     private configService: ConfigService,
   ) {}
 
-  @Interval(1 * 1000)
+  @Interval(1 * 60 * 1000)
   async pollForLatest(): Promise<void> {
     if (this.isPolling) {
       this.logger.warn('Polling is already in progress.');
