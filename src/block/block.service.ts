@@ -24,20 +24,13 @@ export class BlockService {
 
   async update(upToBlockNumber: number): Promise<Block> {
     // get last known processed block id, it is guaranteed that all ids below this are sequenced without gaps.
-    const lastProcessedBlock = await this.lastProcessedBlockService.get(
-      LAST_PROCESSED_ENTITY,
-    );
-    const startBlock = lastProcessedBlock
-      ? lastProcessedBlock + 1
-      : parseInt(this.configService.get('START_BLOCK'));
+    const lastProcessedBlock = await this.lastProcessedBlockService.get(LAST_PROCESSED_ENTITY);
+    const startBlock = lastProcessedBlock ? lastProcessedBlock + 1 : parseInt(this.configService.get('START_BLOCK'));
 
     if (startBlock > upToBlockNumber) return;
     // const startBlock = parseInt(this.configService.get('START_BLOCK'));
     // get the missing block ids
-    let missingBlocks = await this.getMissingBlocks(
-      startBlock,
-      upToBlockNumber,
-    );
+    let missingBlocks = await this.getMissingBlocks(startBlock, upToBlockNumber);
     // iterate until there are no missing ids
     let lastBlock;
     while (missingBlocks.length > 0) {
@@ -45,10 +38,7 @@ export class BlockService {
       missingBlocks = await this.getMissingBlocks(startBlock, upToBlockNumber);
     }
     // cache the last processed block id
-    await this.lastProcessedBlockService.update(
-      LAST_PROCESSED_ENTITY,
-      upToBlockNumber,
-    );
+    await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, upToBlockNumber);
     return lastBlock;
   }
 
@@ -121,10 +111,7 @@ export class BlockService {
     return this.block.findOneBy({ id: number });
   }
 
-  async getBlocksDictionary(
-    from: number,
-    to: number,
-  ): Promise<BlocksDictionary> {
+  async getBlocksDictionary(from: number, to: number): Promise<BlocksDictionary> {
     const blocks = await this.block
       .createQueryBuilder()
       .select(['"id"', '"timestamp"'])
@@ -145,11 +132,7 @@ export class BlockService {
   }
 
   async getFirst(): Promise<Block> {
-    return this.block
-      .createQueryBuilder('blocks')
-      .orderBy('id', 'ASC')
-      .limit(1)
-      .getOne();
+    return this.block.createQueryBuilder('blocks').orderBy('id', 'ASC').limit(1).getOne();
   }
 }
 

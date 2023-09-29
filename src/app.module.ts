@@ -31,11 +31,11 @@ import { DuneModule } from './dune/dune.module';
         if (process.env.NODE_ENV === 'production') {
           const secrets = new SecretManagerServiceClient();
           let [version] = await secrets.accessSecretVersion({
-            name: configService.get('CARBON_SQL_URL'),
+            name: configService.get('CARBON_BACKEND_SQL_URL'),
           });
           url = version.payload.data.toString();
           [version] = await secrets.accessSecretVersion({
-            name: configService.get('CARBON_SQL_CERTIFICATION'),
+            name: configService.get('CARBON_BACKEND_SQL_CERTIFICATION'),
           });
           ssl = {
             ca: version.payload.data.toString(),
@@ -51,7 +51,7 @@ import { DuneModule } from './dune/dune.module';
             honorCipherOrder: true,
           };
         } else {
-          url = configService.get('CARBON_SQL_URL');
+          url = configService.get('CARBON_BACKEND_SQL_URL');
         }
         return {
           type: 'postgres',
