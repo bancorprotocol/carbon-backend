@@ -6,6 +6,7 @@ import { TokenService } from '../token/token.service';
 import { CoinGeckoService } from './coingecko.service';
 import { Interval } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
+import { ConfigService } from '@nestjs/config';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
@@ -20,9 +21,10 @@ export class QuoteService {
     @InjectRepository(Quote) private quoteRepository: Repository<Quote>,
     private tokenService: TokenService,
     private coingeckoService: CoinGeckoService,
+    private configService: ConfigService,
   ) {}
 
-  @Interval(2 * 60 * 1000)
+  @Interval(1 * 1000)
   async pollForLatest(): Promise<void> {
     if (this.isPolling) {
       this.logger.warn('Polling is already in progress.');
@@ -35,6 +37,9 @@ export class QuoteService {
       const tokens = await this.tokenService.all();
       const addresses = tokens.map((t) => t.address);
       const newPrices = await this.coingeckoService.getLatestPrices(addresses);
+      const ethPrice = await this.coingeckoService.getLatestEthPrice();
+      const ethAddress = this.configService.get('ETH');
+      newPrices[ethAddress.toLowerCase()] = ethPrice['ethereum'];
 
       await this.updateQuotes(tokens, newPrices);
     } catch (error) {
