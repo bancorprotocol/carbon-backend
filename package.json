@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@cowprotocol/ts-dune-client": "^0.0.2",
+    "@ethersproject/bignumber": "^5.7.0",
     "@google-cloud/secret-manager": "^4.2.2",
     "@nestjs/axios": "^3.0.0",
     "@nestjs/cache-manager": "^2.1.0",

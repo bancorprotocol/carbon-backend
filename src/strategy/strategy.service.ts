@@ -13,6 +13,7 @@ import { PairsDictionary } from '../pair/pair.service';
 import { TokensByAddress } from '../token/token.service';
 import { StrategyDeletedEventService } from 'src/events/strategy-deleted-event/strategy-deleted-event.service';
 import { BlocksDictionary } from '../block/block.service';
+import { BigNumber } from '@ethersproject/bignumber';
 
 const LAST_PROCESSED_ENTITY = 'strategies';
 
@@ -114,12 +115,11 @@ export class StrategyService {
     return strategies.sort((a, b) => b.block.id - a.block.id);
   }
 
-  decodeOrder(order: EncodedOrder): DecodedOrder {
+  private decodeOrder(order: EncodedOrder): DecodedOrder {
     const y = new Decimal(order.y);
     const z = new Decimal(order.z);
-    const A = new Decimal(order.A);
-    const B = new Decimal(order.B);
-
+    const A = new Decimal(this.decodeFloat(BigNumber.from(order.A)));
+    const B = new Decimal(this.decodeFloat(BigNumber.from(order.B)));
     return {
       liquidity: y.toString(),
       lowestRate: this.decodeRate(B).toString(),
@@ -128,7 +128,11 @@ export class StrategyService {
     };
   }
 
-  decodeRate(value: Decimal) {
+  private decodeRate(value: Decimal) {
     return value.div(ONE).pow(2);
+  }
+
+  private decodeFloat(value: BigNumber) {
+    return value.mod(ONE).shl(value.div(ONE).toNumber()).toString();
   }
 }
