@@ -26,6 +26,9 @@ export class QuoteService {
 
   @Interval(1 * 60 * 1000)
   async pollForLatest(): Promise<void> {
+    const shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES');
+    if (shouldPollQuotes !== '1') return;
+
     if (this.isPolling) {
       this.logger.warn('Polling is already in progress.');
       return;
