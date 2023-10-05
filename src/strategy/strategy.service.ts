@@ -80,25 +80,29 @@ export class StrategyService {
       const order0 = this.decodeOrder(JSON.parse(e.order0));
       const order1 = this.decodeOrder(JSON.parse(e.order1));
       const id = e['strategy'] ? e.strategy.id : e.id;
+      const strategyIndex = strategies.findIndex((s) => s.id === id);
+      const newStrategy = this.strategy.create({
+        id,
+        token0: e.token0,
+        token1: e.token1,
+        block: e.block,
+        pair: e.pair,
+        liquidity0: order0.liquidity,
+        lowestRate0: order0.lowestRate,
+        highestRate0: order0.highestRate,
+        marginalRate0: order0.marginalRate,
+        liquidity1: order1.liquidity,
+        lowestRate1: order1.lowestRate,
+        highestRate1: order1.highestRate,
+        marginalRate1: order1.marginalRate,
+        deleted: deletionEvent,
+      });
 
-      strategies.push(
-        this.strategy.create({
-          id,
-          token0: e.token0,
-          token1: e.token1,
-          block: e.block,
-          pair: e.pair,
-          liquidity0: order0.liquidity,
-          lowestRate0: order0.lowestRate,
-          highestRate0: order0.highestRate,
-          marginalRate0: order0.marginalRate,
-          liquidity1: order1.liquidity,
-          lowestRate1: order1.lowestRate,
-          highestRate1: order1.highestRate,
-          marginalRate1: order1.marginalRate,
-          deleted: deletionEvent,
-        }),
-      );
+      if (strategyIndex >= 0) {
+        strategies[strategyIndex] = newStrategy;
+      } else {
+        strategies.push(newStrategy);
+      }
     });
 
     await this.strategy.save(strategies);
