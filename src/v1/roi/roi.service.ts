@@ -1,46 +1,65 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Strategy } from '../../strategy/strategy.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 
 @Injectable()
 export class RoiService {
-  constructor(@InjectRepository(Strategy) private strategy: Repository<Strategy>) {}
-  async getROI(): Promise<any> {
+  constructor(
+    @InjectRepository(Strategy) private strategy: Repository<Strategy>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
+  ) {}
+
+  async update(): Promise<void> {
+    const roi = await this.getROI();
+    this.cacheManager.set('carbon:roi', roi);
+  }
+
+  async getCachedROI(): Promise<any> {
+    return this.cacheManager.get('carbon:roi');
+  }
+
+  private async getROI(): Promise<any> {
     const query = `
-      WITH created AS (
-        SELECT "timestamp" AS evt_block_time, "blockId" AS evt_block_number, id, order0, order1, "token0Id" AS token0, "token1Id" AS token1, 2 AS reason
-        FROM "strategy-created-events"
+    WITH created AS (
+        SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s.id as id, order0, order1, 
+        t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0,
+        t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1,
+        2 as reason 
+        FROM "strategy-created-events" s
+        left join tokens t0 on t0.id = s."token0Id"
+        left join tokens t1 on t1.id = s."token1Id"
     ),
     updated AS (
-        SELECT "timestamp" AS evt_block_time, "blockId" AS evt_block_number, "strategyId" as id, order0, order1, "token0Id" AS token0, "token1Id" AS token1, reason
-        FROM "strategy-updated-events"
+        SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s."strategyId" as id, order0, order1, 
+        t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0,
+        t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1,
+        reason 
+        FROM "strategy-updated-events" s
+        left join tokens t0 on t0.id = s."token0Id"
+        left join tokens t1 on t1.id = s."token1Id"
     ),
     all_txs AS (
-        SELECT evt_block_time, evt_block_number, id, order0, order1, token0, token1, reason
+        SELECT *
         FROM created
         UNION
-        SELECT evt_block_time, evt_block_number, id, order0, order1, token0, token1, reason
+        SELECT *
         FROM updated
     ),
     current_orders3 AS (
-        SELECT date_trunc('minute', evt_block_time) AS evt_block_time, evt_block_number, id, token0, token1, reason,
+        SELECT *,
         (CASE WHEN (order0::json->>'y') IS NOT NULL THEN (order0::json->>'y')::double precision ELSE 0 END) AS y0,
         (CASE WHEN (order1::json->>'y') IS NOT NULL THEN (order1::json->>'y')::double precision ELSE 0 END) AS y1
         FROM all_txs
     ),
     current_orders4 AS (
         SELECT evt_block_time, evt_block_number, current_orders3.id, token0, token1, reason, y0, y1,
-            e0.symbol AS symbol0,
-            e0.decimals AS decimals0,
-            e1.symbol AS symbol1,
-            e1.decimals AS decimals1,
-            e0.symbol || '_' || e1.symbol AS pair,
-            y0 / POW(10, e0.decimals) AS liquidity0,
-            y1 / POW(10, e1.decimals) AS liquidity1
+            symbol0, decimals0, symbol1, decimals1,
+            y0 / POW(10, decimals0) AS liquidity0,
+            y1 / POW(10, decimals1) AS liquidity1
         FROM current_orders3
-        LEFT JOIN tokens e0 ON e0.id = current_orders3.token0
-        LEFT JOIN tokens e1 ON e1.id = current_orders3.token1
     ),
     order_lifespan AS (
         SELECT *,
@@ -85,20 +104,20 @@ export class RoiService {
         WHERE descr != 'Updated Price'
     ),
     add_new_creation AS (
-        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, decimals0, symbol1, decimals1, pair,
+        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, decimals0, symbol1, decimals1, 
             y0, y1, liquidity0, liquidity1,
             y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 
             descr
         FROM descriptions
         UNION ALL
-        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, decimals0, symbol1, decimals1, pair,
+        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, decimals0, symbol1, decimals1, 
             y0, y1, liquidity0, liquidity1,
             y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 
             'ZCreate Substrategy' AS descr
         FROM descriptions
         WHERE (reason = 0 AND y0_delta != 0) OR (reason = 0 AND y1_delta != 0)
         UNION ALL
-        SELECT date_trunc('minute', current_timestamp) AS evt_block_time, evt_block_number, id, token0, token1, 0 AS reason, symbol0, decimals0, symbol1, decimals1, pair,
+        SELECT date_trunc('minute', current_timestamp) AS evt_block_time, evt_block_number, id, token0, token1, 0 AS reason, symbol0, decimals0, symbol1, decimals1, 
             y0, y1, liquidity0, liquidity1, 
             y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 
             'ZFinal Novation' AS descr
@@ -113,7 +132,7 @@ export class RoiService {
         SELECT evt_block_time, evt_block_number, id, token0, token1, reason, 
             CASE WHEN descr IN ('Deposited TKN0', 'Deposited TKN1', 'Withdrew TKN0', 'Withdrew TKN1', 'ZFinal Novation') THEN 0 ELSE y0 END AS y0, 
             CASE WHEN descr IN ('Deposited TKN0', 'Deposited TKN1', 'Withdrew TKN0', 'Withdrew TKN1', 'ZFinal Novation') THEN 0 ELSE y1 END AS y1, 
-            symbol0, decimals0, symbol1, decimals1, pair,
+            symbol0, decimals0, symbol1, decimals1, 
             CASE WHEN descr IN ('Deposited TKN0', 'Deposited TKN1', 'Withdrew TKN0', 'Withdrew TKN1') THEN 'Novation' ELSE descr END AS descr
         FROM add_new_creation
     ),
@@ -132,7 +151,7 @@ export class RoiService {
         GROUP BY id, substrategy
     ),
     joined_times AS (
-        SELECT s.evt_block_time, s.evt_block_number, s.id, s.token0, s.token1, s.reason, s.y0, s.y1, s.symbol0, s.decimals0, s.symbol1, s.decimals1, s.pair, s.descr, 
+        SELECT s.evt_block_time, s.evt_block_number, s.id, s.token0, s.token1, s.reason, s.y0, s.y1, s.symbol0, s.decimals0, s.symbol1, s.decimals1, s.descr, 
                 s.row_num, s.substrategy, c.seconds_active
         FROM add_substrategy s
         LEFT JOIN calculate_substrat_time c ON (c.id = s.id AND c.substrategy = s.substrategy)
@@ -154,12 +173,12 @@ export class RoiService {
         FROM recalc_y_ydelta
     ),
     recalc_cuml_y AS (
-        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, symbol1, pair, liquidity0, liquidity1, 
-              SUM(y0_deposited) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y0_deposit,
-              SUM(y1_deposited) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y1_deposit,
-              SUM(y0_withdrawn) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y0_withdrawn,
-              SUM(y1_withdrawn) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y1_withdrawn,
-              descr, substrategy, seconds_active, row_num
+        SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, symbol1, liquidity0, liquidity1, 
+                SUM(y0_deposited) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y0_deposit,
+                SUM(y1_deposited) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y1_deposit,
+                SUM(y0_withdrawn) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y0_withdrawn,
+                SUM(y1_withdrawn) OVER (PARTITION BY id, substrategy ORDER BY evt_block_number, descr) AS cuml_y1_withdrawn,
+                descr, substrategy, seconds_active, row_num
         FROM recalc_ydepos
     ),
     all_tokens AS (
@@ -167,15 +186,15 @@ export class RoiService {
         UNION
         SELECT token1 AS contract_address FROM current_orders4
     ),
-    
     prices AS (
-      SELECT "tokenId" AS contract_address, usd AS price
-      FROM quotes
+        SELECT address AS contract_address, usd AS price
+        FROM quotes q
+        LEFT JOIN tokens t on t."id" = q."tokenId"
     ),
     
     current_orders8 AS (
         SELECT evt_block_time, evt_block_number, id, reason,
-            symbol0, symbol1, pair, liquidity0, liquidity1,
+            symbol0, symbol1, liquidity0, liquidity1,
             cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, descr, substrategy, seconds_active, row_num,
             p0.price AS current_price0, p1.price AS current_price1
         FROM recalc_cuml_y co
@@ -184,7 +203,7 @@ export class RoiService {
     ),
     current_orders9 AS (
         SELECT evt_block_time, evt_block_number, id, reason,
-            symbol0, symbol1, pair, liquidity0, liquidity1,
+            symbol0, symbol1, liquidity0, liquidity1,
             cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, descr, substrategy, seconds_active, row_num,
             current_price0, current_price1,
         CASE WHEN reason = 4 THEN 0 ELSE liquidity0::double precision * current_price0::double precision END AS TVL0_usd,
@@ -202,13 +221,21 @@ export class RoiService {
         SELECT *,
             id AS strategyid,
             COALESCE(stratTVL_usd - total_deposit_usd - total_withdrawn_usd, 0) AS substrat_profit,
-            COALESCE(stratTVL_usd - total_deposit_usd - total_withdrawn_usd, 0) / total_deposit_usd AS row_roi_perc
+            CASE WHEN total_deposit_usd = 0 THEN 0 ELSE COALESCE(stratTVL_usd - total_deposit_usd - total_withdrawn_usd, 0) / total_deposit_usd END AS row_roi_perc
         FROM totals
     ),
     aggregate_substrats AS (
         SELECT *,
-            total_deposit_usd / SUM(total_deposit_usd) OVER (PARTITION BY id) AS liq_weight_perc,
-            total_deposit_usd * total_deposit_usd / SUM(total_deposit_usd) OVER (PARTITION BY id) AS weighted_deposit_usd,
+            CASE 
+                WHEN SUM(total_deposit_usd) OVER (PARTITION BY id) = 0 THEN 0
+                ELSE total_deposit_usd / SUM(total_deposit_usd) OVER (PARTITION BY id)
+            END AS liq_weight_perc,
+            
+            CASE 
+                WHEN SUM(total_deposit_usd) OVER (PARTITION BY id) = 0 THEN 0
+                ELSE total_deposit_usd * total_deposit_usd / SUM(total_deposit_usd) OVER (PARTITION BY id)
+            END AS weighted_deposit_usd,
+            
             SUM(substrat_profit) OVER (PARTITION BY id ORDER BY evt_block_number, descr) AS cuml_substrat_profit
         FROM sub_rois
         WHERE descr IN ('Novation', 'ZFinal Novation')
@@ -216,7 +243,11 @@ export class RoiService {
     roi_for_each_novation AS (
         SELECT *,
             SUM(weighted_deposit_usd) OVER (PARTITION BY id) AS lw_deposit,
-            cuml_substrat_profit / SUM(weighted_deposit_usd) OVER (PARTITION BY id) AS lw_ROI
+            
+            CASE 
+                WHEN SUM(weighted_deposit_usd) OVER (PARTITION BY id) = 0 THEN 0
+                ELSE cuml_substrat_profit / SUM(weighted_deposit_usd) OVER (PARTITION BY id)
+            END AS lw_ROI
         FROM aggregate_substrats
     ),
     create_delete AS (
@@ -231,8 +262,8 @@ export class RoiService {
     lifetime AS (
         SELECT id, 
             CASE 
-                WHEN date_part('day', date_created - date_most_recent2) = 0 THEN 1
-                ELSE date_part('day', date_created - date_most_recent2) 
+                WHEN date_part('day', date_most_recent2 - date_created) = 0 THEN 1
+                ELSE date_part('day', date_most_recent2 - date_created) 
             END AS days_live 
         FROM most_recent
     ),
@@ -246,12 +277,19 @@ export class RoiService {
         LEFT JOIN lifetime l ON l.id = n.id
         WHERE descr = 'ZFinal Novation'
     )
-    SELECT id, ROI * 100 AS "ROI"
+    SELECT id, ROI
     FROM recent_roi_only
-    ORDER BY ROI DESC;      
+    ORDER BY ROI DESC;
     `;
 
     const result = await this.strategy.query(query);
-    return result;
+    return result.map((r) => {
+      if (r.roi === null) {
+        r.roi = 0;
+      }
+      r.ROI = r.roi;
+      delete r.roi;
+      return r;
+    });
   }
 }

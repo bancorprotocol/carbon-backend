@@ -10,6 +10,7 @@ import { PairService } from '../pair/pair.service';
 import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
+import { RoiService } from '../v1/roi/roi.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 
@@ -27,6 +28,7 @@ export class UpdaterService {
     private pairCreatedEventService: PairCreatedEventService,
     private strategyService: StrategyService,
     private tokensTradedEventService: TokensTradedEventService,
+    private roiService: RoiService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -88,6 +90,10 @@ export class UpdaterService {
         // create trades
         await this.tokensTradedEventService.update(toBlock, pairs, tokens, blocksDictionary);
         console.log('CARBON SERVICE - Finished trades');
+
+        // ROI
+        await this.roiService.update();
+        console.log('CARBON SERVICE - Finished updating ROI');
       }
 
       // finish

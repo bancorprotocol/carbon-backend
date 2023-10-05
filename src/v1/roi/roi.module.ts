@@ -7,5 +7,6 @@ import { StrategyModule } from '../../strategy/strategy.module';
   imports: [StrategyModule],
   controllers: [RoiController],
   providers: [RoiService],
+  exports: [RoiService],
 })
 export class RoiModule {}

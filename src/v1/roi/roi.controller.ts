@@ -7,9 +7,9 @@ export class RoiController {
   constructor(private roiService: RoiService) {}
 
   @Get()
-  @CacheTTL(60 * 1000)
+  @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   async roi(): Promise<any> {
-    return await this.roiService.getROI();
+    return this.roiService.getCachedROI();
   }
 }

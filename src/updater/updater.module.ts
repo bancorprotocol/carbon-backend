@@ -12,6 +12,7 @@ import { PairModule } from '../pair/pair.module';
 import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
 import { StrategyModule } from '../strategy/strategy.module';
 import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
+import { RoiModule } from '../v1/roi/roi.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-tr
     PairCreatedEventModule,
     StrategyModule,
     TokensTradedEventModule,
+    RoiModule,
   ],
   providers: [UpdaterService],
 })
