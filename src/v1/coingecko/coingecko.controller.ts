@@ -5,14 +5,14 @@ import Decimal from 'decimal.js';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { toTimestamp } from '../../utilities';
 import { PairService } from '../../pair/pair.service';
-import { DuneService } from 'src/dune/dune.service';
+import { CoingeckoService } from './coingecko.service';
 
 @Controller({ version: '1', path: 'coingecko' })
 export class CoinGeckoController {
   constructor(
     private tokensTradedEventService: TokensTradedEventService,
     private pairService: PairService,
-    private duneService: DuneService,
+    private coingeckoService: CoingeckoService,
   ) {}
 
   @Get('historical_trades')
@@ -70,7 +70,7 @@ export class CoinGeckoController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=43200')
   async tickers(): Promise<any> {
-    const data = await this.duneService.query(2796672);
-    return JSON.parse(JSON.stringify(data, (key, value) => (value === null ? 0 : value)));
+    const data = await this.coingeckoService.getCachedTickers();
+    return JSON.parse(JSON.stringify(data));
   }
 }

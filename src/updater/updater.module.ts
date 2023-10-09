@@ -13,6 +13,7 @@ import { PairCreatedEventModule } from '../events/pair-created-event /pair-creat
 import { StrategyModule } from '../strategy/strategy.module';
 import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
 import { RoiModule } from '../v1/roi/roi.module';
+import { CoingeckoModule } from '../v1/coingecko/coingecko.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { RoiModule } from '../v1/roi/roi.module';
     StrategyModule,
     TokensTradedEventModule,
     RoiModule,
+    CoingeckoModule,
   ],
   providers: [UpdaterService],
 })

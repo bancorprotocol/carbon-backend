@@ -11,6 +11,7 @@ import { PairCreatedEventService } from '../events/pair-created-event /pair-crea
 import { StrategyService } from '../strategy/strategy.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
 import { RoiService } from '../v1/roi/roi.service';
+import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 
@@ -29,6 +30,7 @@ export class UpdaterService {
     private strategyService: StrategyService,
     private tokensTradedEventService: TokensTradedEventService,
     private roiService: RoiService,
+    private coingeckoService: CoingeckoService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -94,6 +96,10 @@ export class UpdaterService {
         // ROI
         await this.roiService.update();
         console.log('CARBON SERVICE - Finished updating ROI');
+
+        // coingecko tickers
+        await this.coingeckoService.update();
+        console.log('CARBON SERVICE - Finished updating coingecko tickers');
       }
 
       // finish
