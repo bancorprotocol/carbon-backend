@@ -39,10 +39,9 @@ export class QuoteService {
     try {
       const tokens = await this.tokenService.all();
       const addresses = tokens.map((t) => t.address);
-      const newPrices = await this.coingeckoService.getLatestPrices(addresses);
+      let newPrices = await this.coingeckoService.getLatestPrices(addresses);
       const ethPrice = await this.coingeckoService.getLatestEthPrice();
-      const ethAddress = this.configService.get('ETH');
-      newPrices[ethAddress.toLowerCase()] = ethPrice['ethereum'];
+      newPrices = { ...newPrices, ...ethPrice };
 
       await this.updateQuotes(tokens, newPrices);
     } catch (error) {
@@ -64,8 +63,15 @@ export class QuoteService {
   }
 
   async fetchLatestPrice(address: string, convert = 'usd'): Promise<any> {
+    const ETH = this.configService.get('ETH');
     try {
-      const price = await this.coingeckoService.getLatestPrices([address], convert);
+      let price;
+      if (address.toLowerCase() === ETH.toLowerCase()) {
+        price = await this.coingeckoService.getLatestEthPrice();
+      } else {
+        price = await this.coingeckoService.getLatestPrices([address], convert);
+      }
+
       return price;
     } catch (error) {
       this.logger.error(`Error fetching price: ${error.message}`);

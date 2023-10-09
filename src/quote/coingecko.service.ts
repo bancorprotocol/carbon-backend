@@ -31,6 +31,7 @@ export class CoinGeckoService {
 
   async getLatestEthPrice(convert = 'usd'): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
+    const ETH = this.configService.get('ETH');
 
     try {
       const response = await axios.get(`${this.baseURL}/simple/price`, {
@@ -44,7 +45,14 @@ export class CoinGeckoService {
         },
       });
 
-      return response.data;
+      return {
+        [ETH.toLowerCase()]: {
+          usd: response.data['ethereum']['usd'],
+          last_updated_at: response.data['ethereum']['last_updated_at'],
+        },
+      };
+
+      response.data;
     } catch (error) {
       throw new Error(`Failed to fetch latest token prices: ${error.message}`);
     }
