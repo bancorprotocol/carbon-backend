@@ -5,6 +5,8 @@ import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 
+const ROI_CACHE_KEY = 'carbon:roi';
+
 @Injectable()
 export class RoiService {
   constructor(
@@ -14,11 +16,11 @@ export class RoiService {
 
   async update(): Promise<void> {
     const roi = await this.getROI();
-    this.cacheManager.set('carbon:roi', roi);
+    this.cacheManager.set(ROI_CACHE_KEY, roi);
   }
 
   async getCachedROI(): Promise<any> {
-    return this.cacheManager.get('carbon:roi');
+    return this.cacheManager.get(ROI_CACHE_KEY);
   }
 
   private async getROI(): Promise<any> {
