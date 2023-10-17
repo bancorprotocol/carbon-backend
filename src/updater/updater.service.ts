@@ -7,7 +7,7 @@ import { BlockService } from '../block/block.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';
-import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
+import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import { StrategyService } from '../strategy/strategy.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
 import { RoiService } from '../v1/roi/roi.service';

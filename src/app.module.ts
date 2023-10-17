@@ -9,7 +9,7 @@ import { RedisModule } from './redis/redis.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { HarvesterModule } from './harvester/harvester.module';
 import { UpdaterModule } from './updater/updater.module';
-import { PairCreatedEventModule } from './events/pair-created-event /pair-created-event.module';
+import { PairCreatedEventModule } from './events/pair-created-event/pair-created-event.module';
 import { StrategyCreatedEventModule } from './events/strategy-created-event/strategy-created-event.module';
 import { PairModule } from './pair/pair.module';
 import { TokenModule } from './token/token.module';

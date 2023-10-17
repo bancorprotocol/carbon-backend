@@ -5,10 +5,10 @@ import { Pair } from './pair.entity';
 import { HarvesterService } from '../harvester/harvester.service';
 import { decimalsABI, symbolABI } from '../abis/erc20.abi';
 import { ConfigService } from '@nestjs/config';
-import { PairCreatedEvent } from '../events/pair-created-event /pair-created-event.entity';
+import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
 import { TokensByAddress } from '../token/token.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
-import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
+import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import * as _ from 'lodash';
 
 interface PairDictionaryItem {

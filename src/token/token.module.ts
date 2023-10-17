@@ -6,7 +6,7 @@ import { RedisModule } from '../redis/redis.module';
 import { HarvesterModule } from '../harvester/harvester.module';
 import { Token } from './token.entity';
 import { TokenService } from './token.service';
-import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
+import { PairCreatedEventModule } from '../events/pair-created-event/pair-created-event.module';
 
 @Module({
   imports: [

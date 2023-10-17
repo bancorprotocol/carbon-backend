@@ -7,7 +7,7 @@ import { HarvesterModule } from '../harvester/harvester.module';
 import { Pair } from './pair.entity';
 import { PairService } from './pair.service';
 import { PairController } from './pair.controller';
-import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
+import { PairCreatedEventModule } from '../events/pair-created-event/pair-created-event.module';
 
 @Module({
   imports: [

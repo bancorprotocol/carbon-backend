@@ -6,9 +6,9 @@ import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import { Token } from './token.entity';
 import { HarvesterService } from '../harvester/harvester.service';
-import { PairCreatedEvent } from '../events/pair-created-event /pair-created-event.entity';
+import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
-import { PairCreatedEventService } from '../events/pair-created-event /pair-created-event.service';
+import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 
 export interface TokensByAddress {
   [address: string]: Token;

@@ -9,7 +9,7 @@ import { QuoteModule } from '../quote/quote.module';
 import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
 import { TokenModule } from '../token/token.module';
 import { PairModule } from '../pair/pair.module';
-import { PairCreatedEventModule } from '../events/pair-created-event /pair-created-event.module';
+import { PairCreatedEventModule } from '../events/pair-created-event/pair-created-event.module';
 import { StrategyModule } from '../strategy/strategy.module';
 import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
 import { RoiModule } from '../v1/roi/roi.module';
