@@ -130,7 +130,7 @@ export class TokensTradedEventService {
   }
 
   async volume24hByToken(): Promise<any> {
-    const trades = await this.get({ last24h: true });
+    const trades = await this.get({ last24h: true, normalizeDecimals: true });
 
     const result = {};
     trades.forEach((t) => {
@@ -143,7 +143,6 @@ export class TokensTradedEventService {
       }
 
       result[t.sourceToken.id] = new Decimal(result[t.sourceToken.id]).add(new Decimal(t.sourceAmount));
-
       result[t.targetToken.id] = new Decimal(result[t.targetToken.id]).add(new Decimal(t.targetAmount));
     });
 
@@ -151,7 +150,7 @@ export class TokensTradedEventService {
   }
 
   async volume24hByPair(): Promise<any> {
-    const trades = await this.get({ last24h: true });
+    const trades = await this.get({ last24h: true, normalizeDecimals: true });
 
     const result = {};
     trades.forEach((t) => {
@@ -164,11 +163,9 @@ export class TokensTradedEventService {
 
       if (t.pair.token0.id === t.sourceToken.id) {
         result[t.pair.id].token0Volume = result[t.pair.id].token0Volume.add(new Decimal(t.sourceAmount));
-
         result[t.pair.id].token1Volume = result[t.pair.id].token1Volume.add(new Decimal(t.targetAmount));
       } else {
         result[t.pair.id].token0Volume = result[t.pair.id].token0Volume.add(new Decimal(t.targetAmount));
-
         result[t.pair.id].token1Volume = result[t.pair.id].token1Volume.add(new Decimal(t.sourceAmount));
       }
     });
