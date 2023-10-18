@@ -21,7 +21,7 @@ export class CmcController {
         base_id: p.token0.address,
         base_symbol: p.token0.symbol,
         base_volume: volume24h[p.id] ? volume24h[p.id].token0Volume : '0',
-        last_price: lastTrades[p.id] || '0',
+        last_price: lastTrades[p.id] || null,
         pair: `${p.token0.address}_${p.token1.address}`,
         quote_id: p.token1.address,
         quote_symbol: p.token1.symbol,
