@@ -1,14 +1,5 @@
 import { Token } from 'src/token/token.entity';
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  PrimaryColumn,
-  Index,
-  ManyToOne,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
 
 @Entity({ name: 'quotes' })
 export class Quote {
@@ -18,8 +9,7 @@ export class Quote {
   @Column()
   provider: string;
 
-  @PrimaryColumn('timestamp')
-  @Index()
+  @Column()
   timestamp: Date;
 
   @ManyToOne(() => Token, { eager: true })

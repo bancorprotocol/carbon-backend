@@ -86,26 +86,15 @@ export class QuoteService {
       const priceWithTimestamp = newPrices[token.address.toLowerCase()];
 
       if (priceWithTimestamp) {
-        const existingQuote = existingQuotes.find((q) => q.token.id === token.id);
-
-        if (existingQuote) {
-          // Update the existing quote
-          existingQuote.usd = priceWithTimestamp.usd;
-        } else {
-          // Create a new quote
-          const newQuote = new Quote();
-          newQuote.provider = 'CoinGecko';
-          newQuote.token = token;
-          newQuote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
-          newQuote.usd = priceWithTimestamp.usd;
-          quoteEntities.push(newQuote);
-        }
+        const quote = existingQuotes.find((q) => q.token.id === token.id) || new Quote();
+        quote.provider = 'CoinGecko';
+        quote.token = token;
+        quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
+        quote.usd = priceWithTimestamp.usd;
+        quoteEntities.push(quote);
       }
     }
 
-    // Save all the changes to the database in one call
-    if (quoteEntities.length > 0) {
-      await this.quoteRepository.save(quoteEntities);
-    }
+    await this.quoteRepository.save(quoteEntities);
   }
 }
