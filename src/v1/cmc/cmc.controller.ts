@@ -14,17 +14,18 @@ export class CmcController {
   async pairs(): Promise<any> {
     const pairs = await this.pairService.all();
     const volume24h = await this.tokensTradedEventService.volume24hByPair();
+    const lastTrades = await this.tokensTradedEventService.lastTradesByPair();
 
     return pairs.map((p) => {
       return {
         base_id: p.token0.address,
         base_symbol: p.token0.symbol,
-        base_volume: volume24h[p.id] ? volume24h[p.id].token0Volume : 0,
-        last_price: 0,
+        base_volume: volume24h[p.id] ? volume24h[p.id].token0Volume : '0',
+        last_price: lastTrades[p.id] || '0',
         pair: `${p.token0.address}_${p.token1.address}`,
         quote_id: p.token1.address,
         quote_symbol: p.token1.symbol,
-        quote_volume: volume24h[p.id] ? volume24h[p.id].token1Volume : 0,
+        quote_volume: volume24h[p.id] ? volume24h[p.id].token1Volume : '0',
       };
     });
   }

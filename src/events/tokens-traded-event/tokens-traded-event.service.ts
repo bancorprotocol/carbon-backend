@@ -172,4 +172,33 @@ export class TokensTradedEventService {
 
     return result;
   }
+
+  async lastTradesByPair(): Promise<any> {
+    const trades = await this.repository
+      .createQueryBuilder('tokensTradedEvents')
+      .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
+      .leftJoinAndSelect('pair.token0', 'token0')
+      .leftJoinAndSelect('pair.token1', 'token1')
+      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
+      .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
+      .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
+      .orderBy('pair.id', 'DESC')
+      .addOrderBy('block.id', 'DESC')
+      .distinctOn(['pair.id'])
+      .getMany();
+
+    const result = {};
+    trades.forEach((t) => {
+      const sourceAmount = new Decimal(t.sourceAmount).div(`1e${t.sourceToken.decimals}`);
+      const targetAmount = new Decimal(t.targetAmount).div(`1e${t.targetToken.decimals}`);
+      if (sourceAmount.greaterThan(0) && targetAmount.greaterThan(0)) {
+        const price = t.type === 'buy' ? sourceAmount.div(targetAmount) : targetAmount.div(sourceAmount);
+        result[t.pair.id] = price.toString();
+      } else {
+        result[t.pair.id] = '0';
+      }
+    });
+
+    return result;
+  }
 }
