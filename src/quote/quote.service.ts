@@ -47,6 +47,7 @@ export class QuoteService {
     } catch (error) {
       this.logger.error(`Error fetching and storing quotes: ${error.message}`);
     } finally {
+      console.log('QUOTES SERVICE - Finished updating quotes');
       this.isPolling = false; // Reset the flag regardless of success or failure
     }
   }
