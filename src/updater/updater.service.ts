@@ -103,7 +103,7 @@ export class UpdaterService {
       }
 
       // finish
-      console.log('CARBON SERVICE', 'Finished update iteration in:', Date.now() - t), 'ms';
+      console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t), 'ms';
       this.isUpdating = false;
       await this.redis.client.set(CARBON_IS_UPDATING, 0);
     } catch (error) {
