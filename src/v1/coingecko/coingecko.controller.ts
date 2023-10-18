@@ -1,6 +1,9 @@
 import { Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricalTradesDto } from './historical_trades.dto';
-import { TokensTradedEventService } from '../../events/tokens-traded-event/tokens-traded-event.service';
+import {
+  TokensTradedEventQueryParams,
+  TokensTradedEventService,
+} from '../../events/tokens-traded-event/tokens-traded-event.service';
 import Decimal from 'decimal.js';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { toTimestamp } from '../../utilities';
@@ -20,11 +23,12 @@ export class CoinGeckoController {
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
   async historicalTrades(@Query() params: HistoricalTradesDto): Promise<any> {
     const { start_time, end_time, limit, type, ticker_id } = params;
-    const queryParams = {
+    const queryParams: TokensTradedEventQueryParams = {
       startTime: start_time,
       endTime: end_time,
       limit,
       type,
+      normalizeDecimals: true,
     };
 
     if (ticker_id !== undefined) {

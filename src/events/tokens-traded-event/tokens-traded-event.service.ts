@@ -8,7 +8,7 @@ import { TokensByAddress } from '../../token/token.service';
 import Decimal from 'decimal.js';
 import { BlocksDictionary } from '../../block/block.service';
 
-type TokensTradedEventQueryParams = {
+export type TokensTradedEventQueryParams = {
   startBlock?: number;
   endBlock?: number;
   startTime?: number;
@@ -18,6 +18,7 @@ type TokensTradedEventQueryParams = {
   pairId?: number;
   last24h?: boolean;
   order?: QueryOrder; // ASC is default
+  normalizeDecimals?: boolean; // NO is default
 };
 
 type QueryOrder = 'ASC' | 'DESC';
@@ -113,15 +114,17 @@ export class TokensTradedEventService {
     const trades = await queryBuilder.getMany();
 
     // normalize amounts
-    trades.forEach((t) => {
-      t.sourceAmount = new Decimal(t.sourceAmount).div(`1e${t.sourceToken.decimals}`).toString();
-      t.targetAmount = new Decimal(t.targetAmount).div(`1e${t.targetToken.decimals}`).toString();
-      if (t.byTargetAmount) {
-        t.tradingFeeAmount = new Decimal(t.tradingFeeAmount).div(`1e${t.sourceToken.decimals}`).toString();
-      } else {
-        t.tradingFeeAmount = new Decimal(t.tradingFeeAmount).div(`1e${t.targetToken.decimals}`).toString();
-      }
-    });
+    if (params.normalizeDecimals === true) {
+      trades.forEach((t) => {
+        t.sourceAmount = new Decimal(t.sourceAmount).div(`1e${t.sourceToken.decimals}`).toString();
+        t.targetAmount = new Decimal(t.targetAmount).div(`1e${t.targetToken.decimals}`).toString();
+        if (t.byTargetAmount) {
+          t.tradingFeeAmount = new Decimal(t.tradingFeeAmount).div(`1e${t.sourceToken.decimals}`).toString();
+        } else {
+          t.tradingFeeAmount = new Decimal(t.tradingFeeAmount).div(`1e${t.targetToken.decimals}`).toString();
+        }
+      });
+    }
 
     return trades;
   }
