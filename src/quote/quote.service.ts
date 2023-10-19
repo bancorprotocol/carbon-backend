@@ -63,12 +63,12 @@ export class QuoteService {
     return tokensByAddress;
   }
 
-  async fetchLatestPrice(address: string, convert = 'usd'): Promise<any> {
+  async fetchLatestPrice(address: string, convert = ['usd']): Promise<any> {
     const ETH = this.configService.get('ETH');
     try {
       let price;
       if (address.toLowerCase() === ETH.toLowerCase()) {
-        price = await this.coingeckoService.getLatestEthPrice();
+        price = await this.coingeckoService.getLatestEthPrice(convert);
       } else {
         price = await this.coingeckoService.getLatestPrices([address], convert);
       }

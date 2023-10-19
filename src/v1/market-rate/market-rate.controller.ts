@@ -12,12 +12,15 @@ export class MarketRateController {
   @Header('Cache-Control', 'public, max-age=60')
   async marketRate(@Query() params: MarketRateDto): Promise<any> {
     const { address, convert } = params;
-    const data = await this.quoteService.fetchLatestPrice(address, convert);
-    return {
-      data: {
-        [convert.toUpperCase()]: data[address.toLowerCase()][convert.toLowerCase()],
-      },
+    const currencies = convert.split(',');
+    const data = await this.quoteService.fetchLatestPrice(address, currencies);
+    const result = {
+      data: {},
       provider: 'coingecko',
     };
+    currencies.forEach((c) => {
+      result['data'][c.toUpperCase()] = data[address.toLowerCase()][c.toLowerCase()];
+    });
+    return result;
   }
 }

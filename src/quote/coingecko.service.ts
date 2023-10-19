@@ -8,14 +8,14 @@ export class CoinGeckoService {
 
   private readonly baseURL = 'https://pro-api.coingecko.com/api/v3';
 
-  async getLatestPrices(contractAddresses: string[], convert = 'usd'): Promise<any> {
+  async getLatestPrices(contractAddresses: string[], convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
 
     try {
       const response = await axios.get(`${this.baseURL}/simple/token_price/ethereum`, {
         params: {
           contract_addresses: contractAddresses.join(','),
-          vs_currencies: convert,
+          vs_currencies: convert.join(','),
           include_last_updated_at: true,
         },
         headers: {
@@ -29,7 +29,7 @@ export class CoinGeckoService {
     }
   }
 
-  async getLatestEthPrice(convert = 'usd'): Promise<any> {
+  async getLatestEthPrice(convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
     const ETH = this.configService.get('ETH');
 
@@ -37,7 +37,7 @@ export class CoinGeckoService {
       const response = await axios.get(`${this.baseURL}/simple/price`, {
         params: {
           ids: 'ethereum',
-          vs_currencies: convert,
+          vs_currencies: convert.join(','),
           include_last_updated_at: true,
         },
         headers: {
@@ -45,14 +45,15 @@ export class CoinGeckoService {
         },
       });
 
-      return {
+      const result = {
         [ETH.toLowerCase()]: {
-          usd: response.data['ethereum']['usd'],
           last_updated_at: response.data['ethereum']['last_updated_at'],
         },
       };
-
-      response.data;
+      convert.forEach((c) => {
+        result[ETH.toLowerCase()][c.toLowerCase()] = response.data['ethereum'][c.toLowerCase()];
+      });
+      return result;
     } catch (error) {
       throw new Error(`Failed to fetch latest token prices: ${error.message}`);
     }
