@@ -286,7 +286,7 @@ export class RoiService {
 
     const result = await this.strategy.query(query);
     return result.map((r) => {
-      if (r.roi === null) {
+      if (r.roi === null || r.roi <= -100) {
         r.roi = 0;
       }
       r.ROI = r.roi;
