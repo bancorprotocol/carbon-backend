@@ -12,7 +12,7 @@ export interface PriceObject {
 }
 
 const MAX_RESULTS_PER_CALL = 10000;
-const INTERVAL_IN_MINUTES = 15;
+const INTERVAL_IN_MINUTES = 1440;
 
 @Injectable()
 export class CoinMarketCapService {
@@ -87,7 +87,7 @@ export class CoinMarketCapService {
           id: tokenIds.join(','),
           time_start: intervalStart,
           time_end: intervalEnd,
-          interval: `${INTERVAL_IN_MINUTES}m`,
+          interval: `daily`,
         };
 
         requests.push(this.fetchHistoricalData(params));

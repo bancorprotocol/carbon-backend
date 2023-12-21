@@ -9,7 +9,7 @@ export class SimulatorController {
   constructor(private readonly simulatorService: SimulatorService) {}
 
   @Get()
-  @CacheTTL(1 * 1000) // Cache response for 1 second
+  @CacheTTL(10 * 60 * 1000) // Cache response for 1 second
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
   async simulator(@Query() params: SimulatorDto) {
     if (!isValidStart(params.start)) {
