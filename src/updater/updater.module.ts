@@ -14,6 +14,8 @@ import { StrategyModule } from '../strategy/strategy.module';
 import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
 import { RoiModule } from '../v1/roi/roi.module';
 import { CoingeckoModule } from '../v1/coingecko/coingecko.module';
+import { TradingFeePpmUpdatedEventModule } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.module';
+import { PairTradingFeePpmUpdatedEventModule } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.module';
 
 @Module({
   imports: [
@@ -31,6 +33,8 @@ import { CoingeckoModule } from '../v1/coingecko/coingecko.module';
     TokensTradedEventModule,
     RoiModule,
     CoingeckoModule,
+    TradingFeePpmUpdatedEventModule,
+    PairTradingFeePpmUpdatedEventModule,
   ],
   providers: [UpdaterService],
 })

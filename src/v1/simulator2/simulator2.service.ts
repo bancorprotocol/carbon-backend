@@ -55,16 +55,16 @@ export class Simulator2Service {
     // const logPath = path.join(folderPath, 'output.log');
 
     const inputData = {
-      starting_portfolio_value: startingPortfolioValue,
-      high_range_high_price_CASH: highRangeHighPriceCash,
-      high_range_low_price_CASH: highRangeLowPriceCash,
-      low_range_high_price_CASH: lowRangeHighPriceCash,
-      low_range_low_price_CASH: lowRangeLowPriceCash,
-      start_rate_high_range: startRateHighRange,
-      start_rate_low_range: startRateLowRange,
-      CASH_proportion: cashProportion,
-      RISK_proportion: riskProportion,
-      network_fee: networkFee,
+      // starting_portfolio_value: startingPortfolioValue,
+      // high_range_high_price_CASH: highRangeHighPriceCash,
+      // high_range_low_price_CASH: highRangeLowPriceCash,
+      // low_range_high_price_CASH: lowRangeHighPriceCash,
+      // low_range_low_price_CASH: lowRangeLowPriceCash,
+      // start_rate_high_range: startRateHighRange,
+      // start_rate_low_range: startRateLowRange,
+      // CASH_proportion: cashProportion,
+      // RISK_proportion: riskProportion,
+      // network_fee: networkFee,
       prices: pricesRatios,
       // logging: {
       //   output_file_name: logPath,
