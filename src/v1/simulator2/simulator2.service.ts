@@ -21,13 +21,19 @@ export class Simulator2Service {
   async generateSimulation(params: Simulator2Dto): Promise<any> {
     const { baseToken, quoteToken, start, end, quoteBudget, baseBudget, buyMin, buyMax, sellMin, sellMax } = params;
 
+    // handle fees
     const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
     const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary();
-    const feePpm = pairFees[baseToken][quoteToken] || defaultFee;
+    let feePpm;
+    if (pairFees[baseToken] && pairFees[baseToken][quoteToken]) {
+      feePpm = pairFees[baseToken][quoteToken];
+    } else {
+      feePpm = defaultFee;
+    }
 
+    // handle prices
     const tokens = [baseToken, quoteToken];
     const prices = await this.coinMarketCapService.getHistoricalQuotes(tokens, start, end);
-
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
 
