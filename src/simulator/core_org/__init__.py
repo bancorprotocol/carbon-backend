@@ -1729,13 +1729,12 @@ def get_carbon_pivots_asymptotes_and_x_intercepts(
     return(x_int, x_0, x_asym, y_0, y_asym)
 
 def get_carbon_start_state(
-    starting_portfolio_value: Decimal, 
+    starting_portfolio_CASH_value: Decimal, 
+    starting_portfolio_RISK_value: Decimal, 
     high_range_high_price_CASH: Decimal, # 1/Pb
     high_range_low_price_CASH: Decimal, # 1/Pa
     low_range_high_price_CASH: Decimal, # Pa
     low_range_low_price_CASH: Decimal, # Pb
-    checked_RISK_proportion: Decimal = Decimal('1'),
-    checked_CASH_proportion: Decimal = Decimal('1'),
     start_rate_high_range: Decimal = None,
     start_rate_low_range: Decimal = None,
     ) -> Tuple[Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal, Decimal]:
@@ -1805,7 +1804,7 @@ def get_carbon_start_state(
     ## Notes:
     - Refer to the [Carbon whitepaper](https://carbondefi.xyz/whitepaper) for a description of the significance of the curve constants `P_a`, `P_b`, `y_0`, `x_0`, `y_int`, `x_int`, `y_asym`, `x_asym`, `B`, `P`, `Q`, `R`, `S` and `n`.    
     """
-    y_CASH, y_RISK = get_carbon_starting_order_balances(starting_portfolio_value, checked_CASH_proportion, checked_RISK_proportion)
+    y_CASH, y_RISK = starting_portfolio_CASH_value, starting_portfolio_RISK_value
     P_a_RISK, P_b_RISK, B_RISK, P_RISK, Q_RISK, R_RISK, S_RISK, n_RISK = get_concentrated_liquidity_scaling_constants(ONE/high_range_low_price_CASH, ONE/high_range_high_price_CASH)
     P_a_CASH, P_b_CASH, B_CASH, P_CASH, Q_CASH, R_CASH, S_CASH, n_CASH = get_concentrated_liquidity_scaling_constants(low_range_high_price_CASH, low_range_low_price_CASH)
     y_int_RISK = calculate_yint_RISK(y_RISK, P_a_RISK, P_b_RISK, ONE/start_rate_high_range)
@@ -2056,29 +2055,22 @@ def make_carbon(
     ## Notes:
     - Refer to the [Carbon whitepaper](https://carbondefi.xyz/whitepaper) for a description of the significance of the curve constants `P_a`, `P_b`, `CASH_0`, `RISK_0`, `y_int_CASH`, `y_int_RISK`, `B`, `P`, `Q`, `R`, `S` and `n`.
     """
-    starting_portfolio_value = start_information['starting portfolio valuation'][0]
+    starting_portfolio_CASH_value, starting_portfolio_RISK_value = start_information['starting portfolio valuation']
     fee = start_information['protocol fees'][0]
     (high_range_high_price_CASH, 
     high_range_low_price_CASH, 
     low_range_high_price_CASH, 
     low_range_low_price_CASH) = start_information['carbon order boundaries']
-    proposed_RISK_proportion, proposed_CASH_proportion = start_information['carbon order weights']
-    (checked_RISK_proportion, 
-     checked_CASH_proportion) = check_carbon_order_weights(high_range_high_price_CASH, 
-                                                           low_range_low_price_CASH, 
-                                                           proposed_RISK_proportion, 
-                                                           proposed_CASH_proportion)
     start_rate_high_range, start_rate_low_range = start_information['carbon starting prices']
     (y_RISK, y_0_RISK, x_0_RISK, y_int_RISK, x_int_RISK, y_asym_RISK, x_asym_RISK, 
      P_a_RISK, P_b_RISK, B_RISK, P_RISK, Q_RISK, R_RISK, S_RISK, n_RISK, k_RISK,
      y_CASH, y_0_CASH, x_0_CASH, y_int_CASH, x_int_CASH, y_asym_CASH, x_asym_CASH, 
-     P_a_CASH, P_b_CASH, B_CASH, P_CASH, Q_CASH, R_CASH, S_CASH, n_CASH, k_CASH) = get_carbon_start_state(starting_portfolio_value, 
+     P_a_CASH, P_b_CASH, B_CASH, P_CASH, Q_CASH, R_CASH, S_CASH, n_CASH, k_CASH) = get_carbon_start_state(starting_portfolio_CASH_value, 
+                                                                                                  starting_portfolio_RISK_value,
                                                                                                   high_range_high_price_CASH, # 1/Pb
                                                                                                   high_range_low_price_CASH, # 1/Pa
                                                                                                   low_range_high_price_CASH, # Pa
                                                                                                   low_range_low_price_CASH, # Pb
-                                                                                                  checked_RISK_proportion,
-                                                                                                  checked_CASH_proportion,
                                                                                                   start_rate_high_range,
                                                                                                   start_rate_low_range)
     get_carbon_dict(y_RISK, y_0_RISK, x_0_RISK, y_int_RISK, x_int_RISK, y_asym_RISK, x_asym_RISK, P_a_RISK, P_b_RISK, B_RISK, P_RISK, Q_RISK, R_RISK, S_RISK, n_RISK, k_RISK,
@@ -2142,8 +2134,8 @@ def initialize_simulation(
     SIMULATION_LENGTH = len(PRICE_DATA)
     TOKEN_PAIR = start_information['token pair']
     MARKETPRICE = PRICE_DATA[0]
-    make_uniswap_v2(start_information)
-    make_uniswap_v3(start_information)
+    # make_uniswap_v2(start_information)
+    # make_uniswap_v3(start_information)
     make_carbon(start_information)
     return(None)
 
@@ -4043,14 +4035,14 @@ def perform_carbon_arbitrage(
             logger.info(f'The market equilibrium point is outside of the carbon range.')
             DRISK, DCASH = get_maximum_swap_carbon(direction, y_CASH, y_int_CASH, B_CASH, S_CASH, y_RISK, y_int_RISK, B_RISK, S_RISK)
             if DRISK == 0 and DCASH == 0:
-                logger.info('Since the market price remains outside of the carbon ranges, no trade was performed.')
+                logger.info('Since the market price remains outside of the carbon range, no trade was performed.')
                 final_ask, final_bid, min_bid, max_ask = get_carbon_quote(b_or_a, log_bid_and_ask = False)
         risk_amount, cash_amount, trade_action = process_carbon_network_fee(direction, DCASH, DRISK, network_fee)
         apply_trades_on_carbon(y_RISK, y_CASH, DRISK, DCASH)
         logger.info(f'A total of {risk_amount:.6f} {TOKEN_PAIR["RISK"]} was {trade_action} for a total of {cash_amount:.6f} {TOKEN_PAIR["CASH"]}.')        
         y_int_updated_order, old_y_int, new_y_int = update_y_int_values_carbon()
         if y_int_updated_order != None: 
-            logger.info(f'The y-intercept on the {y_int_updated_order} order was moved from {old_y_int:.6f} to {new_y_int:.6f}.') # last remaining diff
+            pass # logger.info(f'The y-intercept on the {y_int_updated_order} order was moved from {old_y_int:.6f} to {new_y_int:.6f}.') # last remaining diff
         logger.info('')
         final_ask, final_bid, min_bid, max_ask = get_carbon_quote(b_or_a, log_bid_and_ask = True)
     else:
@@ -7396,10 +7388,8 @@ def get_start_information_from_binary_file(
         "price chart": [Decimal(x) for x in start_information_filename["price chart"]],
         "price chart dates": [pd.Timestamp(x) for x in start_information_filename["price chart dates"]],
         "token pair": start_information_filename["token pair"],
-        "uniswap range boundaries": [Decimal(x) for x in start_information_filename["uniswap range boundaries"]],
         "carbon order boundaries": [Decimal(x) for x in start_information_filename["carbon order boundaries"]],
         "carbon starting prices": [Decimal(x) for x in start_information_filename["carbon starting prices"]],
-        "carbon order weights": [Decimal(x) for x in start_information_filename["carbon order weights"]],
         "protocol fees": [Decimal(x) for x in start_information_filename["protocol fees"]],
         "protocol list": start_information_filename["protocol list"],
         "depth chart animation boolean": start_information_filename["depth chart animation boolean"],
@@ -7425,17 +7415,18 @@ def start_simulation_logger(
     - This function sets up a logfile to record every event in the simulation in understandable language.
     - The logfile will be saved to a file with the same base filename as the user's simulation settings, but with '_LOG.txt' appended to the end.
     """
-    log_file = start_information["base filename"][0]
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.INFO)
-    handler = logging.FileHandler(log_file, 'w')
-    handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
+    if start_information["base filename"]:
+        log_file = start_information["base filename"][0]
+        logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        handler = logging.FileHandler(log_file, 'w')
+        handler.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(message)s')
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
     return(None)
 
-def run_simulation(
+def the_simulation(
     start_information_filename: Union[str, None] = None
     ):
     """
@@ -7507,7 +7498,7 @@ def run_simulation(
         for protocol in protocol_list:
             final_ask, final_bid, min_bid, max_ask = equilibrate_protocol(protocol)
             evaluate_protocol_performance(protocol, final_ask, final_bid, min_bid, max_ask)
-    logger.info(moai)
+    # logger.info(moai)
     animation_dict = {'depth chart animation boolean': {'animation_type': 'liquidity_depth_animation', 'file_string': 'DEPTH_ANIMATION'},
                       'invariant curve animation boolean': {'animation_type': 'invariant_function_animation', 'file_string': 'INVARIANT_ANIMATION'},
                       'token balance cash basis animation boolean': {'animation_type': 'token_balance_cash_basis', 'file_string': 'TOKEN_BALANCES_ANIMATION'}}
@@ -11553,7 +11544,7 @@ def choose_simulations_and_plots(
         record_simulations_and_plot_selection(simulations_and_plot_selection)
         write_simulation_conditions_binary()
         print("Thank you. Your simulation is beginning now.")
-        run_simulation()
+        the_simulation()
         with output:
             output.clear_output()
         return None
@@ -13799,23 +13790,12 @@ def start(
     - If `start_information_filename` is `None`, the function will prompt the user to choose a portfolio and date range by calling the `choose_portfolio_and_date_range` function.
     """
     if start_information_filename:
-        run_simulation(start_information_filename)
+        the_simulation(start_information_filename)
     else:
         choose_portfolio_and_date_range()
     return(None)
 
 ###################################################################################################
-
-from json import loads, dumps
-from argparse import ArgumentParser
-
-parser = ArgumentParser()
-parser.add_argument('-c', '--config-file-name', default='legacy_config.json')
-parser.add_argument('-o', '--output-file-name', default='legacy_output.json')
-
-args = parser.parse_args()
-config_file_name = args.config_file_name
-output_file_name = args.output_file_name
 
 def format(values: list[Decimal]) -> list[str]:
     return [f'{value:.18f}'.rstrip('0').rstrip('.') for value in values]
@@ -13823,33 +13803,26 @@ def format(values: list[Decimal]) -> list[str]:
 def parse(obj: any) -> any:
     return {
         'CASH': {
-            'balance'           : format(obj['simulation recorder']['CASH balance'   ]),
-            'portion'           : format(obj['simulation recorder']['CASH portion'   ]),
-            'fee'               : format(obj['simulation recorder']['CASH fees'      ]),
-            'bid'               : format(obj['simulation recorder']['bid'            ]),
-            'min_bid'           : format(obj['simulation recorder']['min bid'        ])[0],
-            'bid_upper_bound'   : format(obj['simulation recorder']['bid upper bound'])[0],
-            'hodl_value'        : format(obj['simulation recorder']['hodl value'     ]),
-            'portfolio_value'   : format(obj['simulation recorder']['portfolio value']),
+            'balance'   : format(obj['simulation recorder']['CASH balance'][1:]),
+            'fee'       : format(obj['simulation recorder']['CASH fees'   ][1:]),
         },
         'RISK': {
-            'balance'           : format(obj['simulation recorder']['RISK balance'   ]),
-            'portion'           : format(obj['simulation recorder']['RISK portion'   ]),
-            'fee'               : format(obj['simulation recorder']['RISK fees'      ]),
-            'ask'               : format(obj['simulation recorder']['ask'            ]),
-            'max_ask'           : format(obj['simulation recorder']['max ask'        ])[0],
-            'ask_lower_bound'   : format(obj['simulation recorder']['ask lower bound'])[0],
-            'price'             : format(obj['simulation recorder']['RISK price'     ]),
+            'balance'   : format(obj['simulation recorder']['RISK balance'][1:]),
+            'fee'       : format(obj['simulation recorder']['RISK fees'   ][1:]),
         },
-        'portfolio_over_hodl_quotient' : format(obj['simulation recorder']['portfolio over hodl quotient']),
+        'min_bid'               : format(obj['simulation recorder']['min bid'                     ])[0],
+        'max_bid'               : format(obj['simulation recorder']['bid upper bound'             ])[0],
+        'min_ask'               : format(obj['simulation recorder']['ask lower bound'             ])[0],
+        'max_ask'               : format(obj['simulation recorder']['max ask'                     ])[0],
+        'bid'                   : format(obj['simulation recorder']['bid'                         ]),
+        'ask'                   : format(obj['simulation recorder']['ask'                         ]),
+        'hodl_value'            : format(obj['simulation recorder']['hodl value'                  ]),
+        'portfolio_cash'        : format(obj['simulation recorder']['CASH portion'                ]),
+        'portfolio_risk'        : format(obj['simulation recorder']['RISK portion'                ]),
+        'portfolio_value'       : format(obj['simulation recorder']['portfolio value'             ]),
+        'portfolio_over_hodl'   : format(obj['simulation recorder']['portfolio over hodl quotient']),
+        'price'                 : format(obj['simulation recorder']['RISK price'                  ]),
     }
 
-fileDesc = open(config_file_name, 'r')
-config = loads(fileDesc.read())
-fileDesc.close()
-
-output = parse(run_simulation(config))
-
-fileDesc = open(output_file_name, 'w')
-fileDesc.write(dumps(output, indent=4))
-fileDesc.close()
+def run_simulation(config: dict) -> dict:
+    return parse(the_simulation(config))

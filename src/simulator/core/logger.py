@@ -88,7 +88,7 @@ class RealLogger:
             if details['out_of_range']['before']:
                 self.output_file.write('The market equilibrium point is outside of the carbon range.\n')
                 if details['out_of_range']['after']:
-                    self.output_file.write('Since the market price remains outside of the carbon ranges, no trade was performed.\n')
+                    self.output_file.write('Since the market price remains outside of the carbon range, no trade was performed.\n')
             else:
                 self.output_file.write('There is enough liquidity to equilibrate carbon to the market price.\n')
             action, risk, cash = [details[key] for key in ['action', 'RISK', 'CASH']]
@@ -98,18 +98,18 @@ class RealLogger:
         else:
             self.output_file.write('Since carbon is at equilibrium with the market, no trade was performed.\n\n')
 
-        portfolio_over_hodl_quotient = recorder['portfolio_over_hodl_quotient'][-1]
-        sign = '+' if portfolio_over_hodl_quotient > 0 else '-' if portfolio_over_hodl_quotient < 0 else ' '
+        portfolio_over_hodl = recorder['portfolio_over_hodl'][-1]
+        sign = '+' if portfolio_over_hodl > 0 else '-' if portfolio_over_hodl < 0 else ' '
 
         values = [
             f"{recorder['RISK']['balance'][-1]:.18f}",
             f"{recorder['CASH']['balance'][-1]:.18f}",
             f"{recorder['RISK']['fee'][-1]:.18f}",
             f"{recorder['CASH']['fee'][-1]:.18f}",
-            f"{price:.18f}", 
-            f"{recorder['CASH']['portfolio_value'][-1]:.18f}",
-            f"{recorder['CASH']['hodl_value'][-1]:.18f}",
-            f"{sign}{portfolio_over_hodl_quotient:.17f}%"
+            f"{price:.18f}",
+            f"{recorder['portfolio_value'][-1]:.18f}",
+            f"{recorder['hodl_value'][-1]:.18f}",
+            f"{sign}{portfolio_over_hodl:.17f}%"
         ]
 
         summary = tabulate(

@@ -1,6 +1,7 @@
 {
     "starting portfolio valuation": [
-        "123456.0"
+        "0.0",
+        "9821.48"
     ],
     "base filename": [
         "legacy_output.log"
@@ -5549,10 +5550,6 @@
         "CASH": "ETH",
         "RISK": "BTC"
     },
-    "uniswap range boundaries": [
-        "16.025",
-        "12.7304"
-    ],
     "carbon order boundaries": [
         "14.8112",
         "14.5511",
@@ -5562,10 +5559,6 @@
     "carbon starting prices": [
         "14.5511",
         "14.2043"
-    ],
-    "carbon order weights": [
-        "100.0",
-        "0.0"
     ],
     "protocol fees": [
         "0.001423311636466645"
