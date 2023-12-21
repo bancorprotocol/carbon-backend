@@ -19,22 +19,7 @@ export class Simulator2Service {
   ) {}
 
   async generateSimulation(params: Simulator2Dto): Promise<any> {
-    const {
-      baseToken,
-      quoteToken,
-      start,
-      end,
-      // startingPortfolioValue,
-      // highRangeHighPriceCash,
-      // highRangeLowPriceCash,
-      // lowRangeHighPriceCash,
-      // lowRangeLowPriceCash,
-      // startRateHighRange,
-      // startRateLowRange,
-      // cashProportion,
-      // riskProportion,
-      // networkFee,
-    } = params;
+    const { baseToken, quoteToken, start, end, quoteBudget, baseBudget, buyMin, buyMax, sellMin, sellMax } = params;
 
     const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
     const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary();
@@ -65,16 +50,15 @@ export class Simulator2Service {
     // const logPath = path.join(folderPath, 'output.log');
 
     const inputData = {
-      // starting_portfolio_value: startingPortfolioValue,
-      // high_range_high_price_CASH: highRangeHighPriceCash,
-      // high_range_low_price_CASH: highRangeLowPriceCash,
-      // low_range_high_price_CASH: lowRangeHighPriceCash,
-      // low_range_low_price_CASH: lowRangeLowPriceCash,
-      // start_rate_high_range: startRateHighRange,
-      // start_rate_low_range: startRateLowRange,
-      // CASH_proportion: cashProportion,
-      // RISK_proportion: riskProportion,
-      // network_fee: networkFee,
+      portfolio_cash_value: quoteBudget,
+      portfolio_risk_value: baseBudget,
+      low_range_low_price: buyMin,
+      low_range_high_price: buyMax,
+      low_range_start_price: buyMax,
+      high_range_low_price: sellMin,
+      high_range_high_price: sellMax,
+      high_range_start_price: sellMin,
+      network_fee: `${feePpm / 1000000}`,
       prices: pricesRatios,
       // logging: {
       //   output_file_name: logPath,

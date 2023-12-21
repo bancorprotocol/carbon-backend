@@ -20,31 +20,28 @@ export class SimulatorDto {
   end: number;
 
   @IsNumberString()
-  startingPortfolioValue: number;
+  portfolioCashValue: number;
 
   @IsNumberString()
-  highRangeHighPriceCash: number;
+  portfolioRiskValue: number;
 
   @IsNumberString()
-  highRangeLowPriceCash: number;
+  lowRangeLowPrice: number;
 
   @IsNumberString()
-  lowRangeHighPriceCash: number;
+  lowRangeHighPrice: number;
 
   @IsNumberString()
-  lowRangeLowPriceCash: number;
+  lowRangeStartPrice: number;
 
   @IsNumberString()
-  startRateHighRange: number;
+  highRangeLowPrice: number;
 
   @IsNumberString()
-  startRateLowRange: number;
+  highRangeHighPrice: number;
 
   @IsNumberString()
-  cashProportion: number;
-
-  @IsNumberString()
-  riskProportion: number;
+  highRangeStartPrice: number;
 
   @IsNumberString()
   networkFee: number;

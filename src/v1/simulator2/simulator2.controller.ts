@@ -4,7 +4,7 @@ import { CacheTTL } from '@nestjs/cache-manager';
 import { Simulator2Service } from './simulator2.service';
 import moment from 'moment';
 
-@Controller({ version: '1', path: 'simulator2' })
+@Controller({ version: '1', path: 'simulate-create-strategy' })
 export class Simulator2Controller {
   constructor(private readonly simulatorService: Simulator2Service) {}
 
