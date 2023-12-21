@@ -7,10 +7,16 @@ import * as childProcess from 'child_process';
 import Decimal from 'decimal.js';
 import moment from 'moment';
 import { toTimestamp } from 'src/utilities';
+import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
+import { TradingFeePpmUpdatedEventService } from '../..//events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 
 @Injectable()
 export class Simulator2Service {
-  constructor(private readonly coinMarketCapService: CoinMarketCapService) {}
+  constructor(
+    private readonly coinMarketCapService: CoinMarketCapService,
+    private readonly tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
+    private readonly pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
+  ) {}
 
   async generateSimulation(params: Simulator2Dto): Promise<any> {
     const {
@@ -29,6 +35,10 @@ export class Simulator2Service {
       // riskProportion,
       // networkFee,
     } = params;
+
+    const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
+    const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary();
+    const feePpm = pairFees[baseToken][quoteToken] || defaultFee;
 
     const tokens = [baseToken, quoteToken];
     const prices = await this.coinMarketCapService.getHistoricalQuotes(tokens, start, end);

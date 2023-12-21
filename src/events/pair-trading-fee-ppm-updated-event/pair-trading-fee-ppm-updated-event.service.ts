@@ -7,6 +7,10 @@ import { PairsDictionary } from 'src/pair/pair.service';
 import { TokensByAddress } from 'src/token/token.service';
 import { BlocksDictionary } from '../../block/block.service';
 
+export interface PairTradingFeePpmDictionary {
+  [address: string]: number;
+}
+
 @Injectable()
 export class PairTradingFeePpmUpdatedEventService {
   constructor(
@@ -20,8 +24,8 @@ export class PairTradingFeePpmUpdatedEventService {
       .createQueryBuilder('pairTradingFeePpmUpdatedEvents')
       .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.block', 'block')
       .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.pair', 'pair')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.token0', 'token0')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.token1', 'token1')
+      .leftJoinAndSelect('pair.token0', 'token0')
+      .leftJoinAndSelect('pair.token1', 'token1')
       .orderBy('block.id', 'ASC')
       .getMany();
   }
@@ -66,5 +70,21 @@ export class PairTradingFeePpmUpdatedEventService {
     event['pair'] = pairsDictionary[event['token0'].address][event['token1'].address];
 
     return event;
+  }
+
+  async allAsDictionary(): Promise<PairTradingFeePpmDictionary> {
+    const all = await this.all();
+    const dictionary = {};
+    all.forEach((p) => {
+      if (!(p.pair.token0.address in dictionary)) {
+        dictionary[p.pair.token0.address] = {};
+      }
+      if (!(p.pair.token1.address in dictionary)) {
+        dictionary[p.pair.token1.address] = {};
+      }
+      dictionary[p.pair.token0.address][p.pair.token1.address] = p.newFeePPM;
+      dictionary[p.pair.token1.address][p.pair.token0.address] = p.newFeePPM;
+    });
+    return dictionary;
   }
 }

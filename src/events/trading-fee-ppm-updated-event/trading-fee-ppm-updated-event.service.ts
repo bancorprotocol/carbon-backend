@@ -48,4 +48,8 @@ export class TradingFeePpmUpdatedEventService {
       .orderBy('block.id', 'ASC')
       .getMany();
   }
+
+  async last(): Promise<TradingFeePpmUpdatedEvent> {
+    return this.repository.findOne({ where: {}, order: { timestamp: 'DESC' } });
+  }
 }
