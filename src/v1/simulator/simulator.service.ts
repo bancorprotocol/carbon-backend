@@ -66,12 +66,12 @@ export class SimulatorService {
       RISK_proportion: riskProportion,
       network_fee: networkFee,
       prices: pricesRatios,
-      logging: {
-        output_file_name: logPath,
-        cash_token_symbol: 'ETH',
-        risk_token_symbol: 'BTC',
-        dates,
-      },
+      // logging: {
+      //   output_file_name: logPath,
+      //   cash_token_symbol: 'ETH',
+      //   risk_token_symbol: 'BTC',
+      //   dates,
+      // },
     };
 
     // Create folder if it doesn't exist
