@@ -1,6 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { Simulator2Dto } from './simulator2.dto';
-import { CoinMarketCapService } from '../../coinmarketcap/coinmarketcap.service';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
 import * as childProcess from 'child_process';
@@ -9,13 +8,14 @@ import moment from 'moment';
 import { toTimestamp } from 'src/utilities';
 import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../..//events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
+import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 
 @Injectable()
 export class Simulator2Service {
   constructor(
-    private readonly coinMarketCapService: CoinMarketCapService,
     private readonly tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
     private readonly pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
+    private readonly historicQuoteService: HistoricQuoteService,
   ) {}
 
   async generateSimulation(params: Simulator2Dto): Promise<any> {
@@ -33,9 +33,17 @@ export class Simulator2Service {
 
     // handle prices
     const tokens = [baseToken, quoteToken];
-    const prices = await this.coinMarketCapService.getHistoricalQuotes(tokens, start, end);
+    const prices = await this.historicQuoteService.getHistoryQuotesBuckets(tokens, start, end);
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
+
+    if (!pricesBaseToken[0].mid || !pricesQuoteToken[0].mid) {
+      throw new BadRequestException({
+        message: ['No data for given tokens and date range'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
 
     // Synchronize arrays to have the same length
     const minLength = Math.min(pricesBaseToken.length, pricesQuoteToken.length);
@@ -43,9 +51,9 @@ export class Simulator2Service {
     const trimmedPricesQuoteToken = pricesQuoteToken.slice(0, minLength);
 
     // Use the trimmed arrays for dates and pricesRatios
-    const dates = trimmedPricesBaseToken.map((p) => moment.unix(p.timestamp).toISOString());
+    const dates = trimmedPricesBaseToken.map((p) => moment(p.timestamp).toISOString());
     const pricesRatios = trimmedPricesBaseToken.map((p, i) =>
-      new Decimal(p.price).div(trimmedPricesQuoteToken[i].price).toString(),
+      new Decimal(p.mid).div(trimmedPricesQuoteToken[i].mid).toString(),
     );
 
     // Step 1: Create input.json

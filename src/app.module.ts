@@ -17,6 +17,7 @@ import { APP_INTERCEPTOR } from '@nestjs/core';
 import { redisStore } from 'cache-manager-redis-yet';
 import { V1Module } from './v1/v1.module';
 import { DuneModule } from './dune/dune.module';
+import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { DuneModule } from './dune/dune.module';
     UpdaterModule,
     V1Module,
     DuneModule,
+    HistoricQuoteModule,
   ],
 
   providers: [

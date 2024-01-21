@@ -1,21 +1,17 @@
-import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
-import { Simulator2Dto } from './simulator2.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
-import { Simulator2Service } from './simulator2.service';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
+import { HistoricQuoteDto } from './historic-quote.dto';
 import moment from 'moment';
-import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
+import { HistoricQuoteService } from './historic-quote.service';
 
-@Controller({ version: '1', path: 'simulate-create-strategy' })
-export class Simulator2Controller {
-  constructor(
-    private readonly simulatorService: Simulator2Service,
-    private historicQuoteService: HistoricQuoteService,
-  ) {}
+@Controller({ version: '1', path: 'history/prices' })
+export class HistoricQuoteController {
+  constructor(private historicQuoteService: HistoricQuoteService) {}
 
   @Get()
-  @CacheTTL(10 * 60 * 1000) // Cache response for 1 second
+  @CacheTTL(12 * 60 * 60 * 1000) // Cache response for 1 second
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async simulator(@Query() params: Simulator2Dto) {
+  async simulator(@Query() params: HistoricQuoteDto) {
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
@@ -32,7 +28,7 @@ export class Simulator2Controller {
       });
     }
 
-    const data = await this.simulatorService.generateSimulation(params);
+    const data = await this.historicQuoteService.getHistoryQuotesBuckets([params.token], params.start, params.end);
     return data;
   }
 }

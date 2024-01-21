@@ -63,6 +63,88 @@ export class CoinMarketCapService {
     }
   }
 
+  private async getV1CryptocurrencyListingsLatest(): Promise<any> {
+    const apiUrl = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest';
+    const apiKey = this.getApiKey();
+    const limit = 5000;
+    const result: any[] = [];
+
+    try {
+      let start = 1;
+
+      while (true) {
+        const response = await axios.get(apiUrl, {
+          params: {
+            convert: 'USD',
+            limit,
+            start,
+            cryptocurrency_type: 'tokens',
+          },
+          headers: { 'X-CMC_PRO_API_KEY': apiKey },
+        });
+
+        const responseData = response.data.data;
+        if (!responseData || responseData.length === 0) {
+          break;
+        }
+
+        result.push(...responseData);
+        start += responseData.length;
+
+        if (responseData.length < limit) {
+          break;
+        }
+      }
+
+      return result.filter((r) => r.platform && r.platform.slug === 'ethereum');
+    } catch (error) {
+      // Handle errors here
+      throw error;
+    }
+  }
+
+  private async getV1CryptocurrencyMapTokens(): Promise<any[]> {
+    const apiUrl = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/map';
+    const apiKey = this.getApiKey();
+    const limit = 5000;
+    const result: any[] = [];
+
+    try {
+      let start = 1;
+
+      while (true) {
+        const response = await axios.get(apiUrl, {
+          params: {
+            listing_status: 'active',
+            limit,
+            start,
+          },
+          headers: { 'X-CMC_PRO_API_KEY': apiKey },
+        });
+
+        const responseData = response.data.data;
+        if (!responseData || responseData.length === 0) {
+          break;
+        }
+
+        // Filter out tokens with null platform and include only Ethereum tokens
+        const ethereumTokens = responseData.filter((token) => token.platform && token.platform.slug === 'ethereum');
+
+        result.push(...ethereumTokens);
+        start += responseData.length;
+
+        if (responseData.length < limit) {
+          break;
+        }
+      }
+
+      return result;
+    } catch (error) {
+      // Handle errors here
+      throw error;
+    }
+  }
+
   async getHistoricalQuotes(
     tokenAddresses: string[],
     start: number,
@@ -80,8 +162,6 @@ export class CoinMarketCapService {
       for (let i = 0; i < batches; i++) {
         const intervalStart = moment.unix(start + i * intervalInSeconds).toISOString(true);
         const intervalEnd = moment.unix(Math.min(start + (i + 1) * intervalInSeconds, end)).toISOString(true);
-
-        console.log(`Interval ${i + 1}: Start - ${intervalStart}, End - ${intervalEnd}`);
 
         const params = {
           id: tokenIds.join(','),
@@ -101,7 +181,7 @@ export class CoinMarketCapService {
           const tokenAddress = tokenAddresses[tokenIds.indexOf(id)];
           const prices = response.data.data[id].quotes.map((q) => {
             const { price, timestamp } = q.quote.USD;
-            return { price, timestamp: toTimestamp(timestamp) };
+            return { price, timestamp: toTimestamp(timestamp), address: tokenAddress };
           });
 
           result[tokenAddress] = (result[tokenAddress] || []).concat(prices);
@@ -112,5 +192,13 @@ export class CoinMarketCapService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async getLatestQuotes(): Promise<any> {
+    return this.getV1CryptocurrencyListingsLatest();
+  }
+
+  async getAllTokens(): Promise<any> {
+    return this.getV1CryptocurrencyMapTokens();
   }
 }
