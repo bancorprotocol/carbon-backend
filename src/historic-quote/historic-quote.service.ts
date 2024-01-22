@@ -140,7 +140,7 @@ export class HistoricQuoteService {
   }
 
   async getHistoryQuotesBuckets(
-    addresses: string[],
+    _addresses: string[],
     start: number,
     end: number,
   ): Promise<{ [key: string]: CandlestickData[] }> {
@@ -148,6 +148,7 @@ export class HistoricQuoteService {
     const startQ = moment.unix(start).utc().startOf('day').toISOString();
     let endQ: any = moment.unix(end).utc().startOf('day');
     endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
+    const addresses = _addresses.map((a) => a.toLowerCase());
 
     const addressesString = addresses.map((a) => `'${a}'`).join(', ');
 

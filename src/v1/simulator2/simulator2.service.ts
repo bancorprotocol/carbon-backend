@@ -19,7 +19,9 @@ export class Simulator2Service {
   ) {}
 
   async generateSimulation(params: Simulator2Dto): Promise<any> {
-    const { baseToken, quoteToken, start, end, quoteBudget, baseBudget, buyMin, buyMax, sellMin, sellMax } = params;
+    const { start, end, quoteBudget, baseBudget, buyMin, buyMax, sellMin, sellMax } = params;
+    const baseToken = params['baseToken'].toLowerCase();
+    const quoteToken = params['quoteToken'].toLowerCase();
 
     // handle fees
     const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
