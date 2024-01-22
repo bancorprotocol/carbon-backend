@@ -53,7 +53,7 @@ export class Simulator2Service {
     const trimmedPricesQuoteToken = pricesQuoteToken.slice(0, minLength);
 
     // Use the trimmed arrays for dates and pricesRatios
-    const dates = trimmedPricesBaseToken.map((p) => moment(p.timestamp).toISOString());
+    const dates = trimmedPricesBaseToken.map((p) => moment.unix(p.timestamp).toISOString());
     const pricesRatios = trimmedPricesBaseToken.map((p, i) =>
       new Decimal(p.mid).div(trimmedPricesQuoteToken[i].mid).toString(),
     );
