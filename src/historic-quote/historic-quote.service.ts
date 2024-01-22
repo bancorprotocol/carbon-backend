@@ -27,7 +27,7 @@ export class HistoricQuoteService {
     private configService: ConfigService,
   ) {}
 
-  @Interval(5 * 60 * 1000)
+  // @Interval(5 * 60 * 1000)
   async pollForUpdates(): Promise<void> {
     const shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES');
     if (shouldPollQuotes !== '1' || this.isPolling) return;
@@ -38,21 +38,14 @@ export class HistoricQuoteService {
       const quotes = await this.coinmarketcapService.getLatestQuotes();
       const newQuotes = [];
       for (const q of quotes) {
-        const tokenAddress = q.platform.token_address;
-        const price = `${q.quote.USD.price}`;
+        const tokenAddress = q.tokenAddress;
+        const price = `${q.usd}`;
 
         if (latest[tokenAddress] && latest[tokenAddress].usd === price) {
           continue;
         }
 
-        newQuotes.push(
-          this.repository.create({
-            tokenAddress: q.platform.token_address,
-            usd: q.quote.USD.price,
-            timestamp: q.last_updated,
-            provider: 'coinmarketcap',
-          }),
-        );
+        newQuotes.push(this.repository.create(q));
       }
 
       const batches = _.chunk(newQuotes, 1000);
@@ -155,12 +148,12 @@ export class HistoricQuoteService {
     const query = `
       SELECT
         "tokenAddress",
-        time_bucket_gapfill('1 day', timestamp) AS bucket,
+        time_bucket_gapfill('6 hours', timestamp) AS bucket,
         locf(last(usd, timestamp)) as price,
-        first(usd, timestamp) as open,
-        last(usd, timestamp) as close,
-        max(usd) as high,
-        min(usd) as low
+        locf(first(usd, timestamp)) as open,
+        locf(last(usd, timestamp)) as close,
+        locf(max(usd)) as high,
+        locf(min(usd)) as low
       FROM
         "historic-quotes"
       WHERE
@@ -177,9 +170,6 @@ export class HistoricQuoteService {
 
     result.forEach((row: any) => {
       const tokenAddress = row.tokenAddress;
-      if (!row.close) {
-        return;
-      }
       const candle = {
         timestamp: moment(row.bucket).unix(),
         open: row.open,

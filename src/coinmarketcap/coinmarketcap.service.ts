@@ -13,10 +13,14 @@ export interface PriceObject {
 
 const MAX_RESULTS_PER_CALL = 10000;
 const INTERVAL_IN_MINUTES = 1440;
+const ETH_ID = 1027;
 
 @Injectable()
 export class CoinMarketCapService {
-  constructor(private readonly configService: ConfigService) {}
+  private ethAddress;
+  constructor(private readonly configService: ConfigService) {
+    this.ethAddress = this.configService.get('ETH');
+  }
 
   private getApiKey(): string {
     return this.configService.get<string>('COINMARKETCAP_API_KEY');
@@ -39,7 +43,7 @@ export class CoinMarketCapService {
 
       const tokenIds = tokenAddresses.map((address) => {
         if (address.toLowerCase() === eth.toLowerCase()) {
-          return '1027'; // Ethereum ID on CoinMarketCap
+          return ETH_ID.toString();
         }
         const foundToken = data.find((token) => token.platform?.token_address.toLowerCase() === address.toLowerCase());
         return foundToken ? foundToken.id.toString() : null;
@@ -51,7 +55,7 @@ export class CoinMarketCapService {
     }
   }
 
-  private async fetchHistoricalData(params: any): Promise<AxiosResponse> {
+  private async getV3CryptocurrencyQuotesHistorical(params: any): Promise<AxiosResponse> {
     const apiKey = this.getApiKey();
     const url = 'https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/historical';
 
@@ -88,7 +92,17 @@ export class CoinMarketCapService {
           break;
         }
 
-        result.push(...responseData);
+        responseData.forEach((d) => {
+          if (d.platform && d.platform.slug === 'ethereum') {
+            result.push({
+              tokenAddress: d.platform.token_address.toLowerCase(),
+              usd: d.quote.USD.price,
+              timestamp: d.last_updated,
+              provider: 'coinmarketcap',
+            });
+          }
+        });
+
         start += responseData.length;
 
         if (responseData.length < limit) {
@@ -96,7 +110,7 @@ export class CoinMarketCapService {
         }
       }
 
-      return result.filter((r) => r.platform && r.platform.slug === 'ethereum');
+      return result;
     } catch (error) {
       // Handle errors here
       throw error;
@@ -137,7 +151,42 @@ export class CoinMarketCapService {
           break;
         }
       }
+      result.push({
+        id: ETH_ID,
+        platform: { token_address: this.ethAddress.toLowerCase() },
+      });
+      return result;
+    } catch (error) {
+      // Handle errors here
+      throw error;
+    }
+  }
 
+  private async getV2CryptocurrencyQuotesLatest(ids: number[]): Promise<any> {
+    const apiUrl = 'https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest';
+    const apiKey = this.getApiKey();
+
+    try {
+      const response = await axios.get(apiUrl, {
+        params: {
+          convert: 'USD',
+          id: ids.join(','),
+        },
+        headers: { 'X-CMC_PRO_API_KEY': apiKey },
+      });
+
+      const data = response.data.data;
+      const result = [];
+      Object.keys(data).forEach((key) => {
+        const q = data[key];
+        const tokenAddress = q.id === ETH_ID ? this.ethAddress.toLowerCase() : q.platform.token_address.toLowerCase();
+        result.push({
+          tokenAddress,
+          usd: q.quote.USD.price,
+          timestamp: q.last_updated,
+          provider: 'coinmarketcap',
+        });
+      });
       return result;
     } catch (error) {
       // Handle errors here
@@ -170,7 +219,7 @@ export class CoinMarketCapService {
           interval: `daily`,
         };
 
-        requests.push(this.fetchHistoricalData(params));
+        requests.push(this.getV3CryptocurrencyQuotesHistorical(params));
       }
 
       const responses: AxiosResponse[] = await Promise.all(requests);
@@ -195,10 +244,12 @@ export class CoinMarketCapService {
   }
 
   async getLatestQuotes(): Promise<any> {
-    return this.getV1CryptocurrencyListingsLatest();
+    const latestQuotes = await this.getV1CryptocurrencyListingsLatest();
+    const eth = await this.getV2CryptocurrencyQuotesLatest([ETH_ID]);
+    return [...latestQuotes, ...eth];
   }
 
-  async getAllTokens(): Promise<any> {
-    return this.getV1CryptocurrencyMapTokens();
+  async getAllTokens(): Promise<any[]> {
+    return await this.getV1CryptocurrencyMapTokens();
   }
 }

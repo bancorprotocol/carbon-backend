@@ -12,7 +12,9 @@ export class HistoricQuoteController {
   @Get()
   @CacheTTL(1 * 60 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async simulator(@Query() params: HistoricQuoteDto) {
+  async prices(@Query() params: HistoricQuoteDto) {
+    const foo = isValidStart(params.start);
+
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
@@ -42,6 +44,14 @@ export class HistoricQuoteController {
     data[params.baseToken].forEach((_, i) => {
       const base = data[params.baseToken][i];
       const quote = data[params.quoteToken][i];
+
+      if (!quote.close) {
+        throw new BadRequestException({
+          message: ['start must be within the last 12 months'],
+          error: 'Bad Request',
+          statusCode: 400,
+        });
+      }
       result.push({
         timestamp: data[params.baseToken][i].timestamp,
         low: new Decimal(base.low).div(quote.low).toString(),
@@ -55,7 +65,7 @@ export class HistoricQuoteController {
   }
 }
 
-const isValidStart = async (start: number): Promise<boolean> => {
+const isValidStart = (start: number): boolean => {
   const twelveMonthsAgo = moment().subtract(12, 'months').startOf('day').unix();
   return start >= twelveMonthsAgo;
 };

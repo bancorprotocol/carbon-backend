@@ -15,6 +15,7 @@ import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from 'src/events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { ActivityService } from 'src/v1/activity/activity.service';
+import { HistoricQuoteService } from 'src/historic-quote/historic-quote.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 
@@ -37,7 +38,7 @@ export class UpdaterService {
     private tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
     private activityService: ActivityService,
-
+    private historyQuoteService: HistoricQuoteService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -69,6 +70,8 @@ export class UpdaterService {
 
       await this.blockService.update(endBlock);
       console.log('CARBON SERVICE - Finished blocks');
+
+      // await this.historyQuoteService.seed();
 
       const firstUnprocessedBlockNumber = await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
       const fullRange = range(firstUnprocessedBlockNumber, endBlock);
