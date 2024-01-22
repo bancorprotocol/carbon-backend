@@ -1,4 +1,12 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, PrimaryColumn } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  PrimaryColumn,
+  Index,
+} from 'typeorm';
 
 @Entity({ name: 'historic-quotes' })
 export class HistoricQuote {
@@ -9,6 +17,7 @@ export class HistoricQuote {
   timestamp: Date;
 
   @Column()
+  @Index()
   tokenAddress: string;
 
   @Column()
