@@ -6,7 +6,10 @@ import { Type } from 'class-transformer';
 
 export class HistoricQuoteDto {
   @IsAddress()
-  token: string;
+  baseToken: string;
+
+  @IsAddress()
+  quoteToken: string;
 
   @IsNumber()
   @Type(() => Number)

@@ -3,13 +3,14 @@ import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/com
 import { HistoricQuoteDto } from './historic-quote.dto';
 import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
+import Decimal from 'decimal.js';
 
 @Controller({ version: '1', path: 'history/prices' })
 export class HistoricQuoteController {
   constructor(private historicQuoteService: HistoricQuoteService) {}
 
   @Get()
-  @CacheTTL(12 * 60 * 60 * 1000) // Cache response for 1 second
+  @CacheTTL(1 * 60 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
   async simulator(@Query() params: HistoricQuoteDto) {
     if (!isValidStart(params.start)) {
@@ -28,8 +29,29 @@ export class HistoricQuoteController {
       });
     }
 
-    const data = await this.historicQuoteService.getHistoryQuotesBuckets([params.token], params.start, params.end);
-    return data;
+    params.baseToken = params.baseToken.toLowerCase();
+    params.quoteToken = params.quoteToken.toLowerCase();
+
+    const data = await this.historicQuoteService.getHistoryQuotesBuckets(
+      [params.baseToken, params.quoteToken],
+      params.start,
+      params.end,
+    );
+
+    const result = [];
+    data[params.baseToken].forEach((_, i) => {
+      const base = data[params.baseToken][i];
+      const quote = data[params.quoteToken][i];
+      result.push({
+        timestamp: data[params.baseToken][i].timestamp,
+        low: new Decimal(base.low).div(quote.low).toString(),
+        high: new Decimal(base.high).div(quote.high).toString(),
+        open: new Decimal(base.open).div(quote.open).toString(),
+        close: new Decimal(base.close).div(quote.close).toString(),
+      });
+    });
+
+    return result;
   }
 }
 

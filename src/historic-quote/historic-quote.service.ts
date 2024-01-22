@@ -177,6 +177,9 @@ export class HistoricQuoteService {
 
     result.forEach((row: any) => {
       const tokenAddress = row.tokenAddress;
+      if (!row.close) {
+        return;
+      }
       const candle = {
         timestamp: moment(row.bucket).unix(),
         open: row.open,
