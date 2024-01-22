@@ -27,7 +27,7 @@ export class HistoricQuoteService {
     private configService: ConfigService,
   ) {}
 
-  // @Interval(5 * 60 * 1000)
+  @Interval(5 * 60 * 1000)
   async pollForUpdates(): Promise<void> {
     const shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES');
     if (shouldPollQuotes !== '1' || this.isPolling) return;
