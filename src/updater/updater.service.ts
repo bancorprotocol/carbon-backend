@@ -71,8 +71,6 @@ export class UpdaterService {
       await this.blockService.update(endBlock);
       console.log('CARBON SERVICE - Finished blocks');
 
-      // await this.historyQuoteService.seed();
-
       const firstUnprocessedBlockNumber = await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
       const fullRange = range(firstUnprocessedBlockNumber, endBlock);
       const batches = _.chunk(fullRange, 1000000);
