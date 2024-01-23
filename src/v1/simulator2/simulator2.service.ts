@@ -39,7 +39,7 @@ export class Simulator2Service {
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
 
-    if (!pricesBaseToken[0].mid || !pricesQuoteToken[0].mid) {
+    if (!pricesBaseToken[0].close || !pricesQuoteToken[0].close) {
       throw new BadRequestException({
         message: ['No data for given tokens and date range'],
         error: 'Bad Request',
@@ -55,7 +55,7 @@ export class Simulator2Service {
     // Use the trimmed arrays for dates and pricesRatios
     const dates = trimmedPricesBaseToken.map((p) => moment.unix(p.timestamp).toISOString());
     const pricesRatios = trimmedPricesBaseToken.map((p, i) =>
-      new Decimal(p.mid).div(trimmedPricesQuoteToken[i].mid).toString(),
+      new Decimal(p.close).div(trimmedPricesQuoteToken[i].close).toString(),
     );
 
     // Step 1: Create input.json

@@ -14,7 +14,6 @@ type CandlestickData = {
   close: string;
   high: string;
   low: string;
-  mid: string;
 };
 
 @Injectable()
@@ -149,7 +148,6 @@ export class HistoricQuoteService {
       SELECT
         "tokenAddress",
         time_bucket_gapfill('1 day', timestamp) AS bucket,
-        locf(last(usd, timestamp)) as price,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
         locf(max(usd)) as high,
@@ -176,7 +174,6 @@ export class HistoricQuoteService {
         close: row.close,
         high: row.high,
         low: row.low,
-        mid: row.price,
       };
 
       if (!candlesByAddress[tokenAddress]) {
