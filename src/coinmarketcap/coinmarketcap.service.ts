@@ -12,7 +12,7 @@ export interface PriceObject {
 }
 
 const MAX_RESULTS_PER_CALL = 10000;
-const INTERVAL_IN_MINUTES = 1440;
+const INTERVAL_IN_MINUTES = 360;
 const ETH_ID = 1027;
 
 @Injectable()
@@ -216,7 +216,7 @@ export class CoinMarketCapService {
           id: tokenIds.join(','),
           time_start: intervalStart,
           time_end: intervalEnd,
-          interval: `daily`,
+          interval: '6h',
         };
 
         requests.push(this.getV3CryptocurrencyQuotesHistorical(params));

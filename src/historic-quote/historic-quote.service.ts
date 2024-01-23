@@ -64,7 +64,7 @@ export class HistoricQuoteService {
     let i = 0;
 
     const tokens = await this.coinmarketcapService.getAllTokens();
-    const batchSize = 1000; // Adjust the batch size as needed
+    const batchSize = 100; // Adjust the batch size as needed
 
     for (let startIndex = 0; startIndex < tokens.length; startIndex += batchSize) {
       const batchTokens = tokens.slice(startIndex, startIndex + batchSize);
@@ -148,7 +148,7 @@ export class HistoricQuoteService {
     const query = `
       SELECT
         "tokenAddress",
-        time_bucket_gapfill('6 hours', timestamp) AS bucket,
+        time_bucket_gapfill('1 day', timestamp) AS bucket,
         locf(last(usd, timestamp)) as price,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
