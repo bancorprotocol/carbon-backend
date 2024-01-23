@@ -13,8 +13,6 @@ export class HistoricQuoteController {
   @CacheTTL(1 * 60 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
   async prices(@Query() params: HistoricQuoteDto) {
-    const foo = isValidStart(params.start);
-
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
