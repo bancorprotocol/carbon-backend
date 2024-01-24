@@ -13,9 +13,10 @@ import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-t
 import { RoiService } from '../v1/roi/roi.service';
 import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
-import { TradingFeePpmUpdatedEventService } from 'src/events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
-import { ActivityService } from 'src/v1/activity/activity.service';
-import { HistoricQuoteService } from 'src/historic-quote/historic-quote.service';
+import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
+import { ActivityService } from '../v1/activity/activity.service';
+import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
+import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 
@@ -39,6 +40,7 @@ export class UpdaterService {
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
     private activityService: ActivityService,
     private historyQuoteService: HistoricQuoteService,
+    private voucherTransferEventService: VoucherTransferEventService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -116,6 +118,9 @@ export class UpdaterService {
         // pair trading fee events
         await this.pairTradingFeePpmUpdatedEventService.update(toBlock, pairs, tokens, blocksDictionary);
         console.log('CARBON SERVICE - Finished updating pair trading fee events');
+
+        await this.voucherTransferEventService.update(toBlock, blocksDictionary);
+        console.log('CARBON SERVICE - Finished updating voucher transfer events');
 
         // activity
         await this.activityService.update();

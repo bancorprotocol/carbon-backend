@@ -46,6 +46,7 @@ export class LastProcessedBlockService {
       'strategy-created-events',
       'trading-fee-ppm-updated-events',
       'pair-trading-fee-ppm-updated',
+      'voucher-transfer-events',
     ];
     const values = await Promise.all(
       entities.map((e) => {

@@ -24,8 +24,7 @@ export class ActivityService {
   }
 
   private async getActivity(): Promise<any> {
-    const query = `
-    WITH created AS (
+    const query = `WITH created AS (
         SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s.id as id, order0, order1, 
         t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0,
         t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1,
@@ -157,8 +156,23 @@ export class ActivityService {
     from descriptions d
     left join all_trades a on a.txhash = d.txhash and a.id = d.id
     ),
+    voucher_transfers as (
+        SELECT *
+        FROM "voucher-transfer-events" s
+        where (s."from"!='0x0000000000000000000000000000000000000000') and (s."to"!='0x0000000000000000000000000000000000000000')
+    ),
+    RankedVoucherTransfers AS (
+    SELECT *,
+            ROW_NUMBER() OVER (PARTITION BY "strategyId" ORDER BY "blockId" DESC) as rn
+    FROM voucher_transfers
+    ),
+    most_recent_transfer as (
+    SELECT *
+    FROM RankedVoucherTransfers
+    WHERE rn = 1
+    ),
     complete_info as (
-    select *,
+    select ti.*,
     CASE WHEN base_quote = trade_base_quote THEN effective_price ELSE effective_price_inv END as avg_price,
     CASE 
         WHEN descr = 'Trade Occurred' and token_sold = symbol0 THEN 'Sell High'
@@ -170,16 +184,20 @@ export class ActivityService {
         WHEN descr = 'Withdrew TKN1' THEN 'Withdraw'
         WHEN descr = 'Updated Price' THEN 'Edit Price'
         ELSE descr
-    END as action
-    from trade_info
+    END as action,
+    CASE
+        WHEN mrt."strategyId" IS NOT NULL THEN mrt."to"
+        ELSE ti.creation_wallet
+    END AS current_owner
+    from trade_info ti
+    LEFT JOIN most_recent_transfer mrt ON ti.id = mrt."strategyId"
     )
     select
-    creation_wallet, id, action, base_quote, symbol0 as base_sell_token, symbol1 as quote_buy_token, liquidity1 as buy_budget, liquidity0 as sell_budget, y1_delta as buy_budget_change, y0_delta as sell_budget_change,
+    creation_wallet, current_owner, id, action, base_quote, symbol0 as base_sell_token, symbol1 as quote_buy_token, liquidity1 as buy_budget, liquidity0 as sell_budget, y1_delta as buy_budget_change, y0_delta as sell_budget_change,
     lowestrate1_norm as buy_price_a, highestrate1_norm as buy_price_b, lowestrate0_norm as sell_price_a, highestrate0_norm as sell_price_b,
     strategy_sold, token_sold, strategy_bought, token_bought, avg_price, evt_block_time as date, txhash
     from complete_info
-    order by evt_block_number asc
-    `;
+    order by evt_block_number asc`;
 
     const result = await this.strategy.query(query);
     return transformKeysToCamelCase(result);

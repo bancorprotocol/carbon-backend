@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
-import { RoiController } from './activity.controller';
+import { ActivityController } from './activity.controller';
 import { ActivityService } from './activity.service';
 import { StrategyModule } from '../../strategy/strategy.module';
 
 @Module({
   imports: [StrategyModule],
-  controllers: [RoiController],
+  controllers: [ActivityController],
   providers: [ActivityService],
   exports: [ActivityService],
 })

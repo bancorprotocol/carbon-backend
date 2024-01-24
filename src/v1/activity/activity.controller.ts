@@ -3,7 +3,7 @@ import { CacheTTL } from '@nestjs/cache-manager';
 import { ActivityService } from './activity.service';
 
 @Controller({ version: '1', path: 'activity' })
-export class RoiController {
+export class ActivityController {
   constructor(private activityService: ActivityService) {}
 
   @Get()

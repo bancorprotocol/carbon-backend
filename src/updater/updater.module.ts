@@ -18,6 +18,7 @@ import { TradingFeePpmUpdatedEventModule } from '../events/trading-fee-ppm-updat
 import { PairTradingFeePpmUpdatedEventModule } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.module';
 import { ActivityModule } from '../v1/activity/activity.module';
 import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
+import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
     PairTradingFeePpmUpdatedEventModule,
     ActivityModule,
     HistoricQuoteModule,
+    VoucherTransferEventModule,
   ],
   providers: [UpdaterService],
 })
