@@ -38,6 +38,22 @@ export class HistoricQuoteController {
       params.end,
     );
 
+    if (!data[params.baseToken]) {
+      throw new BadRequestException({
+        message: ['The provided Base token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    if (!data[params.quoteToken]) {
+      throw new BadRequestException({
+        message: ['The provided Quote token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
     const result = [];
     data[params.baseToken].forEach((_, i) => {
       const base = data[params.baseToken][i];
@@ -45,7 +61,15 @@ export class HistoricQuoteController {
 
       if (!quote.close) {
         throw new BadRequestException({
-          message: ['start must be within the last 12 months'],
+          message: ['No data available for the quote token. Try a more recent date range'],
+          error: 'Bad Request',
+          statusCode: 400,
+        });
+      }
+
+      if (!base.close) {
+        throw new BadRequestException({
+          message: ['No data available for the base token. Try a more recent date range'],
           error: 'Bad Request',
           statusCode: 400,
         });

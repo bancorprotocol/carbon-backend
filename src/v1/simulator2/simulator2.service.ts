@@ -36,12 +36,36 @@ export class Simulator2Service {
     // handle prices
     const tokens = [baseToken, quoteToken];
     const prices = await this.historicQuoteService.getHistoryQuotesBuckets(tokens, start, end);
+
+    if (!prices[params.baseToken]) {
+      throw new BadRequestException({
+        message: ['The provided Base token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    if (!prices[params.quoteToken]) {
+      throw new BadRequestException({
+        message: ['The provided Quote token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
 
-    if (!pricesBaseToken[0].close || !pricesQuoteToken[0].close) {
+    if (!pricesQuoteToken[0].close) {
       throw new BadRequestException({
-        message: ['No data for given tokens and date range'],
+        message: ['No data available for the quote token. Try a more recent date range'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    if (!pricesBaseToken[0].close) {
+      throw new BadRequestException({
+        message: ['No data available for the base token. Try a more recent date range'],
         error: 'Bad Request',
         statusCode: 400,
       });
