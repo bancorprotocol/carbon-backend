@@ -90,14 +90,14 @@ export class Simulator2Service {
     // const logPath = path.join(folderPath, 'output.log');
 
     const inputData = {
-      portfolio_cash_value: quoteBudget,
-      portfolio_risk_value: baseBudget,
-      low_range_low_price: buyMin,
-      low_range_high_price: buyMax,
-      low_range_start_price: buyMax,
-      high_range_low_price: sellMin,
-      high_range_high_price: sellMax,
-      high_range_start_price: sellMin,
+      portfolio_cash_value: quoteBudget.toString(),
+      portfolio_risk_value: baseBudget.toString(),
+      low_range_low_price: buyMin.toString(),
+      low_range_high_price: buyMax.toString(),
+      low_range_start_price: buyMax.toString(),
+      high_range_low_price: sellMin.toString(),
+      high_range_high_price: sellMax.toString(),
+      high_range_start_price: sellMin.toString(),
       network_fee: `${feePpm / 1000000}`,
       prices: pricesRatios,
       // logging: {

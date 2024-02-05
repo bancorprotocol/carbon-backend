@@ -138,38 +138,44 @@ export class ActivityService {
     ),
     
     all_trades as (
-    select id,
-        CASE WHEN y0_delta < 0 then -y0_delta else -y1_delta end as strategy_sold,
-        CASE WHEN y0_delta < 0 then symbol0 else symbol1 end as token_sold,
-        CASE WHEN y0_delta >= 0 then y0_delta else y1_delta end as strategy_bought,
-        CASE WHEN y0_delta >= 0 then symbol0 else symbol1 end as token_bought,
-        txhash
-    from order_lifespan 
-    where reason = 1
-    and y0_delta != 0
-    and y1_delta != 0
+        select id,
+            CASE WHEN y0_delta < 0 then -y0_delta else -y1_delta end as strategy_sold,
+            CASE WHEN y0_delta < 0 then symbol0 else symbol1 end as token_sold,
+            CASE WHEN y0_delta >= 0 then y0_delta else y1_delta end as strategy_bought,
+            CASE WHEN y0_delta >= 0 then symbol0 else symbol1 end as token_bought,
+            txhash
+        from order_lifespan 
+        where reason = 1
+        and y0_delta != 0
+        and y1_delta != 0
     ),
     trade_info as (
-    select d.*, a.strategy_sold, a.token_sold, a.strategy_bought, a.token_bought, 
-    a.strategy_bought/a.strategy_sold as effective_price, a.token_sold||'/'||a.token_bought as trade_base_quote,
-    a.strategy_sold/a.strategy_bought as effective_price_inv, a.token_bought||'/'||a.token_sold as inv_trade_base_quote
-    from descriptions d
-    left join all_trades a on a.txhash = d.txhash and a.id = d.id
+        select d.*, a.strategy_sold, a.token_sold, a.strategy_bought, a.token_bought, 
+        a.strategy_bought/a.strategy_sold as effective_price, a.token_sold||'/'||a.token_bought as trade_base_quote,
+        a.strategy_sold/a.strategy_bought as effective_price_inv, a.token_bought||'/'||a.token_sold as inv_trade_base_quote
+        from descriptions d
+        left join all_trades a on a.txhash = d.txhash and a.id = d.id
     ),
     voucher_transfers as (
         SELECT *
         FROM "voucher-transfer-events" s
-        where (s."from"!='0x0000000000000000000000000000000000000000') and (s."to"!='0x0000000000000000000000000000000000000000')
+        where (s."from"!='0x0000000000000000000000000000000000000000') and (s."to"!='0x0000000000000000000000000000000000000000') 
+        --and s."strategyId" = CAST('{strategy_id}' as varchar)
     ),
     RankedVoucherTransfers AS (
-    SELECT *,
+        SELECT *,
             ROW_NUMBER() OVER (PARTITION BY "strategyId" ORDER BY "blockId" DESC) as rn
-    FROM voucher_transfers
+        FROM voucher_transfers
     ),
     most_recent_transfer as (
-    SELECT *
-    FROM RankedVoucherTransfers
-    WHERE rn = 1
+        SELECT *
+        FROM RankedVoucherTransfers
+        WHERE rn = 1
+    ),
+    voucher_minimal as (
+        select "strategyId" as id, 'Transfer Strategy' as action, "from" as old_owner, "to" as new_owner, timestamp as date, "transactionHash" as txhash
+        --creation_wallet	current_owner	id	action	base_quote	base_sell_token	quote_buy_token	buy_budget	sell_budget	buy_budget_change	sell_budget_change	buy_price_a	buy_price_b	sell_price_a	sell_price_b	strategy_sold	token_sold	strategy_bought	token_bought	avg_price	date	txhash
+        from voucher_transfers
     ),
     complete_info as (
     select ti.*,
@@ -191,13 +197,71 @@ export class ActivityService {
     END AS current_owner
     from trade_info ti
     LEFT JOIN most_recent_transfer mrt ON ti.id = mrt."strategyId"
-    )
+    ),
+    complete_renamed as (
     select
     creation_wallet, current_owner, id, action, base_quote, symbol0 as base_sell_token, symbol1 as quote_buy_token, liquidity1 as buy_budget, liquidity0 as sell_budget, y1_delta as buy_budget_change, y0_delta as sell_budget_change,
     lowestrate1_norm as buy_price_a, highestrate1_norm as buy_price_b, lowestrate0_norm as sell_price_a, highestrate0_norm as sell_price_b,
     strategy_sold, token_sold, strategy_bought, token_bought, avg_price, evt_block_time as date, txhash
     from complete_info
-    order by evt_block_number asc`;
+    ),
+    RankedCompleteInfo AS (
+        SELECT ci.*,
+            ROW_NUMBER() OVER (PARTITION BY vm.id ORDER BY ci.date DESC) as rn
+        FROM voucher_minimal vm
+        LEFT JOIN complete_renamed ci ON ci.id = vm.id AND ci.date <= vm.date
+    ),
+    prior_action as (
+    SELECT *
+    FROM RankedCompleteInfo
+    WHERE rn = 1
+    ),
+    transfer_action as (
+    select creation_wallet,	current_owner,	vm.id,	vm.action,	base_quote,	base_sell_token, quote_buy_token, buy_budget, sell_budget, NULL::double precision as buy_budget_change, NULL::double precision as sell_budget_change, 
+    buy_price_a, buy_price_b, sell_price_a, sell_price_b,
+    NULL::double precision as strategy_sold, NULL as token_sold, NULL::double precision as strategy_bought, NULL as token_bought,
+    NULL::double precision as avg_price, vm.date, vm.txhash, vm.old_owner, vm.new_owner
+    from voucher_minimal vm
+    left join prior_action pa on pa.id = vm.id
+    ),
+    complete_actions as (
+    select creation_wallet, current_owner, NULL as old_owner, NULL as new_owner, id, action, base_quote, base_sell_token, quote_buy_token,
+    buy_budget, sell_budget, buy_budget_change, sell_budget_change, buy_price_a, buy_price_b,
+    sell_price_a, sell_price_b, strategy_sold, token_sold, strategy_bought, token_bought,
+    avg_price, date, txhash
+    from complete_renamed
+    UNION
+    select creation_wallet, current_owner, old_owner, new_owner, id, action, base_quote, base_sell_token, quote_buy_token,
+    buy_budget, sell_budget, buy_budget_change, sell_budget_change, buy_price_a, buy_price_b,
+    sell_price_a, sell_price_b, strategy_sold, token_sold, strategy_bought, token_bought,
+    avg_price, date, txhash
+    from transfer_action
+    ),
+    ActionFlags AS (
+        SELECT *,
+            CASE WHEN action = 'Transfer Strategy' THEN new_owner ELSE NULL END AS transfer_owner,
+            ROW_NUMBER() OVER (PARTITION BY id ORDER BY date, txhash) as row_num
+        FROM complete_actions
+    ),
+    OwnerGroups AS (
+        SELECT *,
+            SUM(CASE WHEN transfer_owner IS NOT NULL THEN 1 ELSE 0 END) OVER (PARTITION BY id ORDER BY date, txhash ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as owner_group
+        FROM ActionFlags
+    ),
+    ActionOwner AS (
+        SELECT *,
+            CASE 
+                WHEN action = 'Transfer Strategy' THEN old_owner
+                ELSE COALESCE(MAX(transfer_owner) OVER (PARTITION BY id, owner_group ORDER BY date, txhash ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), creation_wallet) 
+            END AS action_owner
+        FROM OwnerGroups
+    )
+    SELECT creation_wallet, current_owner, action_owner, id, action, base_quote, base_sell_token, quote_buy_token,
+    buy_budget, sell_budget, buy_budget_change, sell_budget_change, buy_price_a, buy_price_b,
+    sell_price_a, sell_price_b, strategy_sold, token_sold, strategy_bought, token_bought,
+    avg_price, old_owner, new_owner, date, txhash
+    FROM ActionOwner
+    order by date asc`;
 
     const result = await this.strategy.query(query);
     return transformKeysToCamelCase(result);
