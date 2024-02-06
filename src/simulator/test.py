@@ -1,65 +1,67 @@
-from json import loads, dumps
-from core import run_simulation, Decimal
-from importlib import import_module, reload
+from json import dumps
+from core import run_simulation as run_simulation_new
+from core_org import run_simulation as run_simulation_old
 
-fileDesc = open('legacy_config.json', 'r')
-legacy_config = loads(fileDesc.read())
-fileDesc.close()
+config = {
+    'prices': [
+        '12.57',
+        '12.74',
+        '12.52',
+        '12.67',
+        '12.67',
+        '12.67',
+        '12.31',
+        '12.35',
+        '12.35',
+        '12.43',
+        '12.28',
+        '12.34',
+        '12.34',
+        '12.39',
+        '12.06',
+        '12.11',
+        '12.11',
+        '12.45',
+        '12.11',
+        '12.28',
+        '12.28',
+        '12.87',
+        '12.27',
+        '12.64',
+        '12.64',
+        '13.24',
+        '12.63',
+        '13.0',
+    ]
+}
 
-fileDesc = open('example_config.json', 'r')
-example_config = loads(fileDesc.read())
-fileDesc.close()
+base_price = float(config['prices'][0])
 
-INCREMENTS = [0, 14, 27]
-
-PARAMETERS = [
-    'portfolio_cash_value',
-    'portfolio_risk_value',
-    'low_range_low_price',
-    'low_range_high_price',
-    'low_range_start_price',
-    'high_range_low_price',
-    'high_range_high_price',
-    'high_range_start_price',
-    'network_fee'
-]
-
-def increment(param, percent):
-    return str(Decimal(example_config[param]) * (percent + 100) / 100)
-
-def legal(config):
-    return \
-        Decimal(config['low_range_low_price']) <= \
-        Decimal(config['low_range_start_price']) <= \
-        Decimal(config['low_range_high_price']) <= \
-        Decimal(config['high_range_low_price']) <= \
-        Decimal(config['high_range_start_price']) <= \
-        Decimal(config['high_range_high_price'])
-
-def display(title, count, values):
-    info = ', '.join(f'{value}%' for value in values)
-    print(f'{title} configuration {count} ({info})')
-
-legacy_config['base filename'] = []
-core_org = import_module('core_org')
-
-for n in range(len(INCREMENTS) ** len(PARAMETERS)):
-    percents = [INCREMENTS[n // len(INCREMENTS) ** i % len(INCREMENTS)] for i in range(len(PARAMETERS))]
-    new_config = {param: increment(param, percents[index]) for index, param in enumerate(PARAMETERS)}
-    if legal(new_config):
-        display('legal', n, percents)
-        new_config['prices'] = example_config['prices']
-        legacy_config['starting portfolio valuation'][0] = new_config['portfolio_cash_value']
-        legacy_config['starting portfolio valuation'][1] = new_config['portfolio_risk_value']
-        legacy_config['carbon order boundaries'][0] = new_config['high_range_high_price']
-        legacy_config['carbon order boundaries'][1] = new_config['high_range_low_price']
-        legacy_config['carbon order boundaries'][2] = new_config['low_range_high_price']
-        legacy_config['carbon order boundaries'][3] = new_config['low_range_low_price']
-        legacy_config['carbon starting prices'][0] = new_config['high_range_start_price']
-        legacy_config['carbon starting prices'][1] = new_config['low_range_start_price']
-        legacy_config['protocol fees'][0] = new_config['network_fee']
-        old_output = reload(core_org).run_simulation(legacy_config)
-        new_output = run_simulation(new_config)
-        assert dumps(old_output) == dumps(new_output)
-    else:
-        display('illegal', n, percents)
+for portfolio_cash_value in [0, 1000, 2000, 3000]:
+    for portfolio_risk_value in [0, 1000, 2000, 3000]:
+        if portfolio_cash_value + portfolio_risk_value == 0:
+            continue
+        for low_range_low_price in [base_price / 2, base_price, base_price * 2]:
+            for low_range_high_price in [low_range_low_price, low_range_low_price * 2]:
+                for low_range_start_price in set([low_range_low_price, (low_range_low_price + low_range_high_price) / 2, low_range_high_price]):
+                    if portfolio_cash_value * (low_range_high_price - low_range_low_price) > 0 and low_range_start_price == low_range_low_price:
+                        continue
+                    for high_range_low_price in [low_range_high_price, low_range_high_price * 2]:
+                        for high_range_high_price in [high_range_low_price, high_range_low_price * 2]:
+                            for high_range_start_price in set([high_range_low_price, (high_range_low_price + high_range_high_price) / 2, high_range_high_price]):
+                                if portfolio_risk_value * (high_range_high_price - high_range_low_price) > 0 and high_range_start_price == high_range_high_price:
+                                    continue
+                                for network_fee in [0, 1000, 2000]:
+                                    config['portfolio_cash_value'  ] = str(portfolio_cash_value  )
+                                    config['portfolio_risk_value'  ] = str(portfolio_risk_value  )
+                                    config['low_range_low_price'   ] = str(low_range_low_price   )
+                                    config['low_range_high_price'  ] = str(low_range_high_price  )
+                                    config['low_range_start_price' ] = str(low_range_start_price )
+                                    config['high_range_low_price'  ] = str(high_range_low_price  )
+                                    config['high_range_high_price' ] = str(high_range_high_price )
+                                    config['high_range_start_price'] = str(high_range_start_price)
+                                    config['network_fee'           ] = str(network_fee / 1000000 )
+                                    print(dumps({key: val for key, val in config.items() if type(val) is str}, indent=4))
+                                    new_output = dumps(run_simulation_new(config), indent=4)
+                                    old_output = dumps(run_simulation_old(config), indent=4)
+                                    assert new_output == old_output, f'\nnew_output = {new_output}\nold_output = {old_output}'

@@ -150,8 +150,8 @@ export class HistoricQuoteService {
         time_bucket_gapfill('1 day', timestamp) AS bucket,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
-        locf(max(usd)) as high,
-        locf(min(usd)) as low
+        locf(max(usd::numeric)) as high,
+        locf(min(usd::numeric)) as low
       FROM
         "historic-quotes"
       WHERE

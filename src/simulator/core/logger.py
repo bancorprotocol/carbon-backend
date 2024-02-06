@@ -48,14 +48,13 @@ class RealLogger:
         self.dates = [Timestamp(date) for date in config['dates']]
         self.output_file = open(config['output_file_name'], 'w')
 
-    def update_before(self, recorder: dict, step: int, price: any, bid: any, ask: any) -> None:
+    def update_before(self, recorder: dict, step: int, price: any, bid: any, ask: any):
         time_delta = self.dates[step] - self.dates[0]
-        years, remainder = divmod(time_delta.days, 365)
-        months, remainder = divmod(remainder, 30)
-        weeks, remainder = divmod(remainder, 7)
-        days = remainder
-        hours, remainder = divmod(time_delta.seconds, 3600)
-        minutes = remainder // 60
+        years, days = divmod(time_delta.days, 365)
+        months, days = divmod(days, 30)
+        weeks, days = divmod(days, 7)
+        hours = time_delta.components.hours
+        minutes = time_delta.components.minutes
 
         components = [
             (years, 'year'),
@@ -83,7 +82,7 @@ class RealLogger:
         else:
             self.output_file.write(self.messages['within_the_spread'])
 
-    def update_after(self, recorder: dict, details: dict, price: any, bid: any, ask: any) -> None:
+    def update_after(self, recorder: dict, details: dict, price: any, bid: any, ask: any):
         if details:
             if details['out_of_range']['before']:
                 self.output_file.write('The market equilibrium point is outside of the carbon range.\n')
@@ -121,10 +120,10 @@ class RealLogger:
 
         self.output_file.write(f'{summary}\n\n')
 
-    def close(self) -> None:
+    def close(self):
         self.output_file.close()
 
-    def _update_quotes(self, recorder: dict, bid: any, ask: any) -> None:
+    def _update_quotes(self, recorder: dict, bid: any, ask: any):
         if recorder['CASH']['balance'][-1] == 0:
             self.output_file.write(self.messages['cannot_be_sold'])
             self.output_file.write(self.messages['can_still_be_bought'].format(f'{ask:.6f}'))

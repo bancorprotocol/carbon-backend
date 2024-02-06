@@ -24,3 +24,8 @@ python run.py
 -c <config-file-name> | --config-file-name <config-file-name>
 -o <output-file-name> | --output-file-name <output-file-name>
 ```
+
+## Verification
+```
+python test.py
+```
