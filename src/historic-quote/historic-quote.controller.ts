@@ -3,7 +3,6 @@ import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/com
 import { HistoricQuoteDto } from './historic-quote.dto';
 import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
-import Decimal from 'decimal.js';
 
 @Controller({ version: '1', path: 'history/prices' })
 export class HistoricQuoteController {
@@ -21,7 +20,7 @@ export class HistoricQuoteController {
       });
     }
 
-    if (params.end < params.start) {
+    if (params.end <= params.start) {
       throw new BadRequestException({
         message: ['End date must be after the start date'],
         error: 'Bad Request',
@@ -32,54 +31,21 @@ export class HistoricQuoteController {
     params.baseToken = params.baseToken.toLowerCase();
     params.quoteToken = params.quoteToken.toLowerCase();
 
-    const data = await this.historicQuoteService.getHistoryQuotesBuckets(
-      [params.baseToken, params.quoteToken],
+    const data = await this.historicQuoteService.getUsdBuckets(
+      params.baseToken,
+      params.quoteToken,
       params.start,
       params.end,
     );
 
-    if (!data[params.baseToken]) {
-      throw new BadRequestException({
-        message: ['The provided Base token is currently not supported in this API'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    if (!data[params.quoteToken]) {
-      throw new BadRequestException({
-        message: ['The provided Quote token is currently not supported in this API'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
     const result = [];
-    data[params.baseToken].forEach((_, i) => {
-      const base = data[params.baseToken][i];
-      const quote = data[params.quoteToken][i];
-
-      if (!quote.close) {
-        throw new BadRequestException({
-          message: ['No data available for the quote token. Try a more recent date range'],
-          error: 'Bad Request',
-          statusCode: 400,
-        });
-      }
-
-      if (!base.close) {
-        throw new BadRequestException({
-          message: ['No data available for the base token. Try a more recent date range'],
-          error: 'Bad Request',
-          statusCode: 400,
-        });
-      }
+    data.forEach((p) => {
       result.push({
-        timestamp: data[params.baseToken][i].timestamp,
-        low: new Decimal(base.low).div(quote.low).toString(),
-        high: new Decimal(base.high).div(quote.high).toString(),
-        open: new Decimal(base.open).div(quote.open).toString(),
-        close: new Decimal(base.close).div(quote.close).toString(),
+        timestamp: p.timestamp,
+        low: p.low.toString(),
+        high: p.high.toString(),
+        open: p.open.toString(),
+        close: p.close.toString(),
       });
     });
 
