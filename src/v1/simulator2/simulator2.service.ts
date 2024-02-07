@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Simulator2Dto } from './simulator2.dto';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
