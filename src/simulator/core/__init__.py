@@ -96,7 +96,8 @@ def is_valid(config: dict) -> bool:
         ZERO <= c.portfolio_cash_value,
         ZERO <= c.portfolio_risk_value,
         ZERO <  c.portfolio_cash_value + c.portfolio_risk_value,
-        ZERO <  c.low_range_low_price <= c.low_range_start_price <= c.low_range_high_price <= c.high_range_low_price <= c.high_range_start_price <= c.high_range_high_price,
+        ZERO <  c.low_range_low_price  <= c.low_range_start_price  <= c.low_range_high_price,
+        ZERO <  c.high_range_low_price <= c.high_range_start_price <= c.high_range_high_price,
         ZERO == c.portfolio_cash_value or c.low_range_low_price   == c.low_range_high_price or c.low_range_low_price   != c.low_range_start_price,
         ZERO == c.portfolio_risk_value or c.high_range_high_price == c.high_range_low_price or c.high_range_high_price != c.high_range_start_price,
         all(ZERO < price for price in c.prices)
