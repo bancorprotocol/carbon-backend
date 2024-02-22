@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { Simulator2Dto } from './simulator2.dto';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
@@ -36,40 +36,8 @@ export class Simulator2Service {
     // handle prices
     const tokens = [baseToken, quoteToken];
     const prices = await this.historicQuoteService.getHistoryQuotesBuckets(tokens, start, end);
-
-    if (!prices[params.baseToken]) {
-      throw new BadRequestException({
-        message: ['The provided Base token is currently not supported in this API'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    if (!prices[params.quoteToken]) {
-      throw new BadRequestException({
-        message: ['The provided Quote token is currently not supported in this API'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
-
-    if (!pricesQuoteToken[0].close) {
-      throw new BadRequestException({
-        message: ['No data available for the quote token. Try a more recent date range'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    if (!pricesBaseToken[0].close) {
-      throw new BadRequestException({
-        message: ['No data available for the base token. Try a more recent date range'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
 
     // Synchronize arrays to have the same length
     const minLength = Math.min(pricesBaseToken.length, pricesQuoteToken.length);
@@ -153,7 +121,7 @@ export class Simulator2Service {
       // Add the 'dates' array to the result
       parsedOutput.dates = dates.map((d) => toTimestamp(new Date(d)));
 
-      return parsedOutput;
+      return { ...parsedOutput, prices: pricesRatios };
     } catch (err) {
       console.error('Error in generateSimulation:', err.message);
       throw err;

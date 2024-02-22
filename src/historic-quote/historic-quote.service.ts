@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { CoinMarketCapService } from '../coinmarketcap/coinmarketcap.service';
 import { HistoricQuote } from './historic-quote.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -7,8 +7,9 @@ import { Interval } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import moment from 'moment';
+import Decimal from 'decimal.js';
 
-type CandlestickData = {
+type Candlestick = {
   timestamp: number;
   open: string;
   close: string;
@@ -135,9 +136,11 @@ export class HistoricQuoteService {
     _addresses: string[],
     start: number,
     end: number,
-  ): Promise<{ [key: string]: CandlestickData[] }> {
+    bucket = '1 day',
+  ): Promise<{ [key: string]: Candlestick[] }> {
     const today = moment().utc().startOf('day');
-    const startQ = moment.unix(start).utc().startOf('day').toISOString();
+    const startQ = moment.unix(start).utc().startOf('day');
+    const startPaddedQ = moment.unix(start).utc().startOf('day').subtract('1', 'day').toISOString();
     let endQ: any = moment.unix(end).utc().startOf('day');
     endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
     const addresses = _addresses.map((a) => a.toLowerCase());
@@ -147,15 +150,15 @@ export class HistoricQuoteService {
     const query = `
       SELECT
         "tokenAddress",
-        time_bucket_gapfill('1 day', timestamp) AS bucket,
+        time_bucket_gapfill('${bucket}', timestamp) AS bucket,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
-        locf(max(usd)) as high,
-        locf(min(usd)) as low
+        locf(max(usd::numeric)) as high,
+        locf(min(usd::numeric)) as low
       FROM
         "historic-quotes"
       WHERE
-        timestamp >= '${startQ}' AND timestamp <= '${endQ}'
+        timestamp >= '${startPaddedQ}' AND timestamp <= '${endQ}'
         and "tokenAddress" IN (${addressesString})
       GROUP BY
         "tokenAddress",  bucket
@@ -164,25 +167,152 @@ export class HistoricQuoteService {
 
     const result = await this.repository.query(query);
 
-    const candlesByAddress: { [key: string]: CandlestickData[] } = {};
+    const candlesByAddress: { [key: string]: Candlestick[] } = {};
 
     result.forEach((row: any) => {
-      const tokenAddress = row.tokenAddress;
-      const candle = {
-        timestamp: moment(row.bucket).unix(),
-        open: row.open,
-        close: row.close,
-        high: row.high,
-        low: row.low,
-      };
+      const timestamp = moment(row.bucket).utc();
 
-      if (!candlesByAddress[tokenAddress]) {
-        candlesByAddress[tokenAddress] = [];
+      if (timestamp.isSameOrAfter(startQ)) {
+        const tokenAddress = row.tokenAddress;
+        const candle = {
+          timestamp: timestamp.unix(),
+          open: row.open,
+          close: row.close,
+          high: row.high,
+          low: row.low,
+        };
+
+        if (!candlesByAddress[tokenAddress]) {
+          candlesByAddress[tokenAddress] = [];
+        }
+
+        candlesByAddress[tokenAddress].push(candle);
       }
+    });
 
-      candlesByAddress[tokenAddress].push(candle);
+    if (!candlesByAddress[addresses[0]]) {
+      throw new BadRequestException({
+        message: ['The provided Base token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    if (!candlesByAddress[addresses[1]]) {
+      throw new BadRequestException({
+        message: ['The provided Quote token is currently not supported in this API'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    let maxNonNullOpenIndex = -1;
+
+    Object.values(candlesByAddress).forEach((candles: Candlestick[]) => {
+      const firstNonNullOpenIndex = this.findFirstNonNullOpenIndex(candles);
+      if (firstNonNullOpenIndex > maxNonNullOpenIndex) {
+        maxNonNullOpenIndex = firstNonNullOpenIndex;
+      }
+    });
+
+    if (maxNonNullOpenIndex === -1) {
+      throw new BadRequestException({
+        message: ['No data available for the specified token addresses. Try a more recent date range'],
+        error: 'Bad Request',
+        statusCode: 400,
+      });
+    }
+
+    // Filter out candlesticks before the maxNonNullOpenIndex
+    Object.keys(candlesByAddress).forEach((address) => {
+      candlesByAddress[address] = candlesByAddress[address].slice(maxNonNullOpenIndex);
     });
 
     return candlesByAddress;
+  }
+
+  async getUsdBuckets(tokenA: string, tokenB: string, start: number, end: number): Promise<Candlestick[]> {
+    const data = await this.getHistoryQuotesBuckets([tokenA, tokenB], start, end, '1 hour');
+
+    const prices = [];
+    data[tokenA].forEach((_, i) => {
+      const base = data[tokenA][i];
+      const quote = data[tokenB][i];
+      prices.push({
+        timestamp: base.timestamp,
+        usd: new Decimal(base.close).div(quote.close),
+      });
+    });
+
+    return this.createDailyCandlestick(prices);
+  }
+
+  async createDailyCandlestick(prices) {
+    const candlesticks = [];
+    let dailyData = null;
+    let currentDay = null;
+
+    prices.forEach((price) => {
+      const day = moment.unix(price.timestamp).startOf('day').unix();
+
+      if (currentDay === null) {
+        currentDay = day;
+        dailyData = {
+          open: price.usd !== null ? new Decimal(price.usd) : null,
+          high: price.usd !== null ? new Decimal(price.usd) : null,
+          low: price.usd !== null ? new Decimal(price.usd) : null,
+          close: price.usd !== null ? new Decimal(price.usd) : null,
+        };
+      } else if (day !== currentDay) {
+        if (dailyData !== null) {
+          candlesticks.push({
+            timestamp: currentDay,
+            open: dailyData.open,
+            high: dailyData.high,
+            low: dailyData.low,
+            close: dailyData.close,
+          });
+        }
+
+        currentDay = day;
+        dailyData = {
+          open: price.usd !== null ? new Decimal(price.usd) : null,
+          high: price.usd !== null ? new Decimal(price.usd) : null,
+          low: price.usd !== null ? new Decimal(price.usd) : null,
+          close: price.usd !== null ? new Decimal(price.usd) : null,
+        };
+      } else {
+        if (price.usd !== null) {
+          if (dailyData.high === null || price.usd > dailyData.high) {
+            dailyData.high = new Decimal(price.usd);
+          }
+          if (dailyData.low === null || price.usd < dailyData.low) {
+            dailyData.low = new Decimal(price.usd);
+          }
+          dailyData.close = new Decimal(price.usd);
+        }
+      }
+    });
+
+    if (dailyData !== null) {
+      candlesticks.push({
+        timestamp: currentDay,
+        open: dailyData.open,
+        high: dailyData.high,
+        low: dailyData.low,
+        close: dailyData.close,
+      });
+    }
+
+    return candlesticks;
+  }
+
+  private findFirstNonNullOpenIndex(candles: Candlestick[]): number {
+    for (let i = 0; i < candles.length; i++) {
+      if (candles[i].open !== null) {
+        return i;
+      }
+    }
+    return -1; // If no non-null open value found
   }
 }

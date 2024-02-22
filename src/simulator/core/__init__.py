@@ -7,21 +7,19 @@ from decimal import ROUND_HALF_DOWN
 getcontext().prec = 100
 getcontext().rounding = ROUND_HALF_DOWN
 
+SMALL = Decimal('1e-48')
 ZERO = Decimal('0')
 ONE = Decimal('1')
 TWO = Decimal('2')
 
-def calculate_constants(pa: Decimal, pb: Decimal) -> (Decimal, Decimal):
-    pa_sqrt = pa.sqrt()
-    pb_sqrt = pb.sqrt()
-    A = pa_sqrt - pb_sqrt
-    B = pb_sqrt
-    return A, B
-
-def calculate_z(y: Decimal, A: Decimal, B: Decimal, rate: Decimal) -> Decimal:
-    if y * A > ZERO:
-        return y * A / (rate.sqrt() - B)
-    return ONE
+def calculate_parameters(y: Decimal, pa: Decimal, pb: Decimal, pm: Decimal, n: Decimal) -> (Decimal, Decimal, Decimal):
+    H = pa.sqrt() ** n
+    L = pb.sqrt() ** n
+    M = pm.sqrt() ** n
+    A = H - L
+    B = L
+    z = y * A / (M - B) if y * A > ZERO else max(y, SMALL)
+    return A, B, z
 
 def calculate_hodl_value(carbon: dict, market_price: Decimal) -> Decimal:
     CASH = carbon['simulation_recorder']['CASH']['balance'][0]
@@ -43,31 +41,28 @@ def get_trade_parameters(carbon: dict, order: str) -> (Decimal, Decimal, Decimal
     B = carbon['curve_parameters'][order]['B']
     return y, z, A, B
 
-def get_quote(carbon: dict) -> (Decimal, Decimal):
+def calculate_quote(carbon: dict, order: str, inverse_fee: Decimal) -> (Decimal, Decimal):
+    y, z, A, B = get_trade_parameters(carbon, order)
+    return inverse_fee * (A * y + B * z) ** TWO, z ** TWO
+
+def calculate_quotes(carbon: dict) -> (Decimal, Decimal):
     inverse_fee = carbon['curve_parameters']['inverse_fee']
-    y_CASH, z_CASH, A_CASH, B_CASH = get_trade_parameters(carbon, 'CASH')
-    y_RISK, z_RISK, A_RISK, B_RISK = get_trade_parameters(carbon, 'RISK')
-    bid = inverse_fee * (A_CASH * y_CASH + B_CASH * z_CASH) ** TWO / z_CASH ** TWO
-    ask = z_RISK ** TWO / (inverse_fee * (A_RISK * y_RISK + B_RISK * z_RISK) ** TWO)
-    return bid, ask
+    bid_n, bid_d = calculate_quote(carbon, 'CASH', inverse_fee)
+    ask_d, ask_n = calculate_quote(carbon, 'RISK', inverse_fee)
+    return bid_n / bid_d, ask_n / ask_d
 
-def get_arb_buy(market_price: Decimal, inverse_fee: Decimal, y: Decimal, z: Decimal, A: Decimal, B: Decimal) -> Decimal:
-    temp = market_price * inverse_fee
-    return z * (temp.sqrt() - B * temp) / (A * temp) - y
-
-def get_arb_sell(market_price: Decimal, inverse_fee: Decimal, y: Decimal, z: Decimal, A: Decimal, B: Decimal) -> Decimal:
-    temp = market_price * inverse_fee
-    return z * (temp.sqrt() - B * inverse_fee) / (A * inverse_fee) - y
+def calculate_dy(market_price: Decimal, unit_price: Decimal, inverse_fee: Decimal, y: Decimal, z: Decimal, A: Decimal, B: Decimal) -> Decimal:
+    return z * ((market_price * inverse_fee).sqrt() - B * unit_price * inverse_fee) / (A * unit_price * inverse_fee) - y if A > ZERO else -y
 
 def calculate_dx(dy: Decimal, y: Decimal, z: Decimal, A: Decimal, B: Decimal) -> Decimal:
     return -dy * z ** TWO / (A * dy * (A * y + B * z) + (A * y + B * z) ** TWO)
 
-def apply_trade(carbon: dict, order_x: str, order_y: str, action: str, market_price: Decimal, get_arb: any) -> dict:
+def apply_trade(carbon: dict, order_x: str, order_y: str, action: str, market_price: Decimal, unit_price: Decimal) -> dict:
     inverse_fee = carbon['curve_parameters']['inverse_fee']
     y, z, A, B = get_trade_parameters(carbon, order_y)
-    dy = get_arb(market_price, inverse_fee, y, z, A, B) if A > ZERO else -y
-    out_of_range = {'before': y + dy < 0, 'after': y == 0}
-    if out_of_range['before']:
+    dy = calculate_dy(market_price, unit_price, inverse_fee, y, z, A, B)
+    out_of_range = {'before': dy < -y, 'after': y == ZERO}
+    if dy < -y:
         dy = -y
     dx = calculate_dx(dy, y, z, A, B)
     carbon['simulation_recorder'][order_x]['balance'][-1] += dx
@@ -87,66 +82,68 @@ def remove_first_balance_and_fee(carbon: dict) -> None:
 
 def equilibrate_protocol(carbon: dict, market_price: Decimal, bid: Decimal, ask: Decimal) -> dict:
     if market_price > ask:
-        return apply_trade(carbon, 'CASH', 'RISK', 'bought', market_price, get_arb_buy)
+        return apply_trade(carbon, 'CASH', 'RISK', 'bought', market_price, market_price)
     if market_price < bid:
-        return apply_trade(carbon, 'RISK', 'CASH', 'sold', market_price, get_arb_sell)
+        return apply_trade(carbon, 'RISK', 'CASH', 'sold', market_price, ONE)
     return {}
 
-def get_initial_state(config: dict) -> dict:
+def is_valid(config: dict) -> bool:
+    class C: pass
+    c = C()
+    c.__dict__.update(config)
+    return all([
+        ZERO <= c.network_fee <= ONE,
+        ZERO <= c.portfolio_cash_value,
+        ZERO <= c.portfolio_risk_value,
+        ZERO <  c.portfolio_cash_value + c.portfolio_risk_value,
+        ZERO <  c.low_range_low_price  <= c.low_range_start_price  <= c.low_range_high_price,
+        ZERO <  c.high_range_low_price <= c.high_range_start_price <= c.high_range_high_price,
+        ZERO == c.portfolio_cash_value or c.low_range_low_price   == c.low_range_high_price or c.low_range_low_price   != c.low_range_start_price,
+        ZERO == c.portfolio_risk_value or c.high_range_high_price == c.high_range_low_price or c.high_range_high_price != c.high_range_start_price,
+        all(ZERO < price for price in c.prices)
+    ])
+
+def create_carbon(config: dict) -> dict:
+    assert is_valid(config), 'invalid configuration'
     inverse_fee = ONE - config['network_fee']
     y_CASH = config['portfolio_cash_value']
     y_RISK = config['portfolio_risk_value']
-    A_CASH, B_CASH = calculate_constants(config['low_range_high_price'] / ONE, config['low_range_low_price'] / ONE)
-    A_RISK, B_RISK = calculate_constants(ONE / config['high_range_low_price'], ONE / config['high_range_high_price'])
-    z_CASH = calculate_z(y_CASH, A_CASH, B_CASH, config['low_range_start_price'] / ONE)
-    z_RISK = calculate_z(y_RISK, A_RISK, B_RISK, ONE / config['high_range_start_price'])
+    l_CASH, h_CASH, s_CASH = [config[f'low_range_{ param}_price'] for param in ['low', 'high', 'start']]
+    l_RISK, h_RISK, s_RISK = [config[f'high_range_{param}_price'] for param in ['low', 'high', 'start']]
+    A_CASH, B_CASH, z_CASH = calculate_parameters(y_CASH, h_CASH, l_CASH, s_CASH, +ONE)
+    A_RISK, B_RISK, z_RISK = calculate_parameters(y_RISK, l_RISK, h_RISK, s_RISK, -ONE)
     return {
         'curve_parameters': {
-            'CASH': {
-                'A' : A_CASH,
-                'B' : B_CASH,
-                'z' : z_CASH
-            },
-            'RISK': {
-                'A' : A_RISK,
-                'B' : B_RISK,
-                'z' : z_RISK
-            },
-            'inverse_fee' : inverse_fee
+            'CASH': {'A': A_CASH, 'B': B_CASH, 'z': z_CASH},
+            'RISK': {'A': A_RISK, 'B': B_RISK, 'z': z_RISK},
+            'inverse_fee': inverse_fee
         },
         'simulation_recorder': {
-            'CASH': {
-                'balance' : [y_CASH],
-                'fee' : [ZERO]
-            },
-            'RISK': {
-                'balance' : [y_RISK],
-                'fee' : [ZERO]
-            },
-            'min_bid' : config['low_range_low_price'] * inverse_fee,
-            'max_bid' : config['low_range_high_price'] * inverse_fee,
-            'min_ask' : config['high_range_low_price'] / inverse_fee,
-            'max_ask' : config['high_range_high_price'] / inverse_fee,
-            'bid' : [],
-            'ask' : [],
-            'hodl_value' : [],
-            'portfolio_cash' : [],
-            'portfolio_risk' : [],
-            'portfolio_value' : [],
-            'portfolio_over_hodl' : [],
-            'price' : config['prices']
+            'CASH': {'balance': [y_CASH], 'fee': [ZERO]},
+            'RISK': {'balance': [y_RISK], 'fee': [ZERO]},
+            'min_bid': l_CASH * inverse_fee,
+            'max_bid': h_CASH * inverse_fee,
+            'min_ask': l_RISK / inverse_fee,
+            'max_ask': h_RISK / inverse_fee,
+            'bid': [],
+            'ask': [],
+            'hodl_value': [],
+            'portfolio_cash': [],
+            'portfolio_risk': [],
+            'portfolio_value': [],
+            'portfolio_over_hodl': []
         }
     }
 
 def execute(config_carbon: dict, config_logger: dict) -> dict:
     logger = create_logger(config_logger)
-    carbon = get_initial_state(config_carbon)
-    bid, ask = get_quote(carbon)
-    for step, price in enumerate(carbon['simulation_recorder']['price']):
+    carbon = create_carbon(config_carbon)
+    bid, ask = calculate_quotes(carbon)
+    for step, price in enumerate(config_carbon['prices']):
         logger.update_before(carbon['simulation_recorder'], step, price, bid, ask)
         replicate_last_balance_and_fee(carbon)
         details = equilibrate_protocol(carbon, price, bid, ask)
-        bid, ask = get_quote(carbon)
+        bid, ask = calculate_quotes(carbon)
         hodl_value = calculate_hodl_value(carbon, price)
         portfolio_cash, portfolio_risk, portfolio_value = calculate_portfolio(carbon, price)
         portfolio_over_hodl = calculate_portfolio_over_hodl(hodl_value, portfolio_value)
