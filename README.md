@@ -1,6 +1,6 @@
 # Carbon Backend
 
-Carbon Backend, built with Nest.js, serves as a specialized backend solution for aggregating insights from Carbon smart contracts and delivering them through APIs. It provides a suite of APIs offering valuable insights, such as trading activity and history.
+Carbon Backend, built with [Nest.js](https://nestjs.com), serves as a specialized backend solution for aggregating insights from Carbon smart contracts and delivering them through APIs. It provides a suite of APIs offering valuable insights, such as trading activity and history.
 
 ## Prerequisites
 
@@ -51,7 +51,7 @@ To run Carbon Backend:
     npm start
     ```
 
-Access the API documentation by navigating to [localhost:3000](http://localhost:3000) in your browser.
+Access the API documentation by navigating to [http://localhost:3000](http://localhost:3000) in your browser.
 
 ## License
 
