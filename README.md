@@ -62,17 +62,6 @@ npm start
 
 Access the API documentation by navigating to [http://localhost:3000](http://localhost:3000) in your browser.
 
-## Simulator Setup (Optional)
-
-If you wish to utilize the simulator feature of Carbon Backend, ensure you have the following prerequisites:
-
-- **Python 3**: Make sure the latest version of Python 3 is installed on your system.
-- **Package Installation**: Install the required Python packages by running the following command from the root directory of the project:
-
-  ```bash
-  pip install -r src/simulator/requirements.txt
-  ```
-
 ## Seed Historic Quotes (Optional)
 
 Manually run the `seed` function in `src/historic-quote/historic-quote.service.ts` to populate the database with historic quotes for history-dependent functionalities such as the simulator.
