@@ -6,8 +6,8 @@ Carbon Backend, built with [Nest.js](https://nestjs.com), serves as a specialize
 
 Before setting up Carbon Backend, ensure you have the following prerequisites:
 
-- **[TimescaleDB](https://docs.timescale.com/self-hosted/latest/install)**: Ensure TimescaleDB is properly installed and running
-- **[Redis](https://redis.io/docs/install/install-stack)**: Ensure Redis is properly installed and running
+- **[TimescaleDB](https://docs.timescale.com/self-hosted/latest/install)**: Ensure TimescaleDB is properly installed and running.
+- **[Redis](https://redis.io/docs/install/install-stack)**: Ensure Redis is properly installed and running.
 - **[CoinGecko](https://www.coingecko.com/en/api)**: Obtain an API key from CoinGecko.
 - **[CoinMarketCap](https://www.coingecko.com/en/api)**: Obtain an API key from CoinMarketCap.
 
