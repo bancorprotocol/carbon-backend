@@ -18,7 +18,7 @@ export class Simulator2Service {
     private readonly historicQuoteService: HistoricQuoteService,
   ) {}
 
-  async generateSimulation(params: Simulator2Dto): Promise<any> {
+  async generateSimulation(params: Simulator2Dto, usdPrices: any): Promise<any> {
     const { start, end, quoteBudget, baseBudget, buyMin, buyMax, sellMin, sellMax } = params;
     const baseToken = params['baseToken'].toLowerCase();
     const quoteToken = params['quoteToken'].toLowerCase();
@@ -57,6 +57,7 @@ export class Simulator2Service {
     const outputPath = path.join(folderPath, 'output.json');
     // const logPath = path.join(folderPath, 'output.log');
 
+    // create inputData object
     const inputData = {
       portfolio_cash_value: quoteBudget.toString(),
       portfolio_risk_value: baseBudget.toString(),
@@ -75,6 +76,22 @@ export class Simulator2Service {
       //   dates,
       // },
     };
+
+    // adjust low range start price
+    if (
+      new Decimal(inputData.low_range_low_price).lessThan(usdPrices[0].low) &&
+      new Decimal(usdPrices[0].low).lessThan(inputData.low_range_high_price)
+    ) {
+      inputData.low_range_start_price = usdPrices[0].low.toString();
+    }
+
+    // adjust high range start price
+    if (
+      new Decimal(inputData.high_range_low_price).lessThan(usdPrices[0].high) &&
+      new Decimal(usdPrices[0].high).lessThan(inputData.high_range_high_price)
+    ) {
+      inputData.high_range_start_price = usdPrices[0].high.toString();
+    }
 
     // Create folder if it doesn't exist
     await fsPromises.mkdir(folderPath, { recursive: true });

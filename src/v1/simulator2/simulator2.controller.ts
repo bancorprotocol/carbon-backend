@@ -32,7 +32,17 @@ export class Simulator2Controller {
       });
     }
 
-    const data = await this.simulatorService.generateSimulation(params);
+    params.baseToken = params.baseToken.toLowerCase();
+    params.quoteToken = params.quoteToken.toLowerCase();
+
+    const usdPrices = await this.historicQuoteService.getUsdBuckets(
+      params.baseToken,
+      params.quoteToken,
+      params.start,
+      params.end,
+    );
+
+    const data = await this.simulatorService.generateSimulation(params, usdPrices);
     return data;
   }
 }

@@ -141,7 +141,7 @@ export class HistoricQuoteService {
     const today = moment().utc().startOf('day');
     const startQ = moment.unix(start).utc().startOf('day');
     const startPaddedQ = moment.unix(start).utc().startOf('day').subtract('1', 'day').toISOString();
-    let endQ: any = moment.unix(end).utc().startOf('day');
+    let endQ: any = moment.unix(end).utc().endOf('day');
     endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
     const addresses = _addresses.map((a) => a.toLowerCase());
 
