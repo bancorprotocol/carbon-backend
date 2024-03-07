@@ -230,7 +230,7 @@ export class CoinMarketCapService {
           const tokenAddress = tokenAddresses[tokenIds.indexOf(id)];
           const prices = response.data.data[id].quotes.map((q) => {
             const { price, timestamp } = q.quote.USD;
-            return { price, timestamp: toTimestamp(timestamp), address: tokenAddress };
+            return { price, timestamp: toTimestamp(timestamp), address: tokenAddress.toLowerCase() };
           });
 
           result[tokenAddress] = (result[tokenAddress] || []).concat(prices);
