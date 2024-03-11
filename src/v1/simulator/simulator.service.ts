@@ -1,49 +1,53 @@
 import { Injectable } from '@nestjs/common';
 import { SimulatorDto } from './simulator.dto';
-import { CoinMarketCapService } from '../../coinmarketcap/coinmarketcap.service';
 import { promises as fsPromises } from 'fs';
 import * as path from 'path';
 import * as childProcess from 'child_process';
 import Decimal from 'decimal.js';
 import moment from 'moment';
 import { toTimestamp } from 'src/utilities';
+import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
+import { TradingFeePpmUpdatedEventService } from '../../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
+import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 
 @Injectable()
 export class SimulatorService {
-  constructor(private readonly coinMarketCapService: CoinMarketCapService) {}
+  constructor(
+    private readonly tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
+    private readonly pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
+    private readonly historicQuoteService: HistoricQuoteService,
+  ) {}
 
-  async generateSimulation(params: SimulatorDto): Promise<any> {
-    const {
-      token0,
-      token1,
-      start,
-      end,
-      portfolioCashValue,
-      portfolioRiskValue,
-      lowRangeLowPrice,
-      lowRangeHighPrice,
-      lowRangeStartPrice,
-      highRangeLowPrice,
-      highRangeHighPrice,
-      highRangeStartPrice,
-      networkFee,
-    } = params;
+  async generateSimulation(params: SimulatorDto, usdPrices: any): Promise<any> {
+    const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax } = params;
+    const baseToken = params['baseToken'].toLowerCase();
+    const quoteToken = params['quoteToken'].toLowerCase();
 
-    const tokens = [token0, token1];
-    const prices = await this.coinMarketCapService.getHistoricalQuotes(tokens, start, end);
+    // handle fees
+    const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
+    const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary();
+    let feePpm;
+    if (pairFees[baseToken] && pairFees[baseToken][quoteToken]) {
+      feePpm = pairFees[baseToken][quoteToken];
+    } else {
+      feePpm = defaultFee;
+    }
 
-    const pricesToken0 = prices[token0];
-    const pricesToken1 = prices[token1];
+    // handle prices
+    const tokens = [baseToken, quoteToken];
+    const prices = await this.historicQuoteService.getHistoryQuotesBuckets(tokens, start, end);
+    const pricesBaseToken = prices[baseToken];
+    const pricesQuoteToken = prices[quoteToken];
 
     // Synchronize arrays to have the same length
-    const minLength = Math.min(pricesToken0.length, pricesToken1.length);
-    const trimmedPricesToken0 = pricesToken0.slice(0, minLength);
-    const trimmedPricesToken1 = pricesToken1.slice(0, minLength);
+    const minLength = Math.min(pricesBaseToken.length, pricesQuoteToken.length);
+    const trimmedPricesBaseToken = pricesBaseToken.slice(0, minLength);
+    const trimmedPricesQuoteToken = pricesQuoteToken.slice(0, minLength);
 
     // Use the trimmed arrays for dates and pricesRatios
-    const dates = trimmedPricesToken0.map((p) => moment.unix(p.timestamp).toISOString());
-    const pricesRatios = trimmedPricesToken0.map((p, i) =>
-      new Decimal(p.price).div(trimmedPricesToken1[i].price).toString(),
+    const dates = trimmedPricesBaseToken.map((p) => moment.unix(p.timestamp).toISOString());
+    const pricesRatios = trimmedPricesBaseToken.map((p, i) =>
+      new Decimal(p.close).div(trimmedPricesQuoteToken[i].close).toString(),
     );
 
     // Step 1: Create input.json
@@ -51,20 +55,20 @@ export class SimulatorService {
     const folderPath = path.join(__dirname, `../../simulator/simulation_${timestamp}`);
     const inputFilePath = path.join(folderPath, 'input.json');
     const outputPath = path.join(folderPath, 'output.json');
-    const logPath = path.join(folderPath, 'output.log');
+    // const logPath = path.join(folderPath, 'output.log');
 
+    // create inputData object
     const inputData = {
-      portfolio_cash_value: portfolioCashValue,
-      portfolio_risk_value: portfolioRiskValue,
-      low_range_low_price: lowRangeLowPrice,
-      low_range_high_price: lowRangeHighPrice,
-      low_range_start_price: lowRangeStartPrice,
-      high_range_low_price: highRangeLowPrice,
-      high_range_high_price: highRangeHighPrice,
-      high_range_start_price: highRangeStartPrice,
-      network_fee: networkFee,
+      portfolio_cash_value: buyBudget.toString(),
+      portfolio_risk_value: sellBudget.toString(),
+      low_range_low_price: buyMin.toString(),
+      low_range_high_price: buyMax.toString(),
+      low_range_start_price: buyMax.toString(),
+      high_range_low_price: sellMin.toString(),
+      high_range_high_price: sellMax.toString(),
+      high_range_start_price: sellMin.toString(),
+      network_fee: `${feePpm / 1000000}`,
       prices: pricesRatios,
-
       // logging: {
       //   output_file_name: logPath,
       //   cash_token_symbol: 'ETH',
@@ -72,6 +76,22 @@ export class SimulatorService {
       //   dates,
       // },
     };
+
+    // adjust low range start price
+    if (
+      new Decimal(inputData.low_range_low_price).lessThan(usdPrices[0].low) &&
+      new Decimal(usdPrices[0].low).lessThan(inputData.low_range_high_price)
+    ) {
+      inputData.low_range_start_price = usdPrices[0].low.toString();
+    }
+
+    // adjust high range start price
+    if (
+      new Decimal(inputData.high_range_low_price).lessThan(usdPrices[0].high) &&
+      new Decimal(usdPrices[0].high).lessThan(inputData.high_range_high_price)
+    ) {
+      inputData.high_range_start_price = usdPrices[0].high.toString();
+    }
 
     // Create folder if it doesn't exist
     await fsPromises.mkdir(folderPath, { recursive: true });
@@ -118,7 +138,7 @@ export class SimulatorService {
       // Add the 'dates' array to the result
       parsedOutput.dates = dates.map((d) => toTimestamp(new Date(d)));
 
-      return parsedOutput;
+      return { ...parsedOutput, prices: pricesRatios };
     } catch (err) {
       console.error('Error in generateSimulation:', err.message);
       throw err;

@@ -1,15 +1,15 @@
 // coinmarketcap.dto.ts
 
-import { IsNumber, IsNumberString } from 'class-validator';
+import { IsNumber } from 'class-validator';
 import { IsAddress } from '../../isAddress.validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class SimulatorDto {
   @IsAddress()
-  token0: string;
+  baseToken: string;
 
   @IsAddress()
-  token1: string;
+  quoteToken: string;
 
   @IsNumber()
   @Type(() => Number)
@@ -19,30 +19,27 @@ export class SimulatorDto {
   @Type(() => Number)
   end: number;
 
-  @IsNumberString()
-  portfolioCashValue: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  sellBudget: number;
 
-  @IsNumberString()
-  portfolioRiskValue: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  buyBudget: number;
 
-  @IsNumberString()
-  lowRangeLowPrice: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  sellMax: number;
 
-  @IsNumberString()
-  lowRangeHighPrice: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  sellMin: number;
 
-  @IsNumberString()
-  lowRangeStartPrice: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  buyMax: number;
 
-  @IsNumberString()
-  highRangeLowPrice: number;
-
-  @IsNumberString()
-  highRangeHighPrice: number;
-
-  @IsNumberString()
-  highRangeStartPrice: number;
-
-  @IsNumberString()
-  networkFee: number;
+  @Transform(({ value }) => parseFloat(value))
+  @IsNumber()
+  buyMin: number;
 }
