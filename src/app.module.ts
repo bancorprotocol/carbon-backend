@@ -71,11 +71,21 @@ import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
     CacheModule.registerAsync({
       imports: [ConfigModule],
       isGlobal: true,
-      useFactory: async (configService: ConfigService) => ({
-        store: await redisStore({
-          url: configService.get('CARBON_REDIS_URL'),
-        }),
-      }),
+      useFactory: async (configService: ConfigService) => {
+        if (process.env.NODE_ENV === 'development') {
+          return {
+            ttl: 0, // Set TTL to 0 to effectively disable caching
+          };
+        }
+        return {
+          store: await redisStore({
+            url: configService.get('CARBON_REDIS_URL'),
+          }),
+          host: 'localhost',
+          port: 6379,
+          ttl: 300, // seconds
+        };
+      },
       inject: [ConfigService],
     }),
     ScheduleModule.forRoot(),
