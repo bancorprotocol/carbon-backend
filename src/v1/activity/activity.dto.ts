@@ -1,11 +1,20 @@
 import { IsOptional } from 'class-validator';
-import { IsAddress } from '../../isAddress.validator';
+import { formatEthereumAddress } from '../../isAddress.validator';
+import { Transform } from 'class-transformer';
 
 export class ActivityDto {
   @IsOptional()
-  strategyId: string;
+  strategyIds?: string;
 
-  @IsAddress()
   @IsOptional()
-  ownerId: string;
+  @Transform((value) => formatEthereumAddress(value))
+  ownerId?: string;
+
+  @IsOptional()
+  @Transform((value) => formatEthereumAddress(value))
+  token0?: string;
+
+  @IsOptional()
+  @Transform((value) => formatEthereumAddress(value))
+  token1?: string;
 }

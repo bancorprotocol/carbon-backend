@@ -103,8 +103,16 @@ export class ActivityService {
             COALESCE((y0 - LAG(y0, 1) OVER (PARTITION BY id ORDER BY evt_block_number)) / POW(10, decimals0), 0) AS y0_delta,
             COALESCE((y1 - LAG(y1, 1) OVER (PARTITION BY id ORDER BY evt_block_number)) / POW(10, decimals1), 0) AS y1_delta,
             POW((B0_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals1-decimals0)) as lowestRate0,
+            CASE
+                WHEN liquidity0 = capacity0 then POW((B0_real+A0_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals1-decimals0))
+                else POW((B0_real+A0_real*liquidity0/capacity0)/POW(2,48)::BIGINT,2) * POW(10, (decimals1-decimals0))
+            end as marginalRate0,
             POW((B0_real+A0_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals1-decimals0)) as highestRate0,
             POW((B1_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals0-decimals1)) as lowestRate1,
+            CASE
+                WHEN liquidity1 = capacity1 then POW((B1_real+A1_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals0-decimals1))
+                else POW((B1_real+A1_real*liquidity1/capacity1)/POW(2,48)::BIGINT,2) * POW(10, (decimals0-decimals1))
+            end as marginalRate1,
             POW((B1_real+A1_real)/POW(2,48)::BIGINT,2) * POW(10, (decimals0-decimals1)) as highestRate1
         FROM current_orders4
     ),
@@ -116,10 +124,22 @@ export class ActivityService {
             (CASE WHEN reason = 4 THEN -liquidity1 ELSE 0 END) + (CASE WHEN (reason = 0 AND y1_delta < 0) THEN y1_delta ELSE 0 END) AS y1_withdrawn,
             CAST(symbol0 as varchar) || '/' || CAST(symbol1 as varchar) as base_quote,
             CASE WHEN highestRate0=0 then 0 else 1/highestRate0 end as lowestRate0_norm,
+            CASE WHEN marginalRate0=0 then 0 else 1/marginalRate0 end as marginalRate0_norm,
             CASE WHEN lowestRate0=0 then 0 else 1/lowestRate0 end as highestRate0_norm,
-            -- 1/highestRate0 as lowestRate0_norm, 1/marginalRate0 as marginalRate0_norm, 1/lowestRate0 as highestRate0_norm,
-            lowestRate1 as lowestRate1_norm, highestRate1 as highestRate1_norm
+            lowestRate1 as lowestRate1_norm, 
+            marginalRate1 as marginalRate1_norm,
+            highestRate1 as highestRate1_norm
         FROM order_lifespan
+    ),
+    add_price_delta AS (
+        SELECT *,
+        COALESCE((lowestRate0_norm - LAG(lowestRate0_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS lowestRate0_norm_delta,
+        COALESCE((marginalRate0_norm - LAG(marginalRate0_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS marginalRate0_norm_delta,
+        COALESCE((highestRate0_norm - LAG(highestRate0_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS highestRate0_norm_delta,
+        COALESCE((lowestRate1_norm - LAG(lowestRate1_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS lowestRate1_norm_delta,
+        COALESCE((marginalRate1_norm - LAG(marginalRate1_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS marginalRate1_norm_delta,
+        COALESCE((highestRate1_norm - LAG(highestRate1_norm, 1) OVER (PARTITION BY id ORDER BY evt_block_number)), 0) AS highestRate1_norm_delta
+        FROM dep_with
     ),
     descriptions AS (
         SELECT *,
@@ -134,7 +154,7 @@ export class ActivityService {
                 WHEN reason = 4 THEN 'Deleted'
                 ELSE '0' 
             END AS descr
-        FROM dep_with
+        FROM add_price_delta
     ),
     all_trades as (
         select id,
@@ -172,7 +192,7 @@ export class ActivityService {
         WHERE rn = 1
     ),
     voucher_minimal as (
-        select "strategyId" as id, 'Transfer Strategy' as action, "from" as old_owner, "to" as new_owner, timestamp as date, "transactionHash" as txhash
+        select "strategyId" as id, 'Transfer Strategy' as action, "from" as old_owner, "to" as new_owner, timestamp as date, "transactionHash" as txhash, "blockId" as block_number
         --creation_wallet	current_owner	id	action	base_quote	base_sell_token	quote_buy_token	buy_budget	sell_budget	buy_budget_change	sell_budget_change	buy_price_a	buy_price_b	sell_price_a	sell_price_b	strategy_sold	token_sold	strategy_bought	token_bought	avg_price	date	txhash
         from voucher_transfers
     ),
@@ -187,6 +207,7 @@ export class ActivityService {
             WHEN descr = 'Deposited TKN1' THEN 'Deposit'
             WHEN descr = 'Withdrew TKN0' THEN 'Withdraw'
             WHEN descr = 'Withdrew TKN1' THEN 'Withdraw'
+            WHEN descr = 'Updated Price' and not (lowestRate0_norm!=0 or highestRate0_norm!=0 or lowestRate1_norm!=0 or highestRate1_norm!=0) then 'Strategy Paused'
             WHEN descr = 'Updated Price' THEN 'Edit Price'
             ELSE descr
         END as action,
@@ -199,13 +220,17 @@ export class ActivityService {
     ),
     complete_renamed as (
         select
+        evt_block_number as block_number,
         creation_wallet, current_owner, id, action, base_quote, 
         token0 as base_sell_token_address, 
         symbol0 as base_sell_token, 
         token1 as quote_buy_token_address, 
         symbol1 as quote_buy_token, 
         liquidity1 as buy_budget, liquidity0 as sell_budget, y1_delta as buy_budget_change, y0_delta as sell_budget_change,
-        lowestrate1_norm as buy_price_a, highestrate1_norm as buy_price_b, lowestrate0_norm as sell_price_a, highestrate0_norm as sell_price_b,
+        lowestrate1_norm as buy_price_a, marginalRate1_norm as buy_price_marg, highestrate1_norm as buy_price_b, 
+        lowestrate0_norm as sell_price_a, marginalRate0_norm as sell_price_marg, highestrate0_norm as sell_price_b,
+        lowestrate1_norm_delta as buy_price_a_delta, marginalRate1_norm_delta as buy_price_marg_delta, highestrate1_norm_delta as buy_price_b_delta, 
+        lowestrate0_norm_delta as sell_price_a_delta, marginalRate0_norm_delta as sell_price_marg_delta, highestrate0_norm_delta as sell_price_b_delta,
         strategy_sold, token_sold, strategy_bought, token_bought, avg_price, evt_block_time as date, txhash
         from complete_info
     ),
@@ -222,28 +247,35 @@ export class ActivityService {
     ),
     transfer_action as (
         select creation_wallet,	current_owner,	vm.id,	vm.action,	base_quote,	base_sell_token, base_sell_token_address, quote_buy_token, quote_buy_token_address, buy_budget, sell_budget, NULL::double precision as buy_budget_change, NULL::double precision as sell_budget_change, 
-        buy_price_a, buy_price_b, sell_price_a, sell_price_b,
+        buy_price_a, buy_price_marg, buy_price_b, sell_price_a, sell_price_marg, sell_price_b,
+        buy_price_a_delta, buy_price_marg_delta, buy_price_b_delta, sell_price_a_delta, sell_price_marg_delta, sell_price_b_delta,
         NULL::double precision as strategy_sold, NULL as token_sold, NULL::double precision as strategy_bought, NULL as token_bought,
-        NULL::double precision as avg_price, vm.date, vm.txhash, vm.old_owner, vm.new_owner
+        NULL::double precision as avg_price, vm.date, vm.txhash, vm.old_owner, vm.new_owner, vm.block_number
         from voucher_minimal vm
         left join prior_action pa on pa.id = vm.id
     ),
     complete_actions as (
         select creation_wallet, current_owner, NULL as old_owner, NULL as new_owner, id, action, base_quote, base_sell_token, base_sell_token_address, quote_buy_token, quote_buy_token_address,
-        buy_budget, sell_budget, buy_budget_change, sell_budget_change, buy_price_a, buy_price_b,
-        sell_price_a, sell_price_b, strategy_sold, token_sold, strategy_bought, token_bought,
-        avg_price, date, txhash
+        buy_budget, sell_budget, buy_budget_change, sell_budget_change, 
+        buy_price_a, buy_price_marg, buy_price_b,
+        sell_price_a, sell_price_marg, sell_price_b, 
+        buy_price_a_delta, buy_price_marg_delta, buy_price_b_delta, sell_price_a_delta, sell_price_marg_delta, sell_price_b_delta,
+        strategy_sold, token_sold, strategy_bought, token_bought,
+        avg_price, date, txhash, block_number
         from complete_renamed
         UNION
         select creation_wallet, current_owner, old_owner, new_owner, id, action, base_quote, base_sell_token, base_sell_token_address, quote_buy_token, quote_buy_token_address,
-        buy_budget, sell_budget, buy_budget_change, sell_budget_change, buy_price_a, buy_price_b,
-        sell_price_a, sell_price_b, strategy_sold, token_sold, strategy_bought, token_bought,
-        avg_price, date, txhash
+        buy_budget, sell_budget, buy_budget_change, sell_budget_change, 
+        buy_price_a, buy_price_marg, buy_price_b,
+        sell_price_a, sell_price_marg, sell_price_b, 
+        buy_price_a_delta, buy_price_marg_delta, buy_price_b_delta, sell_price_a_delta, sell_price_marg_delta, sell_price_b_delta,
+        strategy_sold, token_sold, strategy_bought, token_bought,
+        avg_price, date, txhash, block_number
         from transfer_action
     )
     select *
     from complete_actions
-    order by date asc`;
+    order by block_number asc`;
 
     const result = await this.strategy.query(query);
     return transformKeysToCamelCase(result);
