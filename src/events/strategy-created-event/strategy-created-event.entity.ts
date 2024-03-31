@@ -21,14 +21,17 @@ export class StrategyCreatedEvent {
   block: Block;
 
   @Column()
+  @Index()
   timestamp: Date;
 
   @Column()
   owner: string;
 
+  @Index()
   @ManyToOne(() => Token, { eager: true })
   token0: Token;
 
+  @Index()
   @ManyToOne(() => Token, { eager: true })
   token1: Token;
 

@@ -15,14 +15,16 @@ import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { ActivityService } from '../v1/activity/activity.service';
-import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
+import { AnalyticsService } from '../v1/analytics/analytics.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
+export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
 @Injectable()
 export class UpdaterService {
   private isUpdating: boolean;
+  private isUpdatingAnalytics: boolean;
 
   constructor(
     private configService: ConfigService,
@@ -39,8 +41,8 @@ export class UpdaterService {
     private tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
     private activityService: ActivityService,
-    private historyQuoteService: HistoricQuoteService,
     private voucherTransferEventService: VoucherTransferEventService,
+    private analyticsService: AnalyticsService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -61,7 +63,7 @@ export class UpdaterService {
     try {
       this.isUpdating = true;
       const lockDuration = parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 120;
-      await this.redis.client.setex('carbon:isUpdating', lockDuration, 1);
+      await this.redis.client.setex(CARBON_IS_UPDATING, lockDuration, 1);
       if (endBlock === -12) {
         if (this.configService.get('IS_FORK') === '1') {
           endBlock = await this.harvesterService.latestBlock();
@@ -128,13 +130,44 @@ export class UpdaterService {
       }
 
       // finish
-      console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t), 'ms';
+      console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t, 'ms');
       this.isUpdating = false;
       await this.redis.client.set(CARBON_IS_UPDATING, 0);
     } catch (error) {
       console.log('error in carbon updater', error, Date.now() - t);
       this.isUpdating = false;
       await this.redis.client.set(CARBON_IS_UPDATING, 0);
+    }
+  }
+
+  @Interval(5000)
+  async updateAnalytics(): Promise<any> {
+    const shouldUpdateAnalytics = this.configService.get('SHOULD_UPDATE_ANALYTICS');
+    if (shouldUpdateAnalytics !== '1') return;
+
+    if (this.isUpdatingAnalytics) return;
+
+    const isUpdatingAnalytics = await this.redis.client.get(CARBON_IS_UPDATING_ANALYTICS);
+    if (isUpdatingAnalytics === '1' && process.env.NODE_ENV === 'production') return;
+
+    console.log('CARBON SERVICE - Started analytics update cycle');
+    const t = Date.now();
+
+    try {
+      this.isUpdatingAnalytics = true;
+      const lockDuration = parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 120;
+      await this.redis.client.setex(CARBON_IS_UPDATING_ANALYTICS, lockDuration, 1);
+
+      // analytics
+      await this.analyticsService.update();
+      console.log('CARBON SERVICE -', 'Finished updating analytics in:', Date.now() - t, 'ms');
+
+      this.isUpdatingAnalytics = false;
+      await this.redis.client.set(CARBON_IS_UPDATING_ANALYTICS, 0);
+    } catch (error) {
+      console.log('error in carbon analytics updater', error, Date.now() - t);
+      this.isUpdatingAnalytics = false;
+      await this.redis.client.set(CARBON_IS_UPDATING_ANALYTICS, 0);
     }
   }
 }

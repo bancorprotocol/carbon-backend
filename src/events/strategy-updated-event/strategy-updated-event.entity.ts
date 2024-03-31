@@ -23,6 +23,7 @@ export class StrategyUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Index()
   @ManyToOne(() => Strategy, { eager: true })
   strategy: Strategy;
 
@@ -34,6 +35,7 @@ export class StrategyUpdatedEvent {
   block: Block;
 
   @Column()
+  @Index()
   timestamp: Date;
 
   @Column()
