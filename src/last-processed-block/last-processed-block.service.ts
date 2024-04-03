@@ -41,11 +41,11 @@ export class LastProcessedBlockService {
   async firstUnprocessedBlockNumber(): Promise<number> {
     const startBlock = parseInt(this.configService.get('START_BLOCK'));
     const entities = [
-      'block',
+      'blocks',
       'pair-created-events',
       'strategy-created-events',
       'trading-fee-ppm-updated-events',
-      'pair-trading-fee-ppm-updated',
+      'pair-trading-fee-ppm-updated-events',
       'voucher-transfer-events',
     ];
     const values = await Promise.all(
