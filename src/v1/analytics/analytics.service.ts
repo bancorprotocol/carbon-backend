@@ -608,18 +608,26 @@ export class AnalyticsService {
     fee_volume AS (
         SELECT
             SUM(targetUSD * targetAmount_real) AS volume,
-            SUM(feeUSD * tradingFeeAmount_real) AS fee
+            SUM(feeUSD * tradingFeeAmount_real) AS fees
         FROM
             fee_volume_w_prices
+    ),
+    latest_updated_block AS (
+        SELECT
+            MIN("blockId") AS last_block
+        FROM
+            last_processed_block
     )
     SELECT
-        sl.*,
-        sc.*,
-        pc.*,
-        ut.*,
-        ap.*,
-        nt.*,
-        fv.*
+        sl.current_liquidity :: NUMERIC,
+        sc.strategies_created :: INTEGER,
+        pc.pairs_created :: INTEGER,
+        ut.unique_traders :: INTEGER,
+        ap.active_pairs :: INTEGER,
+        nt.number_trades :: INTEGER,
+        fv.volume :: NUMERIC,
+        fv.fees :: NUMERIC,
+        lub.last_block :: INTEGER
     FROM
         sum_liquidity sl,
         strategies_created sc,
@@ -627,7 +635,8 @@ export class AnalyticsService {
         unique_traders ut,
         active_pairs ap,
         number_trades nt,
-        fee_volume fv`;
+        fee_volume fv,
+        latest_updated_block lub`;
 
     const result = await this.strategy.query(query);
     return result;
