@@ -614,7 +614,8 @@ export class AnalyticsService {
     ),
     latest_updated_block AS (
         SELECT
-            MIN("blockId") AS last_block
+            MIN("blockId") AS last_block,
+            MIN("updatedAt") AS last_timestamp
         FROM
             last_processed_block
     )
@@ -627,7 +628,8 @@ export class AnalyticsService {
         nt.number_trades :: INTEGER,
         fv.volume :: NUMERIC,
         fv.fees :: NUMERIC,
-        lub.last_block :: INTEGER
+        lub.last_block :: INTEGER,
+        lub.last_timestamp
     FROM
         sum_liquidity sl,
         strategies_created sc,
