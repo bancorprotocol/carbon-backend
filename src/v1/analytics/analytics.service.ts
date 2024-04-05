@@ -293,24 +293,6 @@ export class AnalyticsService {
     ),
     liquidity_usd AS (
         SELECT
-            evt_block_time,
-            evt_block_number,
-            id,
-            reason,
-            symbol,
-            address,
-            y,
-            y_delta,
-            liquidity_real,
-            pr.max_usd AS price_usd,
-            liquidity_real * pr.max_usd AS liquidity_usd
-        FROM
-            forwarded_liquidity fl
-            LEFT JOIN prices pr ON fl.address = pr."tokenAddress"
-            AND fl.evt_day = pr.timestamp_day
-    ),
-    liquidity_usd_with_delta AS (
-        SELECT
             evt_block_time AS timestamp,
             evt_block_number AS block_number,
             id,
@@ -320,18 +302,52 @@ export class AnalyticsService {
             y AS liquidity,
             y_delta AS delta_liquidity_real,
             liquidity_real,
-            price_usd :: NUMERIC,
+            pr.max_usd :: NUMERIC AS price_usd,
+            liquidity_real * pr.max_usd AS liquidity_usd
+        FROM
+            forwarded_liquidity fl
+            LEFT JOIN prices pr ON fl.address = pr."tokenAddress"
+            AND fl.evt_day = pr.timestamp_day
+    ),
+    liquidity_usd_with_delta AS (
+        SELECT
+            timestamp,
+            block_number,
+            id,
+            reason,
+            symbol,
+            address,
+            liquidity,
+            delta_liquidity_real,
+            liquidity_real,
+            price_usd,
             liquidity_usd,
             COALESCE(
                 liquidity_usd - LAG(liquidity_usd) OVER (
                     PARTITION BY address
                     ORDER BY
-                        evt_block_time
+                        timestamp
                 ),
                 liquidity_usd
             ) AS delta_liquidity_usd
         FROM
             liquidity_usd
+        WHERE
+            price_usd IS NOT NULL
+    ),
+    liquidity_final AS (
+        SELECT
+            *,
+            0 AS delta_liquidity_usd
+        FROM
+            liquidity_usd
+        WHERE
+            price_usd IS NULL
+        UNION
+        SELECT
+            *
+        FROM
+            liquidity_usd_with_delta
     )
     SELECT
         timestamp,
@@ -339,7 +355,10 @@ export class AnalyticsService {
         delta_liquidity_real,
         delta_liquidity_usd
     FROM
-        liquidity_usd_with_delta
+        liquidity_final
+    WHERE
+        delta_liquidity_real <> 0
+        OR delta_liquidity_usd <> 0
     ORDER BY
         timestamp`;
 
