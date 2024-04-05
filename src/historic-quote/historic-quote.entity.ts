@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 
 @Entity({ name: 'historic-quotes' })
+@Index(['tokenAddress', 'timestamp'], { unique: false })
 export class HistoricQuote {
   @PrimaryGeneratedColumn()
   id: number;

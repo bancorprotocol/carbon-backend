@@ -1,10 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Quote } from './quote.entity';
 import { TokenService } from '../token/token.service';
 import { CoinGeckoService } from './coingecko.service';
-import { Interval } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
 
@@ -13,22 +13,32 @@ export interface QuotesByAddress {
 }
 
 @Injectable()
-export class QuoteService {
+export class QuoteService implements OnModuleInit {
   private isPolling = false;
   private readonly logger = new Logger(QuoteService.name);
+  private readonly intervalDuration: number;
+  private shouldPollQuotes: boolean;
 
   constructor(
     @InjectRepository(Quote) private quoteRepository: Repository<Quote>,
     private tokenService: TokenService,
     private coingeckoService: CoinGeckoService,
     private configService: ConfigService,
-  ) {}
+    private schedulerRegistry: SchedulerRegistry,
+  ) {
+    this.intervalDuration = +this.configService.get('POLL_QUOTES_INTERVAL') || 60000;
+    this.shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES') === '1';
+  }
 
-  @Interval(1 * 60 * 1000)
+  onModuleInit() {
+    if (this.shouldPollQuotes) {
+      const callback = () => this.pollForLatest();
+      const interval = setInterval(callback, this.intervalDuration);
+      this.schedulerRegistry.addInterval('pollForLatest', interval);
+    }
+  }
+
   async pollForLatest(): Promise<void> {
-    const shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES');
-    if (shouldPollQuotes !== '1') return;
-
     if (this.isPolling) {
       this.logger.warn('Polling is already in progress.');
       return;

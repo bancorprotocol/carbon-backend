@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { CoinMarketCapService } from '../coinmarketcap/coinmarketcap.service';
 import { HistoricQuote } from './historic-quote.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Interval } from '@nestjs/schedule';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import moment from 'moment';
@@ -18,19 +18,31 @@ type Candlestick = {
 };
 
 @Injectable()
-export class HistoricQuoteService {
+export class HistoricQuoteService implements OnModuleInit {
   private isPolling = false;
+  private readonly intervalDuration: number;
+  private shouldPollQuotes: boolean;
 
   constructor(
     @InjectRepository(HistoricQuote) private repository: Repository<HistoricQuote>,
     private coinmarketcapService: CoinMarketCapService,
     private configService: ConfigService,
-  ) {}
+    private schedulerRegistry: SchedulerRegistry,
+  ) {
+    this.intervalDuration = +this.configService.get('POLL_HISTORIC_QUOTES_INTERVAL') || 300000;
+    this.shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES') === '1';
+  }
 
-  @Interval(5 * 60 * 1000)
+  onModuleInit() {
+    if (this.shouldPollQuotes) {
+      const callback = () => this.pollForUpdates();
+      const interval = setInterval(callback, this.intervalDuration);
+      this.schedulerRegistry.addInterval('pollForUpdates', interval);
+    }
+  }
+
   async pollForUpdates(): Promise<void> {
-    const shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES');
-    if (shouldPollQuotes !== '1' || this.isPolling) return;
+    if (this.isPolling) return;
     this.isPolling = true;
 
     try {
