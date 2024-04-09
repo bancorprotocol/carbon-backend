@@ -7,19 +7,19 @@ from decimal import ROUND_HALF_DOWN
 getcontext().prec = 100
 getcontext().rounding = ROUND_HALF_DOWN
 
-SMALL = Decimal('1e-48')
 ZERO = Decimal('0')
 ONE = Decimal('1')
 TWO = Decimal('2')
 
-def calculate_parameters(y: Decimal, pa: Decimal, pb: Decimal, pm: Decimal, n: Decimal) -> (Decimal, Decimal, Decimal):
+def calculate_parameters(y: Decimal, pa: Decimal, pb: Decimal, pm: Decimal, n: Decimal) -> (Decimal, Decimal, Decimal, Decimal):
     H = pa.sqrt() ** n
     L = pb.sqrt() ** n
     M = pm.sqrt() ** n
     A = H - L
     B = L
-    z = y * A / (M - B) if y * A > ZERO else max(y, SMALL)
-    return A, B, z
+    z = y * (H - L) / (M - L) if M > L else y
+    w = z / (H * L)
+    return A, B, z, w
 
 def calculate_hodl_value(carbon: dict, market_price: Decimal) -> Decimal:
     CASH = carbon['simulation_recorder']['CASH']['balance'][0]
@@ -110,8 +110,10 @@ def create_carbon(config: dict) -> dict:
     y_RISK = config['portfolio_risk_value']
     l_CASH, h_CASH, s_CASH = [config[f'low_range_{ param}_price'] for param in ['low', 'high', 'start']]
     l_RISK, h_RISK, s_RISK = [config[f'high_range_{param}_price'] for param in ['low', 'high', 'start']]
-    A_CASH, B_CASH, z_CASH = calculate_parameters(y_CASH, h_CASH, l_CASH, s_CASH, +ONE)
-    A_RISK, B_RISK, z_RISK = calculate_parameters(y_RISK, l_RISK, h_RISK, s_RISK, -ONE)
+    A_CASH, B_CASH, z_CASH, w_CASH = calculate_parameters(y_CASH, h_CASH, l_CASH, s_CASH, +ONE)
+    A_RISK, B_RISK, z_RISK, w_RISK = calculate_parameters(y_RISK, l_RISK, h_RISK, s_RISK, -ONE)
+    if z_CASH == ZERO: z_CASH = w_RISK
+    if z_RISK == ZERO: z_RISK = w_CASH
     return {
         'curve_parameters': {
             'CASH': {'A': A_CASH, 'B': B_CASH, 'z': z_CASH},
