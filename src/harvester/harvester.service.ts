@@ -5,8 +5,7 @@ import * as _ from 'lodash';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { Repository } from 'typeorm';
 import { PairsDictionary } from '../pair/pair.service';
-import { BlocksDictionary } from '../block/block.service';
-import { QuoteService } from '../quote/quote.service';
+import { BlockService, BlocksDictionary } from '../block/block.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
 import moment from 'moment';
@@ -49,7 +48,6 @@ export interface ProcessEventsArgs {
   allQuotes?: Quote[];
   customFns?: CustomFn[];
   customData?: any;
-  blocksDictionary?: BlocksDictionary;
   skipLastProcessedBlockUpdate?: boolean;
   findQuotesForTimestamp?: AnyFunc;
   symbolizeIncludeTkn?: boolean;
@@ -96,6 +94,7 @@ export class HarvesterService {
   constructor(
     private configService: ConfigService,
     private lastProcessedBlockService: LastProcessedBlockService,
+    private blockService: BlockService,
     @Inject('BLOCKCHAIN_CONFIG') private blockchainConfig: any,
   ) {}
 
@@ -195,7 +194,6 @@ export class HarvesterService {
       tagTimestampFromBlock,
       allQuotes,
       customFns,
-      blocksDictionary,
       skipLastProcessedBlockUpdate,
       findQuotesForTimestamp,
       dateFields,
@@ -232,6 +230,13 @@ export class HarvesterService {
 
     let newEvents = [];
     if (events.length > 0) {
+      let blocksDictionary: BlocksDictionary;
+
+      if (tagTimestampFromBlock) {
+        const blockIds = [...new Set(events.map((b) => Number(b.blockNumber)))];
+        blocksDictionary = await this.blockService.getBlocksDictionary(blockIds);
+      }
+
       newEvents = await Promise.all(
         events.map(async (e) => {
           let newEvent = repository.create({

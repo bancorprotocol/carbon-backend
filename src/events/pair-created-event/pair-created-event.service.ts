@@ -20,6 +20,7 @@ export class PairCreatedEventService {
       endBlock,
       repository: this.repository,
       stringFields: ['token0', 'token1'],
+      tagTimestampFromBlock: true,
     });
   }
 

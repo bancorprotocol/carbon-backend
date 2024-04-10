@@ -6,7 +6,6 @@ import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.servic
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import Decimal from 'decimal.js';
-import { BlocksDictionary } from '../../block/block.service';
 
 export type TokensTradedEventQueryParams = {
   startBlock?: number;
@@ -31,12 +30,7 @@ export class TokensTradedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(
-    endBlock: number,
-    pairsDictionary: PairsDictionary,
-    tokens: TokensByAddress,
-    blocksDictionary: BlocksDictionary,
-  ): Promise<any[]> {
+  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'tokens-traded-events',
       contractName: 'CarbonController',
@@ -50,7 +44,6 @@ export class TokensTradedEventService {
       tagTimestampFromBlock: true,
       pairsDictionary,
       tokens,
-      blocksDictionary,
     });
   }
 

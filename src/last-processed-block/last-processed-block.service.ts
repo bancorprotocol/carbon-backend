@@ -13,29 +13,29 @@ export class LastProcessedBlockService {
   ) {}
 
   // caches the last processed block id if it is in fact greater than the previous processed block id.
-  async update(param: string, blockId: number): Promise<any> {
+  async update(param: string, block: number): Promise<any> {
     let lastProcessed = await this.lastProcessedBlock.findOneBy({ param });
     if (!lastProcessed) {
       lastProcessed = this.lastProcessedBlock.create({
         param,
-        block: { id: blockId },
+        block,
       });
       await this.lastProcessedBlock.save(lastProcessed);
-    } else if (blockId > lastProcessed.block.id) {
+    } else if (block > lastProcessed.block) {
       await this.lastProcessedBlock.update(lastProcessed.id, {
-        block: { id: blockId },
+        block,
       });
     }
   }
 
   async get(param: string): Promise<number> {
     const lastProcessed = await this.lastProcessedBlock.findOneBy({ param });
-    return lastProcessed ? lastProcessed.block.id : null;
+    return lastProcessed ? lastProcessed.block : null;
   }
   async getOrInit(param: string, initTo?: number): Promise<number> {
     const _initTo = initTo || this.configService.get('START_BLOCK') - 1;
     const lastProcessed = await this.lastProcessedBlock.findOneBy({ param });
-    return lastProcessed ? lastProcessed.block.id : _initTo;
+    return lastProcessed ? lastProcessed.block : _initTo;
   }
 
   async firstUnprocessedBlockNumber(): Promise<number> {

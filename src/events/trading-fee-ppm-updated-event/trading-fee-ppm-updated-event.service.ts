@@ -3,9 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { TradingFeePpmUpdatedEvent } from './trading-fee-ppm-updated-event.entity';
 import { HarvesterService } from '../../harvester/harvester.service';
-import { PairsDictionary } from 'src/pair/pair.service';
-import { TokensByAddress } from 'src/token/token.service';
-import { BlocksDictionary } from '../../block/block.service';
 
 @Injectable()
 export class TradingFeePpmUpdatedEventService {
@@ -23,7 +20,7 @@ export class TradingFeePpmUpdatedEventService {
       .getMany();
   }
 
-  async update(endBlock: number, blocksDictionary: BlocksDictionary): Promise<any[]> {
+  async update(endBlock: number): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'trading-fee-ppm-updated-events',
       contractName: 'CarbonController',
@@ -32,7 +29,6 @@ export class TradingFeePpmUpdatedEventService {
       repository: this.repository,
       bigNumberFields: ['prevFeePPM', 'newFeePPM'],
       tagTimestampFromBlock: true,
-      blocksDictionary,
     });
   }
 

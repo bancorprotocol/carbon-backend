@@ -16,12 +16,7 @@ export class StrategyCreatedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(
-    endBlock: number,
-    pairsDictionary: PairsDictionary,
-    tokens: TokensByAddress,
-    blocksDictionary: BlocksDictionary,
-  ): Promise<any[]> {
+  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'strategy-created-events',
       contractName: 'CarbonController',
@@ -32,7 +27,6 @@ export class StrategyCreatedEventService {
       tokens,
       customFns: [this.parseEvent],
       tagTimestampFromBlock: true,
-      blocksDictionary,
     });
   }
 

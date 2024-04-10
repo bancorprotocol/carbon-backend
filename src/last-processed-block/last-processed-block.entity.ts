@@ -1,13 +1,4 @@
-import { Block } from '../block/block.entity';
-import {
-  Entity,
-  Column,
-  PrimaryGeneratedColumn,
-  CreateDateColumn,
-  UpdateDateColumn,
-  ManyToOne,
-  Index,
-} from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, Index } from 'typeorm';
 
 @Entity()
 export class LastProcessedBlock {
@@ -17,9 +8,8 @@ export class LastProcessedBlock {
   @Column()
   param: string;
 
-  @ManyToOne(() => Block, { eager: true })
-  @Index()
-  block: Block;
+  @Column()
+  block: number;
 
   @CreateDateColumn()
   createdAt: Date;

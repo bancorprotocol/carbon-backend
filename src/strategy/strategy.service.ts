@@ -43,28 +43,23 @@ export class StrategyService {
     private strategyDeletedEventService: StrategyDeletedEventService,
   ) {}
 
-  async update(
-    endBlock: number,
-    pairs: PairsDictionary,
-    tokens: TokensByAddress,
-    blocksDictionary: BlocksDictionary,
-  ): Promise<void> {
+  async update(endBlock: number, pairs: PairsDictionary, tokens: TokensByAddress): Promise<void> {
     // create new strategies
-    const newCreateEvents = await this.strategyCreatedEventService.update(endBlock, pairs, tokens, blocksDictionary);
+    const newCreateEvents = await this.strategyCreatedEventService.update(endBlock, pairs, tokens);
     let eventBatches = _.chunk(newCreateEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch);
     }
 
     // update strategies
-    const newUpdateEvents = await this.strategyUpdatedEventService.update(endBlock, pairs, tokens, blocksDictionary);
+    const newUpdateEvents = await this.strategyUpdatedEventService.update(endBlock, pairs, tokens);
     eventBatches = _.chunk(newUpdateEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch);
     }
 
     // delete strategies
-    const newDeleteEvents = await this.strategyDeletedEventService.update(endBlock, pairs, tokens, blocksDictionary);
+    const newDeleteEvents = await this.strategyDeletedEventService.update(endBlock, pairs, tokens);
     eventBatches = _.chunk(newDeleteEvents, 1000);
     for (const eventsBatch of eventBatches) {
       await this.createOrUpdateFromEvents(eventsBatch, true);

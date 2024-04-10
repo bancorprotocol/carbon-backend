@@ -4,7 +4,6 @@ import { Injectable } from '@nestjs/common';
 import { VoucherTransferEvent } from './voucher-transfer-event.entity';
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { BigNumber } from '@ethersproject/bignumber';
-import { BlocksDictionary } from '../../block/block.service';
 
 @Injectable()
 export class VoucherTransferEventService {
@@ -23,7 +22,7 @@ export class VoucherTransferEventService {
       .getMany();
   }
 
-  async update(endBlock: number, blocksDictionary: BlocksDictionary): Promise<any[]> {
+  async update(endBlock: number): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'voucher-transfer-events',
       contractName: 'Voucher',
@@ -32,7 +31,6 @@ export class VoucherTransferEventService {
       repository: this.repository,
       customFns: [this.parseEvent],
       tagTimestampFromBlock: true,
-      blocksDictionary,
       stringFields: ['from', 'to'],
     });
   }

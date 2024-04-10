@@ -11,8 +11,6 @@ export interface BlocksDictionary {
   [id: number]: Date;
 }
 
-const LAST_PROCESSED_ENTITY = 'blocks';
-
 @Injectable()
 export class BlockService {
   constructor(
@@ -22,39 +20,26 @@ export class BlockService {
     @InjectRepository(Block) private block: Repository<Block>,
   ) {}
 
-  async update(upToBlockNumber: number): Promise<Block> {
-    // get last known processed block id, it is guaranteed that all ids below this are sequenced without gaps.
-    const lastProcessedBlock = await this.lastProcessedBlockService.get(LAST_PROCESSED_ENTITY);
-    const startBlock = lastProcessedBlock ? lastProcessedBlock + 1 : parseInt(this.configService.get('START_BLOCK'));
+  private async update(blockNumbers: number[]): Promise<void> {
+    let missingBlocks = await this.getMissingBlocks(blockNumbers);
 
-    if (startBlock > upToBlockNumber) return;
-    // const startBlock = parseInt(this.configService.get('START_BLOCK'));
-    // get the missing block ids
-    let missingBlocks = await this.getMissingBlocks(startBlock, upToBlockNumber);
-    // iterate until there are no missing ids
-    let lastBlock;
     while (missingBlocks.length > 0) {
-      lastBlock = await this.fetchAndStore(missingBlocks);
-      missingBlocks = await this.getMissingBlocks(startBlock, upToBlockNumber);
+      await this.fetchAndStore(missingBlocks);
+      missingBlocks = await this.getMissingBlocks(blockNumbers);
     }
-    // cache the last processed block id
-    await this.lastProcessedBlockService.update(LAST_PROCESSED_ENTITY, upToBlockNumber);
-    return lastBlock;
   }
 
-  async getMissingBlocks(from: number, to: number): Promise<any> {
-    const fullRange = range(from, to);
-    let stored = await this.block
+  private async getMissingBlocks(blockNumbers: number[]): Promise<number[]> {
+    const existingBlocks = await this.block
       .createQueryBuilder()
-      .select('"id"')
-      .where('"id" >= :from', { from })
-      .orderBy('"id"')
-      .execute();
-    stored = stored.map((b) => b.id);
-    return _.difference(fullRange, stored);
+      .where('id IN (:...ids)', { ids: blockNumbers })
+      .getMany();
+
+    const existingBlockIds = existingBlocks.map((block) => block.id);
+    return _.difference(blockNumbers, existingBlockIds);
   }
 
-  async fetchAndStore(blocks: Array<number>): Promise<Block> {
+  private async fetchAndStore(blocks: Array<number>): Promise<void> {
     const batches = _.chunk(blocks, 100);
 
     // for each batch
@@ -86,12 +71,11 @@ export class BlockService {
       // start executing
       await Promise.all(promises);
       await this.block.save(newBlocks);
-      console.log('finished blocks batch:', batches[i][batches[i].length - 1]);
-      return newBlocks[newBlocks.length - 1];
+      console.log('finished blocks batch');
     }
   }
 
-  async getBlockchainData(blockNumber: number): Promise<any> {
+  private async getBlockchainData(blockNumber: number): Promise<any> {
     const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
     return web3.eth.getBlock(blockNumber);
   }
@@ -111,17 +95,22 @@ export class BlockService {
     return this.block.findOneBy({ id: number });
   }
 
-  async getBlocksDictionary(from: number, to: number): Promise<BlocksDictionary> {
-    const blocks = await this.block
-      .createQueryBuilder()
-      .select(['"id"', '"timestamp"'])
-      .where('"id" >= :from', { from })
-      .andWhere('"id" <= :to', { to })
-      .orderBy('"id"', 'ASC')
-      .execute();
+  async getBlocksDictionary(blockNumbers: number[]): Promise<BlocksDictionary> {
+    // Ensure all requested blocks are fetched and stored
+    await this.update(blockNumbers);
 
-    const result = {};
-    blocks.forEach((b) => (result[b.id] = b.timestamp));
+    // Fetch the blocks from the database
+    const blocksInDb = await this.block
+      .createQueryBuilder()
+      .where('id IN (:...blockNumbers)', { blockNumbers })
+      .getMany();
+
+    // Construct and return the dictionary
+    const result: BlocksDictionary = {};
+    blocksInDb.forEach((block) => {
+      result[block.id] = block.timestamp;
+    });
+
     return result;
   }
 
@@ -134,10 +123,4 @@ export class BlockService {
   async getFirst(): Promise<Block> {
     return this.block.createQueryBuilder('blocks').orderBy('id', 'ASC').limit(1).getOne();
   }
-}
-
-function range(start, end) {
-  return Array(end - start + 1)
-    .fill(1)
-    .map((_, idx) => start + idx);
 }

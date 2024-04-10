@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Inject, Injectable } from '@nestjs/common';
 import * as _ from 'lodash';
 import { HarvesterService } from '../harvester/harvester.service';
-import { BlockService } from '../block/block.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';
@@ -29,7 +28,6 @@ export class UpdaterService {
   constructor(
     private configService: ConfigService,
     private harvesterService: HarvesterService,
-    private blockService: BlockService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private tokenService: TokenService,
     private pairService: PairService,
@@ -72,62 +70,50 @@ export class UpdaterService {
         }
       }
 
-      await this.blockService.update(endBlock);
-      console.log('CARBON SERVICE - Finished blocks');
+      // handle PairCreated events
+      await this.pairCreatedEventService.update(endBlock);
+      console.log('CARBON SERVICE - Finished pairs creation events');
 
-      const firstUnprocessedBlockNumber = await this.lastProcessedBlockService.firstUnprocessedBlockNumber();
-      const fullRange = range(firstUnprocessedBlockNumber, endBlock);
-      const batches = _.chunk(fullRange, 1000000);
+      // create tokens
+      await this.tokenService.update(endBlock);
+      const tokens = await this.tokenService.allByAddress();
+      console.log('CARBON SERVICE - Finished tokens');
 
-      for (const batch of batches) {
-        const toBlock = batch[batch.length - 1];
-        const blocksDictionary = await this.blockService.getBlocksDictionary(batch[0], toBlock);
+      // create pairs
+      await this.pairService.update(endBlock, tokens);
+      const pairs = await this.pairService.allAsDictionary();
+      console.log('CARBON SERVICE - Finished pairs');
 
-        // handle PairCreated events
-        await this.pairCreatedEventService.update(toBlock);
-        console.log('CARBON SERVICE - Finished pairs creation events');
+      // create strategies
+      await this.strategyService.update(endBlock, pairs, tokens);
+      console.log('CARBON SERVICE - Finished strategies');
 
-        // create tokens
-        await this.tokenService.update(toBlock);
-        const tokens = await this.tokenService.allByAddress();
-        console.log('CARBON SERVICE - Finished tokens');
+      // create trades
+      await this.tokensTradedEventService.update(endBlock, pairs, tokens);
+      console.log('CARBON SERVICE - Finished trades');
 
-        // create pairs
-        await this.pairService.update(toBlock, tokens);
-        const pairs = await this.pairService.allAsDictionary();
-        console.log('CARBON SERVICE - Finished pairs');
+      // ROI
+      await this.roiService.update();
+      console.log('CARBON SERVICE - Finished updating ROI');
 
-        // create strategies
-        await this.strategyService.update(toBlock, pairs, tokens, blocksDictionary);
-        console.log('CARBON SERVICE - Finished strategies');
+      // coingecko tickers
+      await this.coingeckoService.update();
+      console.log('CARBON SERVICE - Finished updating coingecko tickers');
 
-        // create trades
-        await this.tokensTradedEventService.update(toBlock, pairs, tokens, blocksDictionary);
-        console.log('CARBON SERVICE - Finished trades');
+      // trading fee events
+      await this.tradingFeePpmUpdatedEventService.update(endBlock);
+      console.log('CARBON SERVICE - Finished updating trading fee events');
 
-        // ROI
-        await this.roiService.update();
-        console.log('CARBON SERVICE - Finished updating ROI');
+      // pair trading fee events
+      await this.pairTradingFeePpmUpdatedEventService.update(endBlock, pairs, tokens);
+      console.log('CARBON SERVICE - Finished updating pair trading fee events');
 
-        // coingecko tickers
-        await this.coingeckoService.update();
-        console.log('CARBON SERVICE - Finished updating coingecko tickers');
+      await this.voucherTransferEventService.update(endBlock);
+      console.log('CARBON SERVICE - Finished updating voucher transfer events');
 
-        // trading fee events
-        await this.tradingFeePpmUpdatedEventService.update(toBlock, blocksDictionary);
-        console.log('CARBON SERVICE - Finished updating trading fee events');
-
-        // pair trading fee events
-        await this.pairTradingFeePpmUpdatedEventService.update(toBlock, pairs, tokens, blocksDictionary);
-        console.log('CARBON SERVICE - Finished updating pair trading fee events');
-
-        await this.voucherTransferEventService.update(toBlock, blocksDictionary);
-        console.log('CARBON SERVICE - Finished updating voucher transfer events');
-
-        // activity
-        await this.activityService.update();
-        console.log('CARBON SERVICE - Finished updating activity');
-      }
+      // activity
+      await this.activityService.update();
+      console.log('CARBON SERVICE - Finished updating activity');
 
       // finish
       console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t, 'ms');

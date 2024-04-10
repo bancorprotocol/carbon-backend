@@ -3,9 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { PairTradingFeePpmUpdatedEvent } from './pair-trading-fee-ppm-updated-event.entity';
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
-import { PairsDictionary } from 'src/pair/pair.service';
-import { TokensByAddress } from 'src/token/token.service';
-import { BlocksDictionary } from '../../block/block.service';
+import { PairsDictionary } from '../../pair/pair.service';
+import { TokensByAddress } from '../../token/token.service';
 
 export interface PairTradingFeePpmDictionary {
   [address: string]: number;
@@ -30,12 +29,7 @@ export class PairTradingFeePpmUpdatedEventService {
       .getMany();
   }
 
-  async update(
-    endBlock: number,
-    pairsDictionary: PairsDictionary,
-    tokens: TokensByAddress,
-    blocksDictionary: BlocksDictionary,
-  ): Promise<any[]> {
+  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
     return this.harvesterService.processEvents({
       entity: 'pair-trading-fee-ppm-updated-events',
       contractName: 'CarbonController',
@@ -47,7 +41,6 @@ export class PairTradingFeePpmUpdatedEventService {
       customFns: [this.parseEvent],
       bigNumberFields: ['prevFeePPM', 'newFeePPM'],
       tagTimestampFromBlock: true,
-      blocksDictionary,
     });
   }
 
