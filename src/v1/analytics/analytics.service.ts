@@ -573,31 +573,54 @@ export class AnalyticsService {
         FROM
             "tokens-traded-events"
     ),
+    latest_updated_block AS (
+        SELECT
+            MIN("blockId") AS last_block,
+            MIN("updatedAt") AS last_timestamp
+        FROM
+            last_processed_block
+    ),
     tokens_traded_with_token_info AS (
         SELECT
-            tte."sourceTokenId" AS sourceTokenId,
-            tte."sourceAmount" AS sourceAmount,
-            ts."decimals" AS sourceDecimals,
-            tte."targetTokenId" AS targetTokenId,
-            tte."targetAmount" AS targetAmount,
-            tt."decimals" AS targetDecimals,
+            tte."timestamp" AS timestamp,
+            tte."transactionHash" AS transactionHash,
+            tte."blockId" AS blockId,
+            tte."trader" AS trader,
             tte."byTargetAmount" AS byTargetAmount,
-            tte."tradingFeeAmount" AS tradingFeeAmount
+            tte."sourceTokenId" AS sourceTokenId,
+            tte."targetTokenId" AS targetTokenId,
+            tte."sourceAmount" AS sourceAmount,
+            tte."targetAmount" AS targetAmount,
+            tte."tradingFeeAmount" AS tradingFeeAmount,
+            ts."address" AS sourceAddress,
+            ts."symbol" AS sourceSymbol,
+            ts."decimals" AS sourceDecimals,
+            tt."address" AS targetAddress,
+            tt."symbol" AS targetSymbol,
+            tt."decimals" AS targetDecimals
         FROM
             "tokens-traded-events" tte
-            JOIN tokens AS ts ON tte."sourceTokenId" = ts."id"
-            JOIN tokens AS tt ON tte."targetTokenId" = tt."id"
+            JOIN tokens ts ON tte."sourceTokenId" = ts."id"
+            JOIN tokens tt ON tte."targetTokenId" = tt."id"
     ),
     correct_fee_units AS (
         SELECT
+            trader,
+            timestamp,
+            targetSymbol,
+            targetAddress,
             targetDecimals,
             targetTokenId,
             targetAmount :: NUMERIC,
             tradingFeeAmount :: NUMERIC,
             CASE
-                WHEN byTargetAmount = TRUE THEN sourceTokenId
-                ELSE targetTokenId
-            END AS feeTokenId,
+                WHEN byTargetAmount = TRUE THEN sourceSymbol
+                ELSE targetSymbol
+            END AS feeSymbol,
+            CASE
+                WHEN byTargetAmount = TRUE THEN sourceAddress
+                ELSE targetAddress
+            END AS feeAddress,
             CASE
                 WHEN byTargetAmount = TRUE THEN sourceDecimals
                 ELSE targetDecimals
@@ -607,36 +630,55 @@ export class AnalyticsService {
     ),
     fee_volume_wo_decimals AS (
         SELECT
-            targetTokenId,
+            timestamp,
+            trader,
+            feeSymbol,
+            LOWER(feeAddress) AS feeAddress,
+            tradingFeeAmount / POWER(10, feeDecimals) AS tradingFeeAmount_real,
+            targetSymbol,
+            LOWER(targetAddress) AS targetAddress,
             targetAmount / POWER(10, targetDecimals) AS targetAmount_real,
-            feeTokenId,
-            tradingFeeAmount / POWER(10, feeDecimals) AS tradingFeeAmount_real
+            DATE_TRUNC('day', timestamp) AS evt_day
         FROM
             correct_fee_units
     ),
-    fee_volume_w_prices AS (
+    prices AS (
+        SELECT
+            LOWER("tokenAddress") AS tokenAddress,
+            MAX("usd" :: NUMERIC) AS max_usd,
+            DATE_TRUNC('day', "timestamp") AS timestamp_day
+        FROM
+            "historic-quotes"
+        GROUP BY
+            "tokenAddress",
+            DATE_TRUNC('day', "timestamp")
+    ),
+    fee_usd AS (
         SELECT
             fvwd.*,
-            qt.usd :: NUMERIC AS targetUSD,
-            qf.usd :: NUMERIC AS feeUSD
+            COALESCE(pr.max_usd, 0) AS fee_usd,
+            COALESCE(pr.max_usd * tradingFeeAmount_real, 0) AS tradingFeeAmount_usd
         FROM
             fee_volume_wo_decimals fvwd
-            LEFT JOIN quotes qt ON qt."tokenId" = fvwd.targetTokenId
-            LEFT JOIN quotes qf ON qf."tokenId" = fvwd.feeTokenId
+            LEFT JOIN prices pr ON fvwd.feeAddress = pr.tokenAddress
+            AND fvwd.evt_day = pr.timestamp_day
     ),
-    fee_volume AS (
+    volume_fee_usd AS (
         SELECT
-            SUM(targetUSD * targetAmount_real) AS volume,
-            SUM(feeUSD * tradingFeeAmount_real) AS fees
+            fu.*,
+            COALESCE(pr.max_usd, 0) AS target_usd,
+            COALESCE(pr.max_usd * targetAmount_real, 0) AS targetAmount_usd
         FROM
-            fee_volume_w_prices
+            fee_usd fu
+            LEFT JOIN prices pr ON fu.targetAddress = pr.tokenAddress
+            AND fu.evt_day = pr.timestamp_day
     ),
-    latest_updated_block AS (
+    fee_volume AS(
         SELECT
-            MIN("blockId") AS last_block,
-            MIN("updatedAt") AS last_timestamp
+            SUM(tradingFeeAmount_usd) AS fees,
+            SUM(targetamount_usd) AS volume
         FROM
-            last_processed_block
+            volume_fee_usd
     )
     SELECT
         sl.current_liquidity :: NUMERIC,
