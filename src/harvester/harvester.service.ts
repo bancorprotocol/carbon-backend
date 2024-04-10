@@ -140,7 +140,7 @@ export class HarvesterService {
               fromBlock: batch[0],
               toBlock: batch[batch.length - 1],
             });
-            if (_events) {
+            if (_events.length > 0) {
               _events.forEach((e) => events.push(e));
             }
           }),
