@@ -91,12 +91,18 @@ export interface CustomFnArgs {
 }
 @Injectable()
 export class HarvesterService {
+  private harvestEventsBatchSize;
+  private harvestConcurrency;
+
   constructor(
     private configService: ConfigService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private blockService: BlockService,
     @Inject('BLOCKCHAIN_CONFIG') private blockchainConfig: any,
-  ) {}
+  ) {
+    this.harvestEventsBatchSize = +this.configService.get('HARVEST_EVENTS_BATCH_SIZE');
+    this.harvestConcurrency = +this.configService.get('HARVEST_CONCURRENCY');
+  }
 
   async fetchEventsFromBlockchain(
     contractName: string,
@@ -125,19 +131,18 @@ export class HarvesterService {
       ranges.push({ rangeStart: fromBlock, rangeEnd: toBlock });
     }
     const limit = (await import('p-limit')).default;
-    const concurrency = limit(10);
-    for (const range of ranges) {
-      const fullRange = createRange(range.rangeStart, range.rangeEnd);
-      const batches = _.chunk(fullRange, 2000);
+    const concurrency = limit(this.harvestConcurrency);
 
+    for (const range of ranges) {
       const contract = this.getContract(contractName, range.version, address);
 
-      for (const batch of batches) {
+      for (let startBlock = range.rangeStart; startBlock <= range.rangeEnd; startBlock += this.harvestEventsBatchSize) {
+        const endBlock = Math.min(startBlock + this.harvestEventsBatchSize - 1, range.rangeEnd, toBlock);
         tasks.push(
           concurrency(async () => {
             const _events = await contract.getPastEvents(eventName, {
-              fromBlock: batch[0],
-              toBlock: batch[batch.length - 1],
+              fromBlock: startBlock,
+              toBlock: endBlock,
             });
             if (_events.length > 0) {
               _events.forEach((e) => events.push(e));
@@ -383,9 +388,3 @@ export class HarvesterService {
 }
 
 const camelToSnakeCase = (str) => str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-
-function createRange(start, end) {
-  return Array(end - start + 1)
-    .fill(1)
-    .map((_, idx) => start + idx);
-}
