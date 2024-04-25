@@ -132,3 +132,6 @@ dist
 *.DS_Store
 .hypothesis
 src/.DS_Store
+
+# typechain
+/src/abis/types

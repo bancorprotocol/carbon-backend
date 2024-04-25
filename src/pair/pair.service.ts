@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { Pair } from './pair.entity';
-import { HarvesterService } from '../harvester/harvester.service';
+import { BlockchainType, HarvesterService } from '../harvester/harvester.service';
 import { decimalsABI, symbolABI } from '../abis/erc20.abi';
 import { ConfigService } from '@nestjs/config';
 import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
@@ -22,13 +22,17 @@ const LAST_PROCESSED_ENTITY = 'pairs';
 
 @Injectable()
 export class PairService {
+  private blockchainType: BlockchainType;
+
   constructor(
     @InjectRepository(Pair) private pair: Repository<Pair>,
     private harvesterService: HarvesterService,
     private configService: ConfigService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private pairCreatedEventService: PairCreatedEventService,
-  ) {}
+  ) {
+    this.blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
+  }
 
   async update(endBlock: number, tokens: TokensByAddress): Promise<void> {
     // figure out start block
@@ -65,7 +69,12 @@ export class PairService {
   }
 
   async getSymbols(addresses: string[]): Promise<string[]> {
-    const symbols = await this.harvesterService.stringsWithMulticall(addresses, symbolABI, 'symbol');
+    const symbols = await this.harvesterService.stringsWithMulticall(
+      addresses,
+      symbolABI,
+      'symbol',
+      this.blockchainType,
+    );
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -75,7 +84,12 @@ export class PairService {
   }
 
   async getDecimals(addresses: string[]): Promise<number[]> {
-    const decimals = await this.harvesterService.integersWithMulticall(addresses, decimalsABI, 'decimals');
+    const decimals = await this.harvesterService.integersWithMulticall(
+      addresses,
+      decimalsABI,
+      'decimals',
+      this.blockchainType,
+    );
     const index = addresses.indexOf(this.configService.get('ETH'));
     if (index >= 0) {
       decimals[index] = 18;

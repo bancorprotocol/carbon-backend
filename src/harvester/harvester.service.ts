@@ -9,7 +9,8 @@ import { BlockService, BlocksDictionary } from '../block/block.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
 import moment from 'moment';
-import { MulticallAbi } from '../abis/multicall.abi';
+import { MulticallAbiEthereum } from '../abis/multicall.abi';
+import { multicallAbiSei } from '../abis/multicall.abi';
 import { hexToString } from 'web3-utils';
 import { TokensByAddress } from '../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
@@ -76,6 +77,11 @@ export const ContractNames = {
 };
 
 type AnyFunc = (...args: any) => any;
+
+export enum BlockchainType {
+  Ethereum = 'ethereum',
+  Sei = 'sei',
+}
 
 export interface CustomFnArgs {
   event?: unknown;
@@ -355,20 +361,46 @@ export class HarvesterService {
     return this.configService.get('CONTRACTS_ENV');
   }
 
-  async stringsWithMulticall(addresses: string[], abi: any, fn: string): Promise<string[]> {
-    const data = await this.withMulticall(addresses, abi, fn);
+  async stringsWithMulticall(
+    addresses: string[],
+    abi: any,
+    fn: string,
+    blockchainType: BlockchainType,
+  ): Promise<string[]> {
+    if (blockchainType === BlockchainType.Sei) {
+      return this.stringsWithMulticallSei(addresses, abi, fn);
+    } else if (blockchainType === BlockchainType.Ethereum) {
+      return this.stringsWithMulticallEthereum(addresses, abi, fn);
+    }
+  }
+
+  async integersWithMulticall(
+    addresses: string[],
+    abi: any,
+    fn: string,
+    blockchainType: BlockchainType,
+  ): Promise<number[]> {
+    if (blockchainType === BlockchainType.Sei) {
+      return this.integersWithMulticallSei(addresses, abi, fn);
+    } else if (blockchainType === BlockchainType.Ethereum) {
+      return this.integersWithMulticallEthereum(addresses, abi, fn);
+    }
+  }
+
+  async stringsWithMulticallEthereum(addresses: string[], abi: any, fn: string): Promise<string[]> {
+    const data = await this.withMulticallEthereum(addresses, abi, fn);
     return data.map((r) => hexToString(r.data).replace(/[^a-zA-Z0-9]/g, ''));
   }
 
-  async integersWithMulticall(addresses: string[], abi: any, fn: string): Promise<number[]> {
-    const data = await this.withMulticall(addresses, abi, fn);
+  async integersWithMulticallEthereum(addresses: string[], abi: any, fn: string): Promise<number[]> {
+    const data = await this.withMulticallEthereum(addresses, abi, fn);
     return data.map((r) => parseInt(r.data));
   }
 
-  async withMulticall(addresses: string[], abi: any, fn: string): Promise<any> {
+  async withMulticallEthereum(addresses: string[], abi: any, fn: string): Promise<any> {
     const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
 
-    const multicall: any = new web3.eth.Contract(MulticallAbi, this.configService.get('MULTICALL_ADDRESS'));
+    const multicall: any = new web3.eth.Contract(MulticallAbiEthereum, this.configService.get('MULTICALL_ADDRESS'));
     let data = [];
     const batches = _.chunk(addresses, 1000);
     for (const batch of batches) {
@@ -380,6 +412,37 @@ export class HarvesterService {
 
       if (calls.length > 0) {
         const result = await multicall.methods.aggregate(calls, false).call();
+        data = data.concat(result.returnData);
+      }
+    }
+    return data;
+  }
+
+  async stringsWithMulticallSei(addresses: string[], abi: any, fn: string): Promise<string[]> {
+    const data = await this.withMulticallSei(addresses, abi, fn);
+    return data.map((r) => hexToString(r).replace(/[^a-zA-Z0-9]/g, ''));
+  }
+
+  async integersWithMulticallSei(addresses: string[], abi: any, fn: string): Promise<number[]> {
+    const data = await this.withMulticallSei(addresses, abi, fn);
+    return data.map((r) => parseInt(r));
+  }
+
+  async withMulticallSei(addresses: string[], abi: any, fn: string): Promise<any> {
+    const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
+
+    const multicall: any = new web3.eth.Contract(multicallAbiSei, this.configService.get('MULTICALL_ADDRESS'));
+    let data = [];
+    const batches = _.chunk(addresses, 1000);
+    for (const batch of batches) {
+      const calls = [];
+      batch.forEach((address) => {
+        const contract = new web3.eth.Contract([abi], address);
+        calls.push({ target: contract.options.address, callData: contract.methods[fn]().encodeABI() });
+      });
+
+      if (calls.length > 0) {
+        const result = await multicall.methods.aggregate(calls).call();
         data = data.concat(result.returnData);
       }
     }

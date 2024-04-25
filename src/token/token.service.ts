@@ -5,7 +5,7 @@ import { decimalsABI, nameABI, symbolABI } from '../abis/erc20.abi';
 import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import { Token } from './token.entity';
-import { HarvesterService } from '../harvester/harvester.service';
+import { BlockchainType, HarvesterService } from '../harvester/harvester.service';
 import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
@@ -18,13 +18,17 @@ const LAST_PROCESSED_ENTITY = 'tokens';
 
 @Injectable()
 export class TokenService {
+  private blockchainType: BlockchainType;
+
   constructor(
     @InjectRepository(Token) private token: Repository<Token>,
     private harvesterService: HarvesterService,
     private configService: ConfigService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private pairCreatedEventService: PairCreatedEventService,
-  ) {}
+  ) {
+    this.blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
+  }
 
   async update(endBlock: number): Promise<void> {
     // figure out start block
@@ -95,7 +99,12 @@ export class TokenService {
   }
 
   private async getSymbols(addresses: string[]): Promise<string[]> {
-    const symbols = await this.harvesterService.stringsWithMulticall(addresses, symbolABI, 'symbol');
+    const symbols = await this.harvesterService.stringsWithMulticall(
+      addresses,
+      symbolABI,
+      'symbol',
+      this.blockchainType,
+    );
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -105,7 +114,7 @@ export class TokenService {
   }
 
   private async getNames(addresses: string[]): Promise<string[]> {
-    const names = await this.harvesterService.stringsWithMulticall(addresses, nameABI, 'name');
+    const names = await this.harvesterService.stringsWithMulticall(addresses, nameABI, 'name', this.blockchainType);
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
@@ -115,7 +124,12 @@ export class TokenService {
   }
 
   private async getDecimals(addresses: string[]): Promise<number[]> {
-    const decimals = await this.harvesterService.integersWithMulticall(addresses, decimalsABI, 'decimals');
+    const decimals = await this.harvesterService.integersWithMulticall(
+      addresses,
+      decimalsABI,
+      'decimals',
+      this.blockchainType,
+    );
     const index = addresses.indexOf(this.configService.get('ETH'));
     if (index >= 0) {
       decimals[index] = 18;
