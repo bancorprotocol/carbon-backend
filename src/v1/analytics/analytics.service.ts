@@ -575,7 +575,7 @@ export class AnalyticsService {
     ),
     latest_updated_block AS (
         SELECT
-            MIN("blockId") AS last_block,
+            MIN("last_processed_block"."block") AS last_block,
             MIN("updatedAt") AS last_timestamp
         FROM
             last_processed_block
