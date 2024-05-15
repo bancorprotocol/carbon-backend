@@ -19,7 +19,7 @@
     "test:cov": "jest --coverage",
     "test:debug": "TZ=UTC node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "gcloud:build:production": "gcloud builds submit --tag gcr.io/bancor-api/carbon-backend-sei --timeout 3600",
+    "gcloud:build:production": "gcloud builds submit --tag gcr.io/bancor-api/carbon-backend --timeout 3600",
     "compile-abis": "typechain --target ethers-v5 --out-dir \"src/abis/types\" \"src/abis/*.json\""
   },
   "dependencies": {
