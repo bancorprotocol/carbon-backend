@@ -81,8 +81,11 @@ def calculate_yint_RISK(y_RISK: Decimal, P_a_RISK: Decimal, P_b_RISK: Decimal, P
     else:
         return y_RISK
 
-def recalculate_yint_if_needed(y_int: Decimal, y_int_OTHER: Decimal, P_a_OTHER: Decimal, P_b_OTHER: Decimal) -> Decimal:
-    return y_int if y_int > 0 else y_int_OTHER / (P_a_OTHER*P_b_OTHER)**(ONE/TWO)
+def speculate_yint_CASH(y_int_RISK: Decimal, P_a_RISK: Decimal, P_b_RISK: Decimal) -> Decimal:
+    return y_int_RISK / (P_a_RISK*P_b_RISK)**(ONE/TWO)
+
+def speculate_yint_RISK(y_int_CASH: Decimal, P_a_CASH: Decimal, P_b_CASH: Decimal) -> Decimal:
+    return y_int_CASH / (P_a_CASH*P_b_CASH)**(ONE/TWO)
 
 # $$y_{int} = \frac{y \left( \sqrt{P_{ask}} + \sqrt{P_{b}} \right) \left( \sqrt{P_{a}} - \sqrt{P_{b}} \right)}{P_{ask} - P_{b}}$$
 # Where: $y_{int}$ = the RISK intercept; $y$ = the RISK token balance; $P_{ask}$ = the intra-range ask price; $P_{b}$ = the high-bound asking price; $P_{a}$ = the low-bound asking price.
@@ -158,7 +161,7 @@ def calculate_y_asym_from_P_a_P_b_y_int(P_a: Decimal, P_b: Decimal, y_int: Decim
 # Where:
 # $y_{asym}$ = CASH or RISK asymptote; $y_{int}$ = CASH or RISK intercept; $P_{b}$, $P_{a}$ = the high- or low-bound asking/bidding price.
 
-def get_carbon_pivots_asymptotes_and_x_intercepts(P_a: Decimal, P_b: Decimal, y_int: Decimal) -> Decimal:
+def get_carbon_pivots_asymptotes_and_x_intercepts(P_a: Decimal, P_b: Decimal, y_int: Decimal) -> list[Decimal]:
     x_int = calculate_x_int_from_P_a_P_b_y_int(P_a, P_b, y_int)
     x_0 = calculate_x_0_from_P_a_P_b_y_int(P_a, P_b, y_int)
     x_asym = calculate_x_asym_from_P_a_P_b_y_int(P_a, P_b, y_int)
@@ -166,20 +169,20 @@ def get_carbon_pivots_asymptotes_and_x_intercepts(P_a: Decimal, P_b: Decimal, y_
     y_asym = calculate_y_asym_from_P_a_P_b_y_int(P_a, P_b, y_int)
     return(x_int, x_0, x_asym, y_0, y_asym)
 
-def make_carbon(start_information: dict) -> None:
+def make_carbon(start_information: dict) -> dict:
     fee = start_information['network_fee']
     y_CASH = start_information['portfolio_cash_value']
     y_RISK = start_information['portfolio_risk_value']
-    P_a_RISK, P_b_RISK, B_RISK, P_RISK, Q_RISK, R_RISK, S_RISK, n_RISK = get_concentrated_liquidity_scaling_constants(ONE/start_information['high_range_low_price'], ONE/start_information['high_range_high_price'])
     P_a_CASH, P_b_CASH, B_CASH, P_CASH, Q_CASH, R_CASH, S_CASH, n_CASH = get_concentrated_liquidity_scaling_constants(start_information['low_range_high_price']/ONE, start_information['low_range_low_price']/ONE)
-    y_int_RISK = calculate_yint_RISK(y_RISK, P_a_RISK, P_b_RISK, ONE/start_information['high_range_start_price'])
-    y_int_CASH = calculate_yint_CASH(y_CASH, P_a_CASH, P_b_CASH, start_information['low_range_start_price'])
-    y_int_RISK = recalculate_yint_if_needed(y_int_RISK, y_int_CASH, P_a_CASH, P_b_CASH)
-    y_int_CASH = recalculate_yint_if_needed(y_int_CASH, y_int_RISK, P_a_RISK, P_b_RISK)
-    x_int_RISK, x_0_RISK, x_asym_RISK, y_0_RISK, y_asym_RISK = get_carbon_pivots_asymptotes_and_x_intercepts(P_a_RISK, P_b_RISK, y_int_RISK)
+    P_a_RISK, P_b_RISK, B_RISK, P_RISK, Q_RISK, R_RISK, S_RISK, n_RISK = get_concentrated_liquidity_scaling_constants(ONE/start_information['high_range_low_price'], ONE/start_information['high_range_high_price'])
+    y_int_CASH_cand = calculate_yint_CASH(y_CASH, P_a_CASH, P_b_CASH, start_information['low_range_start_price']/ONE)
+    y_int_RISK_cand = calculate_yint_RISK(y_RISK, P_a_RISK, P_b_RISK, ONE/start_information['high_range_start_price'])
+    y_int_CASH = y_int_CASH_cand if y_int_CASH_cand > 0 else speculate_yint_CASH(y_int_RISK_cand, P_a_RISK, P_b_RISK)
+    y_int_RISK = y_int_RISK_cand if y_int_RISK_cand > 0 else speculate_yint_RISK(y_int_CASH_cand, P_a_CASH, P_b_CASH)
     x_int_CASH, x_0_CASH, x_asym_CASH, y_0_CASH, y_asym_CASH = get_carbon_pivots_asymptotes_and_x_intercepts(P_a_CASH, P_b_CASH, y_int_CASH)
-    k_RISK = calculate_hyperbolic_constant_k(x_0_RISK, y_0_RISK)
+    x_int_RISK, x_0_RISK, x_asym_RISK, y_0_RISK, y_asym_RISK = get_carbon_pivots_asymptotes_and_x_intercepts(P_a_RISK, P_b_RISK, y_int_RISK)
     k_CASH = calculate_hyperbolic_constant_k(x_0_CASH, y_0_CASH)
+    k_RISK = calculate_hyperbolic_constant_k(x_0_RISK, y_0_RISK)
     return {
         'curve parameters': {
             'CASH': {
