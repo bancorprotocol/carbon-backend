@@ -112,6 +112,7 @@ export class SimulatorController {
         buyMax: data.max_bid,
         buyMin: data.min_bid,
       },
+      debug: data.curve_parameters,
     };
   }
 }
