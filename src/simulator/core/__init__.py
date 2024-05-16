@@ -159,6 +159,7 @@ def execute(config_carbon: dict, config_logger: dict) -> dict:
         logger.update_after(carbon['simulation_recorder'], details, price, bid, ask)
     logger.close()
     remove_first_balance_and_fee(carbon)
+    carbon['simulation_recorder']['curve_parameters'] = carbon['curve_parameters']
     return carbon['simulation_recorder']
 
 def strToDec(obj: any) -> any:
