@@ -58,6 +58,7 @@ export interface ProcessEventsArgs {
   terminatesAt?: number;
   startAtBlock?: number;
   tokens?: TokensByAddress;
+  fetchCallerId?: boolean;
 }
 export interface NormalizeFieldsSourceMap {
   [field: string]: string;
@@ -219,6 +220,7 @@ export class HarvesterService {
       numberFields,
       bigNumberFields,
       booleanFields,
+      fetchCallerId,
     } = args;
 
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(entity);
@@ -309,6 +311,12 @@ export class HarvesterService {
                 : e.returnValues[sourceMapItem.eventKey];
               newEvent[sourceMapItem.key] = value;
             });
+          }
+
+          if (fetchCallerId) {
+            const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
+            const transaction = await web3.eth.getTransaction(e.transactionHash);
+            newEvent['callerId'] = transaction.from;
           }
 
           if (customFns) {

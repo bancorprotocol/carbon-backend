@@ -44,6 +44,7 @@ export class TokensTradedEventService {
       tagTimestampFromBlock: true,
       pairsDictionary,
       tokens,
+      fetchCallerId: true,
     });
   }
 
