@@ -557,7 +557,7 @@ export class AnalyticsService {
     ),
     unique_traders AS (
         SELECT
-            COUNT(DISTINCT trader) AS unique_traders
+            COUNT(DISTINCT "callerId") AS unique_traders
         FROM
             "tokens-traded-events"
     ),
