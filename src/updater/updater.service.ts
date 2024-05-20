@@ -16,6 +16,7 @@ import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-upda
 import { ActivityService } from '../v1/activity/activity.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
+import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -41,6 +42,7 @@ export class UpdaterService {
     private activityService: ActivityService,
     private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
+    private dexScreenerService: DexScreenerService,
     @Inject('REDIS') private redis: any,
   ) {}
 
@@ -146,6 +148,11 @@ export class UpdaterService {
 
       // analytics
       await this.analyticsService.update();
+
+      // DexScreener
+      await this.dexScreenerService.update();
+      console.log('CARBON SERVICE - Finished updating DexScreener');
+
       console.log('CARBON SERVICE -', 'Finished updating analytics in:', Date.now() - t, 'ms');
 
       this.isUpdatingAnalytics = false;

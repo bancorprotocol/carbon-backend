@@ -20,6 +20,7 @@ import { ActivityModule } from '../v1/activity/activity.module';
 import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
 import { AnalyticsModule } from '../v1/analytics/analytics.module';
+import { DexScreenerModule } from '../v1/dex-screener/dex-screener.module';
 
 @Module({
   imports: [
@@ -43,6 +44,7 @@ import { AnalyticsModule } from '../v1/analytics/analytics.module';
     HistoricQuoteModule,
     VoucherTransferEventModule,
     AnalyticsModule,
+    DexScreenerModule,
   ],
   providers: [UpdaterService],
 })

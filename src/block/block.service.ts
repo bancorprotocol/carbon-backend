@@ -95,6 +95,10 @@ export class BlockService {
     return this.block.findOneBy({ id: number });
   }
 
+  async getLastBlock(): Promise<Block> {
+    return this.block.createQueryBuilder().orderBy('"id"', 'DESC').limit(1).getOne();
+  }
+
   async getBlocksDictionary(blockNumbers: number[]): Promise<BlocksDictionary> {
     // Ensure all requested blocks are fetched and stored
     await this.update(blockNumbers);
