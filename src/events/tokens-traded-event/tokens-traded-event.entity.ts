@@ -60,6 +60,7 @@ export class TokensTradedEvent {
   transactionHash: string;
 
   @Column({ nullable: true })
+  @Index()
   callerId: string;
 
   @Column()
