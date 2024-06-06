@@ -16,6 +16,11 @@ export interface TokensByAddress {
 
 const LAST_PROCESSED_ENTITY = 'tokens';
 
+export const GAS_TOKENS = {
+  [BlockchainType.Ethereum]: { name: 'Ethereum', symbol: 'ETH' },
+  [BlockchainType.Sei]: { name: 'Sei', symbol: 'SEI' },
+};
+
 @Injectable()
 export class TokenService {
   private blockchainType: BlockchainType;
@@ -108,7 +113,7 @@ export class TokenService {
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
-      symbols[index] = 'ETH';
+      symbols[index] = GAS_TOKENS[this.blockchainType].symbol;
     }
     return symbols;
   }
@@ -118,7 +123,7 @@ export class TokenService {
     const eth = this.configService.get('ETH');
     const index = addresses.indexOf(eth);
     if (index >= 0) {
-      names[index] = 'Ethereum';
+      names[index] = GAS_TOKENS[this.blockchainType].name;
     }
     return names;
   }
