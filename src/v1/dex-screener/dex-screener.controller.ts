@@ -94,6 +94,8 @@ export class DexScreenerController {
             maker: e.maker,
             pairId: e.pairid.toString(),
             asset0In: e.asset0in,
+            asset1In: e.asset1in,
+            asset0Out: e.asset0out,
             asset1Out: e.asset1out,
             priceNative: e.pricenative,
             reserves: {
