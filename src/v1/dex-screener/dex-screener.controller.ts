@@ -69,10 +69,10 @@ export class DexScreenerController {
     };
   }
 
-  @Get('event')
+  @Get('events')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  async event(@Query() params: EventDto): Promise<any> {
+  async events(@Query() params: EventDto): Promise<any> {
     const { fromBlock, toBlock } = params;
     const events = await this.dexScreenerService.getCachedEvents();
     const filteredEvents = events.filter(
