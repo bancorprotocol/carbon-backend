@@ -1,8 +1,8 @@
-import { IsOptional, IsNumber, IsString } from 'class-validator';
+import { IsOptional, IsString, IsNumber } from 'class-validator';
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
 
-export class ActivityDto {
+export class ActivityMetaDto {
   @IsOptional()
   strategyIds?: string;
 
@@ -35,14 +35,4 @@ export class ActivityDto {
   @IsOptional()
   @IsString()
   pairs?: string;
-
-  @IsOptional()
-  @IsNumber()
-  @Transform(({ value }) => Number(value))
-  limit?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Transform(({ value }) => Number(value))
-  offset?: number;
 }

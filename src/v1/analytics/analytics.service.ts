@@ -372,110 +372,112 @@ export class AnalyticsService {
 
   private async getVolume(): Promise<any> {
     const query = `WITH tokens_traded_with_token_info AS (
-        SELECT
-            tte."timestamp" AS timestamp,
-            tte."transactionHash" AS transactionHash,
-            tte."blockId" AS blockId,
-            tte."trader" AS trader,
-            tte."byTargetAmount" AS byTargetAmount,
-            tte."sourceTokenId" AS sourceTokenId,
-            tte."targetTokenId" AS targetTokenId,
-            tte."sourceAmount" AS sourceAmount,
-            tte."targetAmount" AS targetAmount,
-            tte."tradingFeeAmount" AS tradingFeeAmount,
-            ts."address" AS sourceAddress,
-            ts."symbol" AS sourceSymbol,
-            ts."decimals" AS sourceDecimals,
-            tt."address" AS targetAddress,
-            tt."symbol" AS targetSymbol,
-            tt."decimals" AS targetDecimals
-        FROM
-            "tokens-traded-events" tte
-            JOIN tokens ts ON tte."sourceTokenId" = ts."id"
-            JOIN tokens tt ON tte."targetTokenId" = tt."id"
-    ),
-    correct_fee_units AS (
-        SELECT
-            trader,
-            timestamp,
-            targetSymbol,
-            targetAddress,
-            targetDecimals,
-            targetTokenId,
-            targetAmount :: NUMERIC,
-            tradingFeeAmount :: NUMERIC,
-            CASE
-                WHEN byTargetAmount = TRUE THEN sourceSymbol
-                ELSE targetSymbol
-            END AS feeSymbol,
-            CASE
-                WHEN byTargetAmount = TRUE THEN sourceAddress
-                ELSE targetAddress
-            END AS feeAddress,
-            CASE
-                WHEN byTargetAmount = TRUE THEN sourceDecimals
-                ELSE targetDecimals
-            END AS feeDecimals
-        FROM
-            tokens_traded_with_token_info
-    ),
-    fee_volume_wo_decimals AS (
-        SELECT
-            timestamp,
-            trader,
-            feeSymbol,
-            LOWER(feeAddress) AS feeAddress,
-            tradingFeeAmount / POWER(10, feeDecimals) AS tradingFeeAmount_real,
-            targetSymbol,
-            LOWER(targetAddress) AS targetAddress,
-            targetAmount / POWER(10, targetDecimals) AS targetAmount_real,
-            DATE_TRUNC('day', timestamp) AS evt_day
-        FROM
-            correct_fee_units
-    ),
-    prices AS (
-        SELECT
-            LOWER("tokenAddress") AS tokenAddress,
-            MAX("usd" :: NUMERIC) AS max_usd,
-            DATE_TRUNC('day', "timestamp") AS timestamp_day
-        FROM
-            "historic-quotes"
-        GROUP BY
-            "tokenAddress",
-            DATE_TRUNC('day', "timestamp")
-    ),
-    fee_usd AS (
-        SELECT
-            fvwd.*,
-            COALESCE(pr.max_usd, 0) AS fee_usd,
-            COALESCE(pr.max_usd * tradingFeeAmount_real, 0) AS tradingFeeAmount_usd
-        FROM
-            fee_volume_wo_decimals fvwd
-            LEFT JOIN prices pr ON fvwd.feeAddress = pr.tokenAddress
-            AND fvwd.evt_day = pr.timestamp_day
-    ),
-    volume_fee_usd AS (
-        SELECT
-            fu.*,
-            COALESCE(pr.max_usd, 0) AS target_usd,
-            COALESCE(pr.max_usd * targetAmount_real, 0) AS targetAmount_usd
-        FROM
-            fee_usd fu
-            LEFT JOIN prices pr ON fu.targetAddress = pr.tokenAddress
-            AND fu.evt_day = pr.timestamp_day
-    )
+    SELECT
+        tte."timestamp" AS timestamp,
+        tte."transactionHash" AS transactionHash,
+        tte."blockId" AS blockId,
+        tte."trader" AS trader,
+        tte."byTargetAmount" AS byTargetAmount,
+        tte."sourceTokenId" AS sourceTokenId,
+        tte."targetTokenId" AS targetTokenId,
+        tte."sourceAmount" AS sourceAmount,
+        tte."targetAmount" AS targetAmount,
+        tte."tradingFeeAmount" AS tradingFeeAmount,
+        ts."address" AS sourceAddress,
+        ts."symbol" AS sourceSymbol,
+        ts."decimals" AS sourceDecimals,
+        tt."address" AS targetAddress,
+        tt."symbol" AS targetSymbol,
+        tt."decimals" AS targetDecimals
+    FROM
+        "tokens-traded-events" tte
+        JOIN tokens ts ON tte."sourceTokenId" = ts."id"
+        JOIN tokens tt ON tte."targetTokenId" = tt."id"
+),
+correct_fee_units AS (
+    SELECT
+        trader,
+        timestamp,
+        targetSymbol,
+        targetAddress,
+        targetDecimals,
+        targetTokenId,
+        targetAmount :: NUMERIC,
+        tradingFeeAmount :: NUMERIC,
+        CASE
+            WHEN byTargetAmount = TRUE THEN sourceSymbol
+            ELSE targetSymbol
+        END AS feeSymbol,
+        CASE
+            WHEN byTargetAmount = TRUE THEN sourceAddress
+            ELSE targetAddress
+        END AS feeAddress,
+        CASE
+            WHEN byTargetAmount = TRUE THEN sourceDecimals
+            ELSE targetDecimals
+        END AS feeDecimals
+    FROM
+        tokens_traded_with_token_info
+),
+fee_volume_wo_decimals AS (
     SELECT
         timestamp,
-        feesymbol,
-        tradingFeeAmount_real,
-        tradingFeeAmount_usd,
-        targetsymbol,
-        targetamount_real,
-        targetamount_usd
+        trader,
+        feeSymbol,
+        LOWER(feeAddress) AS feeAddress,
+        tradingFeeAmount / POWER(10, feeDecimals) AS tradingFeeAmount_real,
+        targetSymbol,
+        LOWER(targetAddress) AS targetAddress,
+        targetAmount / POWER(10, targetDecimals) AS targetAmount_real,
+        DATE_TRUNC('day', timestamp) AS evt_day
     FROM
-        volume_fee_usd
-    ORDER BY
-        timestamp`;
+        correct_fee_units
+),
+prices AS (
+    SELECT
+        LOWER("tokenAddress") AS tokenAddress,
+        MAX("usd" :: NUMERIC) AS max_usd,
+        DATE_TRUNC('day', "timestamp") AS timestamp_day
+    FROM
+        "historic-quotes"
+    GROUP BY
+        "tokenAddress",
+        DATE_TRUNC('day', "timestamp")
+),
+fee_usd AS (
+    SELECT
+        fvwd.*,
+        COALESCE(pr.max_usd, 0) AS fee_usd,
+        COALESCE(pr.max_usd * tradingFeeAmount_real, 0) AS tradingFeeAmount_usd
+    FROM
+        fee_volume_wo_decimals fvwd
+        LEFT JOIN prices pr ON fvwd.feeAddress = pr.tokenAddress
+        AND fvwd.evt_day = pr.timestamp_day
+),
+volume_fee_usd AS (
+    SELECT
+        fu.*,
+        COALESCE(pr.max_usd, 0) AS target_usd,
+        COALESCE(pr.max_usd * targetAmount_real, 0) AS targetAmount_usd
+    FROM
+        fee_usd fu
+        LEFT JOIN prices pr ON fu.targetAddress = pr.tokenAddress
+        AND fu.evt_day = pr.timestamp_day
+)
+SELECT
+    timestamp,
+    feesymbol,
+    feeAddress,
+    tradingFeeAmount_real,
+    tradingFeeAmount_usd,
+    targetsymbol,
+    targetAddress,
+    targetamount_real,
+    targetamount_usd
+FROM
+    volume_fee_usd
+ORDER BY
+    timestamp`;
 
     const result = await this.strategy.query(query);
     return result;

@@ -4,6 +4,7 @@ import { ActivityService } from './activity.service';
 import { ActivityDto } from './activity.dto';
 import moment from 'moment';
 import * as _ from 'lodash';
+import { ActivityMetaDto } from './activity-meta.dto';
 
 @Controller({ version: '1', path: 'activity' })
 export class ActivityController {
@@ -13,10 +14,22 @@ export class ActivityController {
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   async activity(@Query() params: ActivityDto): Promise<any> {
-    // get cached data
     let data = await this.activityService.getCachedActivity();
 
-    // filter data using input parameters
+    // Filter data using input parameters
+    if (params.start) {
+      data = data.filter((d) => moment(d.date).unix() >= params.start);
+    }
+
+    if (params.end) {
+      data = data.filter((d) => moment(d.date).unix() <= params.end);
+    }
+
+    if (params.actions) {
+      const actions = params.actions.split(',');
+      data = data.filter((d) => actions.includes(d.action));
+    }
+
     if (params.ownerId) {
       data = data.filter((d) => [d.actionOwner, d.currentOwner].includes(params.ownerId));
     }
@@ -26,22 +39,50 @@ export class ActivityController {
       data = data.filter((d) => strategyIds.includes(d.id));
     }
 
+    if (params.pairs) {
+      const pairs = params.pairs.split(',').map((pair) => pair.split('_').sort());
+      data = data.filter((d) =>
+        pairs.some((pair) =>
+          _.isEqual(pair, [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort()),
+        ),
+      );
+    }
+
     if (params.token0 && !params.token1) {
-      data = data.filter((d) => [d.quoteBuyTokenAddress, d.baseSellTokenAddress].includes(params.token0));
+      data = data.filter((d) =>
+        [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].includes(
+          params.token0.toLowerCase(),
+        ),
+      );
     }
 
     if (params.token1 && !params.token0) {
-      data = data.filter((d) => [d.quoteBuyTokenAddress, d.baseSellTokenAddress].includes(params.token1));
+      data = data.filter((d) =>
+        [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].includes(
+          params.token1.toLowerCase(),
+        ),
+      );
     }
 
     if (params.token0 && params.token1) {
       data = data.filter((d) =>
-        _.isEqual([params.token0, params.token1].sort(), [d.quoteBuyTokenAddress, d.baseSellTokenAddress].sort()),
+        _.isEqual(
+          [params.token0.toLowerCase(), params.token1.toLowerCase()].sort(),
+          [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort(),
+        ),
       );
     }
 
-    // format data
-    return data.map((d) => {
+    // Sort data by date in descending order
+    data = data.sort((a, b) => moment(b.date).unix() - moment(a.date).unix());
+
+    // Apply pagination
+    const totalSize = data.length;
+    const limit = params.limit || totalSize;
+    const offset = params.offset || 0;
+    data = data.slice(offset, offset + limit);
+
+    const result = data.map((d) => {
       let action = '';
       if (d.action.includes('Sell')) action = 'sell';
       if (d.action.includes('Buy')) action = 'buy';
@@ -121,5 +162,90 @@ export class ActivityController {
 
       return result;
     });
+
+    return result;
+  }
+
+  @Get('meta')
+  @CacheTTL(1 * 60 * 1000)
+  async activityMeta(@Query() params: ActivityMetaDto): Promise<any> {
+    let data = await this.activityService.getCachedActivity();
+
+    // Filter data using input parameters (without limit and offset)
+    if (params.start) {
+      data = data.filter((d) => moment(d.date).unix() >= params.start);
+    }
+
+    if (params.end) {
+      data = data.filter((d) => moment(d.date).unix() <= params.end);
+    }
+
+    if (params.actions) {
+      const actions = params.actions.split(',');
+      data = data.filter((d) => actions.includes(d.action));
+    }
+
+    if (params.ownerId) {
+      data = data.filter((d) => [d.actionOwner, d.currentOwner].includes(params.ownerId));
+    }
+
+    if (params.strategyIds) {
+      const strategyIds = params.strategyIds.split(',');
+      data = data.filter((d) => strategyIds.includes(d.id));
+    }
+
+    if (params.pairs) {
+      const pairs = params.pairs.split(',').map((pair) => pair.split('_').sort());
+      data = data.filter((d) =>
+        pairs.some((pair) =>
+          _.isEqual(pair, [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort()),
+        ),
+      );
+    }
+
+    if (params.token0 && !params.token1) {
+      data = data.filter((d) =>
+        [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].includes(
+          params.token0.toLowerCase(),
+        ),
+      );
+    }
+
+    if (params.token1 && !params.token0) {
+      data = data.filter((d) =>
+        [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].includes(
+          params.token1.toLowerCase(),
+        ),
+      );
+    }
+
+    if (params.token0 && params.token1) {
+      data = data.filter((d) =>
+        _.isEqual(
+          [params.token0.toLowerCase(), params.token1.toLowerCase()].sort(),
+          [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort(),
+        ),
+      );
+    }
+
+    // Collect meta information
+    const actions = [...new Set(data.map((d) => d.action))];
+    const uniquePairs = new Set();
+    data.forEach((d) => {
+      const pair = [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort().toString();
+      uniquePairs.add(pair);
+    });
+    const pairs = Array.from(uniquePairs).map((pair: string) => pair.split(','));
+    const strategies = data.reduce((acc, d) => {
+      acc[d.id] = [d.baseSellTokenAddress, d.quoteBuyTokenAddress];
+      return acc;
+    }, {});
+
+    return {
+      size: data.length,
+      actions,
+      pairs,
+      strategies,
+    };
   }
 }

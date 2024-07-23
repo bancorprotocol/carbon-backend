@@ -113,10 +113,6 @@ export class UpdaterService {
       await this.voucherTransferEventService.update(endBlock);
       console.log('CARBON SERVICE - Finished updating voucher transfer events');
 
-      // activity
-      await this.activityService.update();
-      console.log('CARBON SERVICE - Finished updating activity');
-
       // finish
       console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t, 'ms');
       this.isUpdating = false;
@@ -152,6 +148,10 @@ export class UpdaterService {
       // DexScreener
       await this.dexScreenerService.update();
       console.log('CARBON SERVICE - Finished updating DexScreener');
+
+      // activity
+      await this.activityService.update();
+      console.log('CARBON SERVICE - Finished updating activity');
 
       console.log('CARBON SERVICE -', 'Finished updating analytics in:', Date.now() - t, 'ms');
 
