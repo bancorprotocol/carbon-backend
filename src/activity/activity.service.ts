@@ -1038,10 +1038,14 @@ ORDER BY block_number, sorting_order
     }
 
     if (params.actions) {
-      const actions = params.actions.split(',');
-      actions.forEach((action, index) => {
-        queryBuilder.andWhere(`activity.action LIKE :action${index}`, { [`action${index}`]: `%${action}%` });
-      });
+      const actionsArray = Array.isArray(params.actions) ? params.actions : [params.actions];
+      queryBuilder.andWhere(
+        new Brackets((qb) => {
+          actionsArray.forEach((action, index) => {
+            qb.orWhere(`activity.action LIKE :action${index}`, { [`action${index}`]: `%${action}%` });
+          });
+        }),
+      );
     }
 
     if (params.ownerId) {
