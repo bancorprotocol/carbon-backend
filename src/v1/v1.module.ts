@@ -8,9 +8,20 @@ import { DuneModule } from '../dune/dune.module';
 import { SimulatorModule } from './simulator/simulator.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { DexScreenerModule } from './dex-screener/dex-screener.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
-  imports: [CmcModule, RoiModule, CoingeckoModule, MarketRateModule, DuneModule, SimulatorModule, AnalyticsModule, DexScreenerModule],
+  imports: [
+    CmcModule,
+    RoiModule,
+    CoingeckoModule,
+    MarketRateModule,
+    DuneModule,
+    SimulatorModule,
+    AnalyticsModule,
+    DexScreenerModule,
+    ActivityModule,
+  ],
   controllers: [V1Controller],
 })
 export class V1Module {}

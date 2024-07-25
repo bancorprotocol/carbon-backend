@@ -18,6 +18,7 @@ import { redisStore } from 'cache-manager-redis-yet';
 import { V1Module } from './v1/v1.module';
 import { DuneModule } from './dune/dune.module';
 import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -101,6 +102,7 @@ import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
     V1Module,
     DuneModule,
     HistoricQuoteModule,
+    ActivityModule,
   ],
 
   providers: [

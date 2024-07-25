@@ -16,7 +16,7 @@ import { RoiModule } from '../v1/roi/roi.module';
 import { CoingeckoModule } from '../v1/coingecko/coingecko.module';
 import { TradingFeePpmUpdatedEventModule } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.module';
 import { PairTradingFeePpmUpdatedEventModule } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.module';
-import { ActivityModule } from '../v1/activity/activity.module';
+import { ActivityModule } from '../activity/activity.module';
 import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
 import { AnalyticsModule } from '../v1/analytics/analytics.module';

@@ -13,10 +13,11 @@ import { RoiService } from '../v1/roi/roi.service';
 import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
-import { ActivityService } from '../v1/activity/activity.service';
+// import { ActivityService } from '../v1/activity/activity.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
+import { ActivityService } from '../activity/activity.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -113,6 +114,9 @@ export class UpdaterService {
       await this.voucherTransferEventService.update(endBlock);
       console.log('CARBON SERVICE - Finished updating voucher transfer events');
 
+      await this.activityService.update(endBlock);
+      console.log('CARBON SERVICE - Finished updating activities');
+
       // finish
       console.log('CARBON SERVICE -', 'Finished update iteration in:', Date.now() - t, 'ms');
       this.isUpdating = false;
@@ -148,10 +152,6 @@ export class UpdaterService {
       // DexScreener
       await this.dexScreenerService.update();
       console.log('CARBON SERVICE - Finished updating DexScreener');
-
-      // activity
-      await this.activityService.update();
-      console.log('CARBON SERVICE - Finished updating activity');
 
       console.log('CARBON SERVICE -', 'Finished updating analytics in:', Date.now() - t, 'ms');
 
