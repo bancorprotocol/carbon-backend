@@ -1,4 +1,4 @@
-import { IsOptional, IsNumber, IsString } from 'class-validator';
+import { IsOptional, IsNumber, IsString, IsIn } from 'class-validator';
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
 
@@ -29,7 +29,7 @@ export class ActivityDto {
   end?: number;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'])
   actions?: string;
 
   @IsOptional()
