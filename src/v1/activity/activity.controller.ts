@@ -98,7 +98,8 @@ export class ActivityController {
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   async activity(@Query() params: ActivityDto): Promise<any> {
-    const data = await this.activityService.getFilteredActivities(params);
+    const _params = { ...params, limit: params.limit || 10000 };
+    const data = await this.activityService.getFilteredActivities(_params);
     return data.map((d) => this.mapData(d));
   }
 

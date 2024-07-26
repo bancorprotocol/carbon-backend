@@ -1,6 +1,7 @@
-import { IsOptional, IsString, IsNumber } from 'class-validator';
+import { IsOptional, IsString, IsNumber, IsArray, ArrayNotEmpty, IsIn } from 'class-validator';
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
+import { validActions } from './activity.dto';
 
 export class ActivityMetaDto {
   @IsOptional()
@@ -29,8 +30,19 @@ export class ActivityMetaDto {
   end?: number;
 
   @IsOptional()
-  @IsString()
-  actions?: string;
+  @Transform(
+    ({ value }) => {
+      if (typeof value === 'string') {
+        return value.split(',').map((action: string) => action.trim());
+      }
+      return value;
+    },
+    { toClassOnly: true },
+  )
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(validActions, { each: true })
+  actions?: string[];
 
   @IsOptional()
   @IsString()

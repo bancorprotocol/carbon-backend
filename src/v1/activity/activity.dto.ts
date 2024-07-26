@@ -2,7 +2,7 @@ import { IsOptional, IsNumber, IsString, IsIn, IsArray, ArrayNotEmpty } from 'cl
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
 
-const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
+export const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
 
 export class ActivityDto {
   @IsOptional()

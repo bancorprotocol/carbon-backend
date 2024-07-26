@@ -1098,8 +1098,6 @@ ORDER BY block_number, sorting_order
 
     if ('limit' in params && params.limit) {
       queryBuilder.take(params.limit);
-    } else {
-      queryBuilder.take(10000);
     }
 
     if ('offset' in params && params.offset) {
