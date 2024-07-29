@@ -1106,4 +1106,108 @@ ORDER BY block_number, sorting_order
 
     return queryBuilder.getMany();
   }
+
+  async getActivityMeta(params: ActivityMetaDto): Promise<any> {
+    const baseQueryBuilder = this.activityRepository.createQueryBuilder('activity');
+
+    if (params.start) {
+      baseQueryBuilder.andWhere('activity.timestamp >= :start', { start: new Date(params.start * 1000) });
+    }
+
+    if (params.end) {
+      baseQueryBuilder.andWhere('activity.timestamp <= :end', { end: new Date(params.end * 1000) });
+    }
+
+    if (params.actions) {
+      const actionsArray = Array.isArray(params.actions) ? params.actions : [params.actions];
+      baseQueryBuilder.andWhere(
+        new Brackets((qb) => {
+          actionsArray.forEach((action, index) => {
+            qb.orWhere(`activity.action LIKE :action${index}`, { [`action${index}`]: `%${action}%` });
+          });
+        }),
+      );
+    }
+
+    if (params.ownerId) {
+      baseQueryBuilder.andWhere('(activity.creationWallet = :ownerId OR activity.currentOwner = :ownerId)', {
+        ownerId: params.ownerId,
+      });
+    }
+
+    if (params.strategyIds) {
+      const strategyIds = params.strategyIds.split(',');
+      baseQueryBuilder.andWhere('activity."strategyId" IN (:...strategyIds)', { strategyIds });
+    }
+
+    if (params.pairs) {
+      const pairs = params.pairs.split(',').map((pair) => pair.split('_').sort());
+      baseQueryBuilder.andWhere(
+        new Brackets((qb) => {
+          pairs.forEach((pair) => {
+            qb.orWhere(
+              '(LOWER(activity.quoteBuyTokenAddress) = :pair0 AND LOWER(activity.baseSellTokenAddress) = :pair1)',
+              { pair0: pair[0].toLowerCase(), pair1: pair[1].toLowerCase() },
+            );
+          });
+        }),
+      );
+    }
+
+    if (params.token0 && !params.token1) {
+      baseQueryBuilder.andWhere(
+        '(LOWER(activity.quoteBuyTokenAddress) = :token0 OR LOWER(activity.baseSellTokenAddress) = :token0)',
+        { token0: params.token0.toLowerCase() },
+      );
+    }
+
+    if (params.token1 && !params.token0) {
+      baseQueryBuilder.andWhere(
+        '(LOWER(activity.quoteBuyTokenAddress) = :token1 OR LOWER(activity.baseSellTokenAddress) = :token1)',
+        { token1: params.token1.toLowerCase() },
+      );
+    }
+
+    if (params.token0 && params.token1) {
+      baseQueryBuilder.andWhere(
+        '(LOWER(activity.quoteBuyTokenAddress) IN (:...tokens) AND LOWER(activity.baseSellTokenAddress) IN (:...tokens))',
+        { tokens: [params.token0.toLowerCase(), params.token1.toLowerCase()] },
+      );
+    }
+
+    const countQuery = baseQueryBuilder.clone().getCount();
+
+    const actionsQuery = baseQueryBuilder.clone().select('activity.action').distinct(true).getRawMany();
+
+    const pairsQuery = baseQueryBuilder
+      .clone()
+      .select(['LOWER(activity.quoteBuyTokenAddress) AS quote', 'LOWER(activity.baseSellTokenAddress) AS base'])
+      .groupBy('quote')
+      .addGroupBy('base')
+      .getRawMany();
+
+    const strategiesQuery = baseQueryBuilder
+      .clone()
+      .select(['activity.strategyId', 'activity.baseSellTokenAddress', 'activity.quoteBuyTokenAddress'])
+      .distinct(true)
+      .getRawMany();
+
+    // Execute queries in parallel
+    const [size, actions, pairs, strategies] = await Promise.all([
+      countQuery,
+      actionsQuery,
+      pairsQuery,
+      strategiesQuery,
+    ]);
+
+    return {
+      size,
+      actions: actions.map((action) => action.activity_action),
+      pairs: pairs.map((pair) => [pair.quote, pair.base]),
+      strategies: strategies.reduce((acc, d) => {
+        acc[d.activity_strategyId] = [d.activity_baseSellTokenAddress, d.activity_quoteBuyTokenAddress];
+        return acc;
+      }, {}),
+    };
+  }
 }

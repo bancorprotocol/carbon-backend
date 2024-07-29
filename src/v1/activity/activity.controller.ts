@@ -106,26 +106,10 @@ export class ActivityController {
   @Get('meta')
   @CacheTTL(1 * 60 * 1000)
   async activityMeta(@Query() params: ActivityMetaDto): Promise<any> {
-    const data = await this.activityService.getFilteredActivities(params);
+    const data = await this.activityService.getActivityMeta(params);
 
     // Collect meta information
-    const actions = [...new Set(data.map((d) => this.formatAction(d.action)))];
-    const uniquePairs = new Set();
-    data.forEach((d) => {
-      const pair = [d.quoteBuyTokenAddress.toLowerCase(), d.baseSellTokenAddress.toLowerCase()].sort().toString();
-      uniquePairs.add(pair);
-    });
-    const pairs = Array.from(uniquePairs).map((pair: string) => pair.split(','));
-    const strategies = data.reduce((acc, d) => {
-      acc[d.strategyId] = [d.baseSellTokenAddress, d.quoteBuyTokenAddress];
-      return acc;
-    }, {});
-
-    return {
-      size: data.length,
-      actions,
-      pairs,
-      strategies,
-    };
+    const actions = [...new Set(data.actions.map((d) => this.formatAction(d)))];
+    return { ...data, actions };
   }
 }

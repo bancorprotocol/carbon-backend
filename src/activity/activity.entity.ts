@@ -24,6 +24,7 @@ export class Activity {
   newOwner: string;
 
   @Column()
+  @Index()
   action: string;
 
   @Column()
