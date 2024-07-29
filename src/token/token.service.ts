@@ -19,6 +19,7 @@ const LAST_PROCESSED_ENTITY = 'tokens';
 export const GAS_TOKENS = {
   [BlockchainType.Ethereum]: { name: 'Ethereum', symbol: 'ETH' },
   [BlockchainType.Sei]: { name: 'Sei', symbol: 'SEI' },
+  [BlockchainType.Celo]: { name: 'Celo', symbol: 'CELO' },
 };
 
 @Injectable()

@@ -82,6 +82,7 @@ type AnyFunc = (...args: any) => any;
 export enum BlockchainType {
   Ethereum = 'ethereum',
   Sei = 'sei',
+  Celo = 'celo',
 }
 
 export interface CustomFnArgs {
@@ -379,6 +380,8 @@ export class HarvesterService {
       return this.stringsWithMulticallSei(addresses, abi, fn);
     } else if (blockchainType === BlockchainType.Ethereum) {
       return this.stringsWithMulticallEthereum(addresses, abi, fn);
+    } else if (blockchainType === BlockchainType.Celo) {
+      return this.stringsWithMulticallSei(addresses, abi, fn);
     }
   }
 
@@ -392,6 +395,8 @@ export class HarvesterService {
       return this.integersWithMulticallSei(addresses, abi, fn);
     } else if (blockchainType === BlockchainType.Ethereum) {
       return this.integersWithMulticallEthereum(addresses, abi, fn);
+    } else if (blockchainType === BlockchainType.Celo) {
+      return this.integersWithMulticallSei(addresses, abi, fn);
     }
   }
 

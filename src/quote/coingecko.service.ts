@@ -10,6 +10,7 @@ export class CoinGeckoService {
 
   async getLatestPrices(contractAddresses: string[], convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
+    const blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
     const batchSize = 150;
 
     try {
@@ -20,7 +21,7 @@ export class CoinGeckoService {
       }
 
       const requests = batches.map(async (batch) => {
-        return axios.get(`${this.baseURL}/simple/token_price/ethereum`, {
+        return axios.get(`${this.baseURL}/simple/token_price/${blockchainType}`, {
           params: {
             contract_addresses: batch.join(','),
             vs_currencies: convert.join(','),
@@ -44,14 +45,15 @@ export class CoinGeckoService {
     }
   }
 
-  async getLatestEthPrice(convert = ['usd']): Promise<any> {
+  async getLatestGasTokenPrice(convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
+    const blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
     const ETH = this.configService.get('ETH');
 
     try {
       const response = await axios.get(`${this.baseURL}/simple/price`, {
         params: {
-          ids: 'ethereum',
+          ids: blockchainType,
           vs_currencies: convert.join(','),
           include_last_updated_at: true,
         },
@@ -62,11 +64,11 @@ export class CoinGeckoService {
 
       const result = {
         [ETH.toLowerCase()]: {
-          last_updated_at: response.data['ethereum']['last_updated_at'],
+          last_updated_at: response.data[blockchainType]['last_updated_at'],
         },
       };
       convert.forEach((c) => {
-        result[ETH.toLowerCase()][c.toLowerCase()] = response.data['ethereum'][c.toLowerCase()];
+        result[ETH.toLowerCase()][c.toLowerCase()] = response.data[blockchainType][c.toLowerCase()];
       });
       return result;
     } catch (error) {

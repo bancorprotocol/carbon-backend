@@ -43,7 +43,9 @@ export class MarketRateController {
       provider: 'coingecko',
     };
     currencies.forEach((c) => {
-      result['data'][c.toUpperCase()] = data[_address.toLowerCase()][c.toLowerCase()];
+      if (data[_address.toLowerCase()] && data[_address.toLowerCase()][c.toLowerCase()]) {
+        result['data'][c.toUpperCase()] = data[_address.toLowerCase()][c.toLowerCase()];
+      }
     });
     return result;
   }

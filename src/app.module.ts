@@ -82,9 +82,7 @@ import { ActivityModule } from './activity/activity.module';
           store: await redisStore({
             url: configService.get('CARBON_REDIS_URL'),
           }),
-          host: 'localhost',
-          port: 6379,
-          ttl: 300, // seconds
+          ttl: 300,
         };
       },
       inject: [ConfigService],
