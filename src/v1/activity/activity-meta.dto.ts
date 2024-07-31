@@ -2,6 +2,7 @@ import { IsOptional, IsString, IsNumber, IsArray, ArrayNotEmpty, IsIn } from 'cl
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
 import { validActions } from './activity.dto';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ActivityMetaDto {
   @IsOptional()
@@ -42,6 +43,10 @@ export class ActivityMetaDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsIn(validActions, { each: true })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'List of comma-separated actions',
+  })
   actions?: string[];
 
   @IsOptional()
