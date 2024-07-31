@@ -1,6 +1,7 @@
 import { IsOptional, IsNumber, IsString, IsIn, IsArray, ArrayNotEmpty } from 'class-validator';
 import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
 
@@ -43,6 +44,10 @@ export class ActivityDto {
   @IsArray()
   @ArrayNotEmpty()
   @IsIn(validActions, { each: true })
+  @ApiPropertyOptional({
+    type: [String],
+    description: 'List of comma-separated actions',
+  })
   actions?: string[];
 
   @IsOptional()
