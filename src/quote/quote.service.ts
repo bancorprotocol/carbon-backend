@@ -50,7 +50,7 @@ export class QuoteService implements OnModuleInit {
       const tokens = await this.tokenService.all();
       const addresses = tokens.map((t) => t.address);
       let newPrices = await this.coingeckoService.getLatestPrices(addresses);
-      const ethPrice = await this.coingeckoService.getLatestEthPrice();
+      const ethPrice = await this.coingeckoService.getLatestGasTokenPrice();
       newPrices = { ...newPrices, ...ethPrice };
 
       await this.updateQuotes(tokens, newPrices);
@@ -78,7 +78,7 @@ export class QuoteService implements OnModuleInit {
     try {
       let price;
       if (address.toLowerCase() === ETH.toLowerCase()) {
-        price = await this.coingeckoService.getLatestEthPrice(convert);
+        price = await this.coingeckoService.getLatestGasTokenPrice(convert);
       } else {
         price = await this.coingeckoService.getLatestPrices([address], convert);
       }

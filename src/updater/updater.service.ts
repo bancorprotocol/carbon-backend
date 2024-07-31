@@ -13,7 +13,6 @@ import { RoiService } from '../v1/roi/roi.service';
 import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
-// import { ActivityService } from '../v1/activity/activity.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
