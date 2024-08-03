@@ -1,6 +1,7 @@
 import { Request } from 'express';
 import { ExchangeId } from './deployment/deployment.service';
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { ApiParam } from '@nestjs/swagger';
 
 export function extractExchangeId(request: Request, exchangeIdParam?: string): ExchangeId {
   let exchangeId: ExchangeId;
@@ -21,6 +22,13 @@ export function extractExchangeId(request: Request, exchangeIdParam?: string): E
 
   return exchangeId;
 }
+
+export const ApiExchangeIdParam = () =>
+  ApiParam({
+    name: 'exchangeId',
+    required: true,
+    enum: ExchangeId,
+  });
 
 export const ExchangeIdParam = createParamDecorator((data: unknown, ctx: ExecutionContext) => {
   const request = ctx.switchToHttp().getRequest();

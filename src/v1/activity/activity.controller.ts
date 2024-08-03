@@ -5,9 +5,9 @@ import { ActivityDto } from './activity.dto';
 import { ActivityMetaDto } from './activity-meta.dto';
 import moment from 'moment';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/activity' })
+@Controller({ version: '1', path: ':exchangeId?/activity' })
 export class ActivityController {
   constructor(private activityService: ActivityService, private deploymentService: DeploymentService) {}
 
@@ -103,6 +103,7 @@ export class ActivityController {
   @Get()
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async activity(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityDto): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const _params = { ...params, limit: params.limit || 10000, deployment };
@@ -112,6 +113,7 @@ export class ActivityController {
 
   @Get('meta')
   @CacheTTL(1 * 60 * 1000)
+  @ApiExchangeIdParam()
   async activityMeta(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityMetaDto): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const _params = { ...params, deployment };

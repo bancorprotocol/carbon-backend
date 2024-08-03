@@ -4,9 +4,9 @@ import { HistoricalTradesDto } from './historical_trades.dto';
 import { TokensTradedEventService } from '../../events/tokens-traded-event/tokens-traded-event.service';
 import { PairService } from '../../pair/pair.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/cmc' })
+@Controller({ version: '1', path: ':exchangeId?/cmc' })
 export class CmcController {
   constructor(
     private tokensTradedEventService: TokensTradedEventService,
@@ -21,6 +21,7 @@ export class CmcController {
   @Get('pairs')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async pairs(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const pairs = await this.pairService.all(deployment);
@@ -44,6 +45,7 @@ export class CmcController {
   @Get('historical_trades')
   @CacheTTL(60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async historical_trades(
     @ExchangeIdParam() exchangeId: ExchangeId,
     @Query() params: HistoricalTradesDto,

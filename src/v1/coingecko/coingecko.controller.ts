@@ -10,9 +10,9 @@ import { toTimestamp } from '../../utilities';
 import { PairService } from '../../pair/pair.service';
 import { CoingeckoService } from './coingecko.service';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/coingecko' })
+@Controller({ version: '1', path: ':exchangeId?/coingecko' })
 export class CoinGeckoController {
   constructor(
     private tokensTradedEventService: TokensTradedEventService,
@@ -28,6 +28,7 @@ export class CoinGeckoController {
   @Get('historical_trades')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
+  @ApiExchangeIdParam()
   async historicalTrades(
     @ExchangeIdParam() exchangeId: ExchangeId,
     @Query() params: HistoricalTradesDto,
@@ -70,6 +71,7 @@ export class CoinGeckoController {
   @Get('pairs')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
+  @ApiExchangeIdParam()
   async pairs(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const pairs = await this.pairService.all(deployment);
@@ -85,6 +87,7 @@ export class CoinGeckoController {
   @Get('tickers')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=43200')
+  @ApiExchangeIdParam()
   async tickers(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const data = await this.coingeckoService.getCachedTickers(deployment);

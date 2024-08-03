@@ -6,9 +6,9 @@ import moment from 'moment';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/simulator' })
+@Controller({ version: '1', path: ':exchangeId?/simulator' })
 export class SimulatorController {
   constructor(
     private readonly simulatorService: SimulatorService,
@@ -19,6 +19,7 @@ export class SimulatorController {
   @Get('create')
   @CacheTTL(10 * 60 * 1000) // Cache response for 1 second
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
+  @ApiExchangeIdParam()
   async simulator(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: SimulatorDto) {
     if (!isValidStart(params.start)) {
       throw new BadRequestException({

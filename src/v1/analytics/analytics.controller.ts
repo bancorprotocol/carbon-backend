@@ -6,7 +6,8 @@ import { TvlDto } from './tvl.dto';
 import { VolumeService } from '../../volume/volume.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { ApiParam } from '@nestjs/swagger';
 
 @Controller({ version: '1', path: ':exchangeId?/analytics' })
 export class AnalyticsController {
@@ -20,6 +21,7 @@ export class AnalyticsController {
   @Get('tvl')
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async tvl(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlDto): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     return this.tvlService.getTvl(query);
@@ -28,6 +30,7 @@ export class AnalyticsController {
   @Get('volume')
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async volume(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: VolumeDto): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     return this.volumeService.getVolume(query);
@@ -36,6 +39,7 @@ export class AnalyticsController {
   @Get('generic')
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
   async generic(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     return this.analyticsService.getCachedGenericMetrics(deployment);
