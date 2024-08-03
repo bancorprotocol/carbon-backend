@@ -8,7 +8,10 @@ export function extractExchangeId(request: Request, exchangeIdParam?: string): E
   if (exchangeIdParam) {
     exchangeId = exchangeIdParam as ExchangeId;
   } else {
-    const subdomain = request.hostname.split('.')[0];
+    let subdomain = request.hostname.split('.')[0];
+    if (subdomain.endsWith('-api')) {
+      subdomain = subdomain.slice(0, -4); // Remove '-api' suffix
+    }
     exchangeId = subdomain as ExchangeId;
   }
 
