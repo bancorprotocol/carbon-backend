@@ -51,11 +51,14 @@ export class UpdaterService {
     private deploymentService: DeploymentService, // Inject DeploymentService
     @Inject('REDIS') private redis: any,
   ) {
-    const deployments = this.deploymentService.getDeployments();
-    deployments.forEach((deployment) => {
-      const updateInterval = 5000; // Customize the interval as needed
-      this.scheduleDeploymentUpdate(deployment, updateInterval);
-    });
+    const shouldHarvest = this.configService.get('SHOULD_HARVEST');
+    if (shouldHarvest === '1') {
+      const deployments = this.deploymentService.getDeployments();
+      deployments.forEach((deployment) => {
+        const updateInterval = 5000; // Customize the interval as needed
+        this.scheduleDeploymentUpdate(deployment, updateInterval);
+      });
+    }
   }
 
   private scheduleDeploymentUpdate(deployment: Deployment, interval: number) {
