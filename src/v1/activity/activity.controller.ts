@@ -1,13 +1,18 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query, Param } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { ActivityService } from '../../activity/activity.service';
 import { ActivityDto } from './activity.dto';
 import { ActivityMetaDto } from './activity-meta.dto';
 import moment from 'moment';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
-@Controller({ version: '1', path: 'activity' })
+@Controller({ version: '1', path: ':exchangeId/activity' })
 export class ActivityController {
-  constructor(private activityService: ActivityService) {}
+  constructor(private activityService: ActivityService, private deploymentService: DeploymentService) {}
+
+  private async getDeployment(exchangeId: ExchangeId): Promise<any> {
+    return this.deploymentService.getDeploymentByExchangeId(exchangeId);
+  }
 
   private formatAction(action: string): string {
     if (action.includes('sell')) return 'sell';
@@ -97,16 +102,19 @@ export class ActivityController {
   @Get()
   @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
-  async activity(@Query() params: ActivityDto): Promise<any> {
-    const _params = { ...params, limit: params.limit || 10000 };
-    const data = await this.activityService.getFilteredActivities(_params);
+  async activity(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: ActivityDto): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const _params = { ...params, limit: params.limit || 10000, deployment };
+    const data = await this.activityService.getFilteredActivities(_params, deployment);
     return data.map((d) => this.mapData(d));
   }
 
   @Get('meta')
   @CacheTTL(1 * 60 * 1000)
-  async activityMeta(@Query() params: ActivityMetaDto): Promise<any> {
-    const data = await this.activityService.getActivityMeta(params);
+  async activityMeta(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: ActivityMetaDto): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const _params = { ...params, deployment };
+    const data = await this.activityService.getActivityMeta(_params, deployment);
 
     // Collect meta information
     const actions = [...new Set(data.actions.map((d) => this.formatAction(d)))];

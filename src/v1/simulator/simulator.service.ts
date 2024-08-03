@@ -9,6 +9,7 @@ import { toTimestamp } from 'src/utilities';
 import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
+import { BlockchainType, Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
 @Injectable()
 export class SimulatorService {
@@ -18,14 +19,14 @@ export class SimulatorService {
     private readonly historicQuoteService: HistoricQuoteService,
   ) {}
 
-  async generateSimulation(params: SimulatorDto, usdPrices: any): Promise<any> {
+  async generateSimulation(params: SimulatorDto, usdPrices: any, deployment: Deployment): Promise<any> {
     const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax } = params;
     const baseToken = params['baseToken'].toLowerCase();
     const quoteToken = params['quoteToken'].toLowerCase();
 
     // handle fees
-    const defaultFee = (await this.tradingFeePpmUpdatedEventService.last()).newFeePPM;
-    const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary();
+    const defaultFee = (await this.tradingFeePpmUpdatedEventService.last(deployment)).newFeePPM;
+    const pairFees = await this.pairTradingFeePpmUpdatedEventService.allAsDictionary(deployment);
     let feePpm;
     if (pairFees[baseToken] && pairFees[baseToken][quoteToken]) {
       feePpm = pairFees[baseToken][quoteToken];

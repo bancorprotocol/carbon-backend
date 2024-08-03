@@ -7,12 +7,17 @@ import {
   PrimaryColumn,
   Index,
 } from 'typeorm';
+import { BlockchainType } from '../deployment/deployment.service';
 
 @Entity({ name: 'historic-quotes' })
 @Index(['tokenAddress', 'timestamp'], { unique: false })
 export class HistoricQuote {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
 
   @PrimaryColumn('timestamp')
   timestamp: Date;

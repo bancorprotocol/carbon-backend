@@ -1,7 +1,18 @@
-import { Entity, Column, PrimaryColumn, CreateDateColumn, UpdateDateColumn, Index, ManyToOne, Unique } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  Index,
+  ManyToOne,
+  Unique,
+  PrimaryGeneratedColumn,
+} from 'typeorm';
 import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
 import { Token } from 'src/token/token.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-created-events' })
 @Unique('strategy-created-events-transactionIndex_transactionHash_logIndex', [
@@ -10,8 +21,12 @@ import { Token } from 'src/token/token.entity';
   'logIndex',
 ])
 export class StrategyCreatedEvent {
-  @PrimaryColumn()
+  @PrimaryGeneratedColumn()
   id: string;
+
+  @Column()
+  @Index()
+  strategyId: string;
 
   @ManyToOne(() => Pair, { eager: true })
   pair: Pair;
@@ -19,6 +34,14 @@ export class StrategyCreatedEvent {
   @Index()
   @ManyToOne(() => Block, { eager: true })
   block: Block;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Column()
   @Index()

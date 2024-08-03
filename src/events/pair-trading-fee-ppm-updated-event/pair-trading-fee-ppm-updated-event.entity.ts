@@ -12,6 +12,7 @@ import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
 import { Strategy } from '../../strategy/strategy.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'pair-trading-fee-ppm-updated-events' })
 @Unique('pair-trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex', [
@@ -29,6 +30,14 @@ export class PairTradingFeePpmUpdatedEvent {
   @Index()
   @ManyToOne(() => Block, { eager: true })
   block: Block;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Column()
   timestamp: Date;

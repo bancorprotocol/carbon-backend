@@ -7,6 +7,7 @@ import { CoinGeckoService } from './coingecko.service';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
+import { DeploymentService, BlockchainType, Deployment } from '../deployment/deployment.service';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
@@ -25,12 +26,13 @@ export class QuoteService implements OnModuleInit {
     private coingeckoService: CoinGeckoService,
     private configService: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
+    private deploymentService: DeploymentService,
   ) {
     this.intervalDuration = +this.configService.get('POLL_QUOTES_INTERVAL') || 60000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES') === '1';
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     if (this.shouldPollQuotes) {
       const callback = () => this.pollForLatest();
       const interval = setInterval(callback, this.intervalDuration);
@@ -47,18 +49,31 @@ export class QuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      const tokens = await this.tokenService.all();
-      const addresses = tokens.map((t) => t.address);
-      let newPrices = await this.coingeckoService.getLatestPrices(addresses);
-      const ethPrice = await this.coingeckoService.getLatestGasTokenPrice();
-      newPrices = { ...newPrices, ...ethPrice };
+      const deployments = await this.deploymentService.getDeployments();
+      const blockchainTypes = [...new Set(deployments.map((d) => d.blockchainType))];
 
-      await this.updateQuotes(tokens, newPrices);
+      await Promise.all(blockchainTypes.map((blockchainType) => this.pollForBlockchain(blockchainType)));
     } catch (error) {
       this.logger.error(`Error fetching and storing quotes: ${error.message}`);
     } finally {
       console.log('QUOTES SERVICE - Finished updating quotes');
       this.isPolling = false; // Reset the flag regardless of success or failure
+    }
+  }
+
+  async pollForBlockchain(blockchainType: BlockchainType): Promise<void> {
+    try {
+      const tokens = await this.tokenService.getTokensByBlockchainType(blockchainType);
+      const addresses = tokens.map((t) => t.address);
+      let newPrices = await this.coingeckoService.getLatestPrices(addresses);
+      const deployments = await this.deploymentService.getDeployments();
+      const deployment = deployments.find((d) => d.blockchainType === blockchainType);
+      const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice([deployment.gasToken.address]);
+      newPrices = { ...newPrices, ...gasTokenPrice };
+
+      await this.updateQuotes(tokens, newPrices);
+    } catch (error) {
+      this.logger.error(`Error fetching and storing quotes for blockchain ${blockchainType}: ${error.message}`);
     }
   }
 
@@ -73,16 +88,14 @@ export class QuoteService implements OnModuleInit {
     return tokensByAddress;
   }
 
-  async fetchLatestPrice(address: string, convert = ['usd']): Promise<any> {
-    const ETH = this.configService.get('ETH');
+  async fetchLatestPrice(deployment: Deployment, address: string, convert = ['usd']): Promise<any> {
     try {
       let price;
-      if (address.toLowerCase() === ETH.toLowerCase()) {
+      if (address.toLowerCase() === deployment.gasToken.address.toLowerCase()) {
         price = await this.coingeckoService.getLatestGasTokenPrice(convert);
       } else {
         price = await this.coingeckoService.getLatestPrices([address], convert);
       }
-
       return price;
     } catch (error) {
       this.logger.error(`Error fetching price: ${error.message}`);

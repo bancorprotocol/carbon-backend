@@ -5,53 +5,14 @@ import { SimulatorService } from './simulator.service';
 import moment from 'moment';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
-@Controller({ version: '1', path: 'simulate-create-strategy' })
-export class SimulatorControllerDeprecated {
-  constructor(
-    private readonly simulatorService: SimulatorService,
-    private historicQuoteService: HistoricQuoteService,
-  ) {}
-
-  @Get()
-  @CacheTTL(10 * 60 * 1000) // Cache response for 1 second
-  @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async simulator(@Query() params: SimulatorDto) {
-    if (!isValidStart(params.start)) {
-      throw new BadRequestException({
-        message: ['start must be within the last 12 months'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    if (params.end < params.start) {
-      throw new BadRequestException({
-        message: ['End date must be after the start date'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    params.baseToken = params.baseToken.toLowerCase();
-    params.quoteToken = params.quoteToken.toLowerCase();
-
-    const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      params.baseToken,
-      params.quoteToken,
-      params.start,
-      params.end,
-    );
-
-    const data = await this.simulatorService.generateSimulation(params, usdPrices);
-    return data;
-  }
-}
 @Controller({ version: '1', path: 'simulator' })
 export class SimulatorController {
   constructor(
     private readonly simulatorService: SimulatorService,
     private historicQuoteService: HistoricQuoteService,
+    private deploymentService: DeploymentService,
   ) {}
 
   @Get('create')
@@ -84,7 +45,8 @@ export class SimulatorController {
       params.end,
     );
 
-    const data = await this.simulatorService.generateSimulation(params, usdPrices);
+    const deployment = this.deploymentService.getDeploymentByExchangeId(ExchangeId.OGEthereum);
+    const data = await this.simulatorService.generateSimulation(params, usdPrices, deployment);
 
     return {
       data: data.dates.map((d, i) => ({

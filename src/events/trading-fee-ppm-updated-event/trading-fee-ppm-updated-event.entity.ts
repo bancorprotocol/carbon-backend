@@ -9,6 +9,7 @@ import {
   PrimaryGeneratedColumn,
 } from 'typeorm';
 import { Block } from '../../block/block.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'trading-fee-ppm-updated-events' })
 @Unique('trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex', [
@@ -19,6 +20,14 @@ import { Block } from '../../block/block.entity';
 export class TradingFeePpmUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Index()
   @ManyToOne(() => Block, { eager: true })

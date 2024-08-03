@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { RedisModule } from '../redis/redis.module';
@@ -16,7 +15,7 @@ import { PairCreatedEventModule } from '../events/pair-created-event/pair-create
     HarvesterModule,
     PairCreatedEventModule,
   ],
-  providers: [ConfigService, TokenService],
+  providers: [TokenService],
   exports: [TokenService, TypeOrmModule.forFeature([Token])],
 })
 export class TokenModule {}

@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
+import { Deployment } from '../../deployment/deployment.service';
 
 const ROI_CACHE_KEY = 'carbon:roi';
 
@@ -14,16 +15,19 @@ export class RoiService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
-  async update(): Promise<void> {
-    const roi = await this.getROI();
-    this.cacheManager.set(ROI_CACHE_KEY, roi);
+  async update(deployment: Deployment): Promise<void> {
+    const roi = await this.getROI(deployment);
+    const cacheKey = this.getCacheKey(deployment);
+    await this.cacheManager.set(cacheKey, roi);
   }
 
-  async getCachedROI(): Promise<any> {
-    return this.cacheManager.get(ROI_CACHE_KEY);
+  async getCachedROI(deployment: Deployment): Promise<any> {
+    const cache = await this.cacheManager.get(ROI_CACHE_KEY);
+    const cacheKey = this.getCacheKey(deployment);
+    return cache ? cache[cacheKey] : null;
   }
 
-  private async getROI(): Promise<any> {
+  private async getROI(deployment: Deployment): Promise<any> {
     const query = `
     WITH created AS (
         SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s.id as id, order0, order1, 
@@ -33,6 +37,7 @@ export class RoiService {
         FROM "strategy-created-events" s
         left join tokens t0 on t0.id = s."token0Id"
         left join tokens t1 on t1.id = s."token1Id"
+        WHERE s."blockchainType" = '${deployment.blockchainType}' AND s."exchangeId" = '${deployment.exchangeId}'
     ),
     updated AS (
         SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s."strategyId" as id, order0, order1, 
@@ -42,6 +47,7 @@ export class RoiService {
         FROM "strategy-updated-events" s
         left join tokens t0 on t0.id = s."token0Id"
         left join tokens t1 on t1.id = s."token1Id"
+        WHERE s."blockchainType" = '${deployment.blockchainType}' AND s."exchangeId" = '${deployment.exchangeId}'
     ),
     all_txs AS (
         SELECT *
@@ -256,6 +262,7 @@ export class RoiService {
         SELECT c."timestamp" AS date_created, c."id", d."timestamp" AS date_most_recent
         FROM "strategy-created-events" c
         LEFT JOIN "strategy-deleted-events" d ON c."id" = d."strategyId"
+        WHERE c."blockchainType" = '${deployment.blockchainType}' AND c."exchangeId" = '${deployment.exchangeId}'
     ),
     most_recent AS (
         SELECT *, CASE WHEN date_most_recent IS NULL THEN NOW() ELSE date_most_recent END AS date_most_recent2
@@ -293,5 +300,9 @@ export class RoiService {
       delete r.roi;
       return r;
     });
+  }
+
+  private getCacheKey(deployment: Deployment): string {
+    return `${deployment.blockchainType}:${deployment.exchangeId}:roi`;
   }
 }
