@@ -172,8 +172,8 @@ export class UpdaterService {
       await this.redis.client.setex(`${CARBON_IS_UPDATING_ANALYTICS}:${deploymentKey}`, lockDuration, 1);
 
       // ROI
-      // await this.roiService.update(deployment);
-      // console.log(`CARBON SERVICE - Finished updating ROI for ${deployment.exchangeId}`);
+      await this.roiService.update(deployment);
+      console.log(`CARBON SERVICE - Finished updating ROI for ${deployment.exchangeId}`);
 
       // analytics
       await this.analyticsService.update(deployment);

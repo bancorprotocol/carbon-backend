@@ -12,6 +12,7 @@ export class RoiController {
   @Header('Cache-Control', 'public, max-age=60')
   async roi(@Param('exchangeId') exchangeId: ExchangeId): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    return this.roiService.getCachedROI(deployment);
+    const roi = await this.roiService.getCachedROI(deployment);
+    return roi;
   }
 }

@@ -91,7 +91,7 @@ export class QuoteService implements OnModuleInit {
     try {
       let price;
       if (address.toLowerCase() === deployment.gasToken.address.toLowerCase()) {
-        price = await this.coingeckoService.getLatestGasTokenPrice(deployment);
+        price = await this.coingeckoService.getLatestGasTokenPrice(deployment, convert);
       } else {
         price = await this.coingeckoService.getLatestPrices([address], deployment, convert);
       }
