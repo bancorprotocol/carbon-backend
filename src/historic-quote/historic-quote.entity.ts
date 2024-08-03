@@ -15,7 +15,7 @@ export class HistoricQuote {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'enum', enum: BlockchainType })
+  @Column({ type: 'enum', enum: BlockchainType, default: 'ethereum' })
   @Index()
   blockchainType: BlockchainType;
 
