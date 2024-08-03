@@ -1,0 +1,88 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['pull', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest']
+    id: 'pull_latest'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        docker build \
+          --cache-from europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+          -t europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+          .
+    waitFor: ['pull_latest']
+    id: 'build_image'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      [
+        'tag',
+        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+      ]
+    waitFor: ['build_image']
+    id: 'tag_image'
+
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest']
+    waitFor: ['tag_image']
+    id: 'push'
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      [
+        'run',
+        'deploy',
+        'carbon-multi-harvester',
+        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
+        '--set-env-vars=SHOULD_HARVEST=1',
+        '--set-env-vars=SHOULD_POLL_QUOTES=1',
+        '--set-env-vars=POLL_QUOTES_INTERVAL=60000',
+        '--set-env-vars=DB_SYNC=1',
+        '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=1',
+        '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
+        '--set-env-vars=SHOULD_UPDATE_ANALYTICS=1',
+        '--set-secrets=DATABASE_URL=CM_DATABASE_URL:latest,COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=MC_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
+        '--region=europe-west2',
+        '--project=bancor-api',
+      ]
+    waitFor: ['push']
+    id: 'deploy_harvester'
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      [
+        'run',
+        'deploy',
+        'carbon-multi-endpoint',
+        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
+        '--set-env-vars=SHOULD_HARVEST=0',
+        '--set-env-vars=SHOULD_POLL_QUOTES=0',
+        '--set-env-vars=POLL_QUOTES_INTERVAL=60000',
+        '--set-env-vars=DB_SYNC=0',
+        '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=0',
+        '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
+        '--set-env-vars=SHOULD_UPDATE_ANALYTICS=0',
+        '--set-secrets=DATABASE_URL=CM_DATABASE_URL:latest,COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=MC_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
+        '--region=europe-west2',
+        '--project=bancor-api',
+      ]
+    waitFor: ['deploy_harvester']
+    id: 'deploy_endpoint'
+
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester', '--to-latest', '--region', 'europe-west2']
+    waitFor: ['deploy_endpoint']
+    id: 'update_traffic'
+
+images:
+  - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  diskSizeGb: 200
+  logging: 'CLOUD_LOGGING_ONLY'
