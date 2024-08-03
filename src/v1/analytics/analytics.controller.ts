@@ -7,7 +7,6 @@ import { VolumeService } from '../../volume/volume.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-import { ApiParam } from '@nestjs/swagger';
 
 @Controller({ version: '1', path: ':exchangeId?/analytics' })
 export class AnalyticsController {
