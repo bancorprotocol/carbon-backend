@@ -10,6 +10,7 @@ import { PairDto } from './pair.dto';
 import { EventDto } from './event.dto';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { Deployment } from '../../deployment/deployment.service';
+import { ExchangeIdParam } from '../../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId/dex-screener' })
 export class DexScreenerController {
@@ -23,7 +24,7 @@ export class DexScreenerController {
   @Get('latest-block')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  async latestBlock(@Param('exchangeId') exchangeId: ExchangeId): Promise<any> {
+  async latestBlock(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const lastBlock = await this.blockService.getLastBlock(deployment);
     return {
@@ -37,7 +38,7 @@ export class DexScreenerController {
   @Get('asset')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  async asset(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: AssetDto): Promise<any> {
+  async asset(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: AssetDto): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const address = toChecksumAddress(params.id);
     const tokens = await this.tokenService.allByAddress(deployment);
@@ -55,7 +56,7 @@ export class DexScreenerController {
   @Get('pair')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  async pair(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: PairDto): Promise<any> {
+  async pair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: PairDto): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { id } = params;
     const pairs = await this.dexScreenerService.getCachedPairs(deployment);
@@ -78,7 +79,7 @@ export class DexScreenerController {
   @Get('events')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
-  async events(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: EventDto): Promise<any> {
+  async events(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: EventDto): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { fromBlock, toBlock } = params;
     const events = await this.dexScreenerService.getCachedEvents(deployment);

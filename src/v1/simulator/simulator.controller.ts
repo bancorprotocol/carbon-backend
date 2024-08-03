@@ -6,6 +6,7 @@ import moment from 'moment';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import { ExchangeIdParam } from '../../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId/simulator' })
 export class SimulatorController {
@@ -18,7 +19,7 @@ export class SimulatorController {
   @Get('create')
   @CacheTTL(10 * 60 * 1000) // Cache response for 1 second
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async simulator(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: SimulatorDto) {
+  async simulator(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: SimulatorDto) {
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],

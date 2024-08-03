@@ -4,6 +4,7 @@ import { HistoricQuoteDto } from './historic-quote.dto';
 import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
 import { ExchangeId } from '../deployment/deployment.service';
+import { ExchangeIdParam } from '../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId/history/prices' })
 export class HistoricQuoteController {
@@ -12,7 +13,7 @@ export class HistoricQuoteController {
   @Get()
   @CacheTTL(1 * 60 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async prices(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: HistoricQuoteDto) {
+  async prices(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: HistoricQuoteDto) {
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
