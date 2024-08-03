@@ -1,17 +1,18 @@
 import { CacheTTL } from '@nestjs/cache-manager';
-import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
 import { HistoricQuoteDto } from './historic-quote.dto';
 import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
+import { ExchangeId } from '../deployment/deployment.service';
 
-@Controller({ version: '1', path: 'history/prices' })
+@Controller({ version: '1', path: ':exchangeId/history/prices' })
 export class HistoricQuoteController {
   constructor(private historicQuoteService: HistoricQuoteService) {}
 
   @Get()
   @CacheTTL(1 * 60 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
-  async prices(@Query() params: HistoricQuoteDto) {
+  async prices(@Param('exchangeId') exchangeId: ExchangeId, @Query() params: HistoricQuoteDto) {
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
