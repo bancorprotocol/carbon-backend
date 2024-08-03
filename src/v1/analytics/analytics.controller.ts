@@ -5,10 +5,8 @@ import { VolumeDto } from './volume.dto';
 import { TvlDto } from './tvl.dto';
 import { VolumeService } from '../../volume/volume.service';
 import { TvlService } from '../../tvl/tvl.service';
-import { ApiTags } from '@nestjs/swagger';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
-@ApiTags('analytics')
 @Controller({ version: '1', path: ':exchangeId/analytics' })
 export class AnalyticsController {
   constructor(

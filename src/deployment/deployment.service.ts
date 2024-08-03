@@ -6,12 +6,14 @@ export enum BlockchainType {
   Ethereum = 'ethereum',
   Sei = 'sei-network',
   Celo = 'celo',
+  Blast = 'blast',
 }
 
 export enum ExchangeId {
   OGEthereum = 'ethereum',
   OGSei = 'sei',
   OGCelo = 'celo',
+  OGBlast = 'blast',
 }
 
 export interface GasToken {
@@ -80,6 +82,20 @@ export class DeploymentService {
         gasToken: {
           name: 'Celo',
           symbol: 'CELO',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+      },
+      {
+        exchangeId: ExchangeId.OGBlast,
+        blockchainType: BlockchainType.Blast,
+        rpcEndpoint: this.configService.get('BLAST_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 5,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 6257000,
+        gasToken: {
+          name: 'Blast',
+          symbol: 'BLAST',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
       },

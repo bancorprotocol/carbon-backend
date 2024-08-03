@@ -11,7 +11,7 @@ import { PairService } from '../../pair/pair.service';
 import { CoingeckoService } from './coingecko.service';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
-@Controller({ version: '1', path: ':exchangeId/v1/coingecko' })
+@Controller({ version: '1', path: ':exchangeId/coingecko' })
 export class CoinGeckoController {
   constructor(
     private tokensTradedEventService: TokensTradedEventService,
@@ -87,6 +87,6 @@ export class CoinGeckoController {
   async tickers(@Param('exchangeId') exchangeId: ExchangeId): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const data = await this.coingeckoService.getCachedTickers(deployment);
-    return JSON.parse(JSON.stringify(data));
+    return data;
   }
 }

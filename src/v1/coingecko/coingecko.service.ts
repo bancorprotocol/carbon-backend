@@ -18,7 +18,7 @@ export class CoingeckoService {
   async update(deployment: Deployment): Promise<void> {
     const tickers = await this.getTickers(deployment);
     await this.cacheManager.set(
-      `${deployment.blockchainType}:${deployment.exchangeId}:${TICKERS_CACHE_KEY_SUFFIX}:`,
+      `${deployment.blockchainType}:${deployment.exchangeId}:${TICKERS_CACHE_KEY_SUFFIX}`,
       tickers,
     );
   }

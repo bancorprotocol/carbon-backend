@@ -5,7 +5,7 @@ import { TokensTradedEventService } from '../../events/tokens-traded-event/token
 import { PairService } from '../../pair/pair.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 
-@Controller({ version: '1', path: ':exchangeId/v1/cmc' })
+@Controller({ version: '1', path: ':exchangeId/cmc' })
 export class CmcController {
   constructor(
     private tokensTradedEventService: TokensTradedEventService,

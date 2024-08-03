@@ -179,10 +179,8 @@ export class UpdaterService {
       await this.analyticsService.update(deployment);
 
       // DexScreener
-      if (deployment.blockchainType === BlockchainType.Ethereum) {
-        await this.dexScreenerService.update(deployment);
-        console.log(`CARBON SERVICE - Finished updating DexScreener for ${deployment.exchangeId}`);
-      }
+      await this.dexScreenerService.update(deployment);
+      console.log(`CARBON SERVICE - Finished updating DexScreener for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished updating analytics for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingAnalytics[deploymentKey] = false;
