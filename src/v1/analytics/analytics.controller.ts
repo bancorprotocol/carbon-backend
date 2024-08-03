@@ -8,7 +8,7 @@ import { TvlService } from '../../tvl/tvl.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/analytics' })
+@Controller({ version: '1', path: ':exchangeId?/analytics' })
 export class AnalyticsController {
   constructor(
     private analyticsService: AnalyticsService,
