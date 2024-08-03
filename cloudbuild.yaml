@@ -1,42 +1,67 @@
 steps:
+  # Check if the image exists before pulling it
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        if gcloud container images describe europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest; then
+          exit 0
+        else
+          exit 1
+        fi
+    id: 'check_image'
+
+  # Pull the existing image if it exists
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['pull', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest']
+    args: ['pull', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest']
+    waitFor: ['check_image']
     id: 'pull_latest'
 
+  # Build the image with caching from the pulled image if it exists
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'sh'
     args:
       - '-c'
       - |
-        docker build \
-          --cache-from europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest \
-          -t europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest \
-          .
+        if gcloud container images describe europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest; then
+          docker build \
+            --cache-from europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+            -t europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+            .
+        else
+          docker build \
+            -t europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+            .
+        fi
     waitFor: ['pull_latest']
     id: 'build_image'
 
+  # Tag the image
   - name: 'gcr.io/cloud-builders/docker'
     args:
       [
         'tag',
-        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest',
-        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest',
+        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
       ]
     waitFor: ['build_image']
     id: 'tag_image'
 
+  # Push the image to the registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest']
+    args: ['push', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest']
     waitFor: ['tag_image']
     id: 'push'
 
+  # Deploy the harvester service
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       [
         'run',
         'deploy',
         'carbon-multi-harvester',
-        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest',
+        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
         '--set-env-vars=DATABASE_URL=projects/152368584642/secrets/CM_DATABASE_URL/versions/1',
         '--set-env-vars=CARBON_BACKEND_SQL_CERTIFICATION=projects/152368584642/secrets/CARBON_BACKEND_SQL_CERTIFICATION/versions/1',
@@ -55,13 +80,14 @@ steps:
     waitFor: ['push']
     id: 'deploy_harvester'
 
+  # Deploy the endpoint service
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
       [
         'run',
         'deploy',
         'carbon-multi-endpoint',
-        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest',
+        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
         '--set-env-vars=DATABASE_URL=projects/152368584642/secrets/CM_DATABASE_URL/versions/1',
         '--set-env-vars=CARBON_BACKEND_SQL_CERTIFICATION=projects/152368584642/secrets/CARBON_BACKEND_SQL_CERTIFICATION/versions/1',
@@ -80,13 +106,14 @@ steps:
     waitFor: ['deploy_harvester']
     id: 'deploy_endpoint'
 
+  # Update the traffic
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester', '--to-latest', '--region', 'europe-west2']
     waitFor: ['deploy_endpoint']
     id: 'update_traffic'
 
 images:
-  - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi:latest'
+  - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest'
 
 options:
   machineType: 'E2_HIGHCPU_8'
