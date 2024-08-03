@@ -1,21 +1,11 @@
 steps:
-  # Check if the image exists before pulling it
-  - name: 'gcr.io/cloud-builders/gcloud'
+  # Attempt to pull the image, continue even if it fails
+  - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'sh'
     args:
       - '-c'
       - |
-        if gcloud container images describe europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest; then
-          exit 0
-        else
-          exit 1
-        fi
-    id: 'check_image'
-
-  # Pull the existing image if it exists
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['pull', 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest']
-    waitFor: ['check_image']
+        docker pull europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest || exit 0
     id: 'pull_latest'
 
   # Build the image with caching from the pulled image if it exists
@@ -24,7 +14,7 @@ steps:
     args:
       - '-c'
       - |
-        if gcloud container images describe europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest; then
+        if docker images europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest; then
           docker build \
             --cache-from europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
             -t europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
