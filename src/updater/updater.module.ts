@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { BlockModule } from '../block/block.module';
-import { BlockchainConfigModule } from '../blockchain-config/blockchain-config.module';
 import { RedisModule } from '../redis/redis.module';
 import { UpdaterService } from './updater.service';
 import { HarvesterModule } from '../harvester/harvester.module';
@@ -28,7 +27,6 @@ import { DeploymentModule } from '../deployment/deployment.module';
 @Module({
   imports: [
     BlockModule,
-    BlockchainConfigModule,
     RedisModule,
     HarvesterModule,
     LastProcessedBlockModule,

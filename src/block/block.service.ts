@@ -1,9 +1,7 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { Block } from './block.entity';
 import { Repository } from 'typeorm';
-import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import * as _ from 'lodash';
 import Web3 from 'web3';
 import { Deployment } from '../deployment/deployment.service';
@@ -14,12 +12,7 @@ export interface BlocksDictionary {
 
 @Injectable()
 export class BlockService {
-  constructor(
-    private configService: ConfigService,
-    private lastProcessedBlockService: LastProcessedBlockService,
-    @Inject('BLOCKCHAIN_CONFIG') private blockchainConfig: any,
-    @InjectRepository(Block) private block: Repository<Block>,
-  ) {}
+  constructor(@InjectRepository(Block) private block: Repository<Block>) {}
 
   private async update(blockNumbers: number[], deployment: Deployment): Promise<void> {
     let missingBlocks = await this.getMissingBlocks(blockNumbers, deployment);
