@@ -38,6 +38,7 @@ steps:
         'carbon-multi-harvester',
         '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
+        '--set-env-vars=DATABASE_URL=projects/152368584642/secrets/CM_DATABASE_URL/versions/1',
         '--set-env-vars=SHOULD_HARVEST=1',
         '--set-env-vars=SHOULD_POLL_QUOTES=1',
         '--set-env-vars=POLL_QUOTES_INTERVAL=60000',
@@ -45,7 +46,7 @@ steps:
         '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=1',
         '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
         '--set-env-vars=SHOULD_UPDATE_ANALYTICS=1',
-        '--set-secrets=DATABASE_URL=CM_DATABASE_URL:latest,COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=MC_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
+        '--set-secrets=DATABASE_URL=CM_DATABASE_URL:latest,COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
         '--region=europe-west2',
         '--project=bancor-api',
       ]
@@ -59,6 +60,7 @@ steps:
         'deploy',
         'carbon-multi-endpoint',
         '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        '--set-env-vars=DATABASE_URL=projects/152368584642/secrets/CM_DATABASE_URL/versions/1',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
         '--set-env-vars=SHOULD_HARVEST=0',
         '--set-env-vars=SHOULD_POLL_QUOTES=0',
@@ -67,7 +69,7 @@ steps:
         '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=0',
         '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
         '--set-env-vars=SHOULD_UPDATE_ANALYTICS=0',
-        '--set-secrets=DATABASE_URL=CM_DATABASE_URL:latest,COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=MC_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
+        '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest',
         '--region=europe-west2',
         '--project=bancor-api',
       ]
