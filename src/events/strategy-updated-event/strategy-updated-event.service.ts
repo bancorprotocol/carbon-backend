@@ -55,7 +55,7 @@ export class StrategyUpdatedEventService {
       .leftJoinAndSelect('strategyUpdatedEvents.pair', 'pair')
       .leftJoinAndSelect('strategyUpdatedEvents.token0', 'token0')
       .leftJoinAndSelect('strategyUpdatedEvents.token1', 'token1')
-      .where('block.id >= :startBlock', { startBlock })
+      .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('strategyUpdatedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('strategyUpdatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })

@@ -43,7 +43,7 @@ export class StrategyDeletedEventService {
       .leftJoinAndSelect('strategyDeletedEvents.pair', 'pair')
       .leftJoinAndSelect('strategyDeletedEvents.token0', 'token0')
       .leftJoinAndSelect('strategyDeletedEvents.token1', 'token1')
-      .where('block.id >= :startBlock', { startBlock })
+      .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('strategyDeletedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('strategyDeletedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
