@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
+import { BlockchainType } from '../deployment/deployment.service';
 
 type Candlestick = {
   timestamp: number;
@@ -56,7 +57,7 @@ export class HistoricQuoteService implements OnModuleInit {
         if (latest[tokenAddress] && latest[tokenAddress].usd === price) {
           continue;
         }
-
+        q.blockchainType = BlockchainType.Ethereum;
         newQuotes.push(this.repository.create(q));
       }
 
@@ -95,6 +96,7 @@ export class HistoricQuoteService implements OnModuleInit {
             usd: q.price,
             timestamp: moment.unix(q.timestamp).utc().toISOString(),
             provider: 'coinmarketcap',
+            blockchainType: BlockchainType.Ethereum,
           }),
         );
 

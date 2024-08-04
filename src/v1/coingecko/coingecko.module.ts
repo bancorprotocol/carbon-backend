@@ -5,9 +5,10 @@ import { TokensTradedEventModule } from 'src/events/tokens-traded-event/tokens-t
 import { PairModule } from '../../pair/pair.module';
 import { DuneModule } from '../../dune/dune.module';
 import { StrategyModule } from '../../strategy/strategy.module';
+import { DeploymentModule } from '../../deployment/deployment.module';
 
 @Module({
-  imports: [TokensTradedEventModule, PairModule, DuneModule, StrategyModule],
+  imports: [TokensTradedEventModule, PairModule, DuneModule, StrategyModule, DeploymentModule],
   controllers: [CoinGeckoController],
   providers: [CoingeckoService],
   exports: [CoingeckoService],

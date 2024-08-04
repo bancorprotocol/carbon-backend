@@ -1,9 +1,18 @@
 import { Entity, Column, PrimaryGeneratedColumn, Index } from 'typeorm';
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'activities' })
 export class Activity {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Column()
   @Index()

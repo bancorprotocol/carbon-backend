@@ -1,11 +1,10 @@
-import { Injectable, Inject } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { ConfigService } from '@nestjs/config';
 import { Block } from './block.entity';
 import { Repository } from 'typeorm';
-import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import * as _ from 'lodash';
 import Web3 from 'web3';
+import { Deployment } from '../deployment/deployment.service';
 
 export interface BlocksDictionary {
   [id: number]: Date;
@@ -13,103 +12,96 @@ export interface BlocksDictionary {
 
 @Injectable()
 export class BlockService {
-  constructor(
-    private configService: ConfigService,
-    private lastProcessedBlockService: LastProcessedBlockService,
-    @Inject('BLOCKCHAIN_CONFIG') private blockchainConfig: any,
-    @InjectRepository(Block) private block: Repository<Block>,
-  ) {}
+  constructor(@InjectRepository(Block) private block: Repository<Block>) {}
 
-  private async update(blockNumbers: number[]): Promise<void> {
-    let missingBlocks = await this.getMissingBlocks(blockNumbers);
+  private async update(blockNumbers: number[], deployment: Deployment): Promise<void> {
+    let missingBlocks = await this.getMissingBlocks(blockNumbers, deployment);
 
     while (missingBlocks.length > 0) {
-      await this.fetchAndStore(missingBlocks);
-      missingBlocks = await this.getMissingBlocks(blockNumbers);
+      await this.fetchAndStore(missingBlocks, deployment);
+      missingBlocks = await this.getMissingBlocks(blockNumbers, deployment);
     }
   }
 
-  private async getMissingBlocks(blockNumbers: number[]): Promise<number[]> {
+  private async getMissingBlocks(blockNumbers: number[], deployment: Deployment): Promise<number[]> {
     const existingBlocks = await this.block
       .createQueryBuilder()
       .where('id IN (:...ids)', { ids: blockNumbers })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .getMany();
 
     const existingBlockIds = existingBlocks.map((block) => block.id);
     return _.difference(blockNumbers, existingBlockIds);
   }
 
-  private async fetchAndStore(blocks: Array<number>): Promise<void> {
+  private async fetchAndStore(blocks: Array<number>, deployment: Deployment): Promise<void> {
     const batches = _.chunk(blocks, 100);
 
-    // for each batch
     for (let i = 0; i < batches.length; i++) {
       const promises = [];
       const newBlocks = [];
-      // for each blockId in a batch
+
       for (let x = 0; x < batches[i].length; x++) {
-        // create a promise that handles a single blockId
         const promise = new Promise(async (resolve) => {
           try {
-            // get blockchain data
-            const blockchainData = await this.getBlockchainData(batches[i][x]);
-            // save data
+            const blockchainData = await this.getBlockchainData(batches[i][x], deployment);
             const newBlock = this.block.create({
               id: Number(blockchainData.number),
               timestamp: new Date(parseInt(blockchainData.timestamp) * 1000),
+              blockchainType: deployment.blockchainType,
             });
             newBlocks.push(newBlock);
           } catch (error) {
-            // we don't reject or throw on failures, instead we allow for a silent failure.
-            // to make sure there are no gaps in the sequence we iterate until getMissingBlocks returns an empty list
-            console.log('error detected god damn it?', error);
+            console.log('error detected:', error);
           }
           resolve(true);
         });
         promises.push(promise);
       }
-      // start executing
       await Promise.all(promises);
       await this.block.save(newBlocks);
-      console.log('finished blocks batch');
     }
   }
 
-  private async getBlockchainData(blockNumber: number): Promise<any> {
-    const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
+  private async getBlockchainData(blockNumber: number, deployment: Deployment): Promise<any> {
+    const web3 = new Web3(deployment.rpcEndpoint);
     return web3.eth.getBlock(blockNumber);
   }
 
-  async getBlocks(from: number, to: number): Promise<any> {
+  async getBlocks(from: number, to: number, deployment: Deployment): Promise<any> {
     const blocks = await this.block
       .createQueryBuilder()
       .select(['"id"', '"timestamp"'])
       .where('"id" >= :from', { from })
       .andWhere('"id" <= :to', { to })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .orderBy('"id"', 'ASC')
       .execute();
     return blocks;
   }
 
-  async getBlock(number: number): Promise<Block> {
-    return this.block.findOneBy({ id: number });
+  async getBlock(number: number, deployment: Deployment): Promise<Block> {
+    return this.block.findOne({ where: { id: number, blockchainType: deployment.blockchainType } });
   }
 
-  async getLastBlock(): Promise<Block> {
-    return this.block.createQueryBuilder().orderBy('"id"', 'DESC').limit(1).getOne();
+  async getLastBlock(deployment: Deployment): Promise<Block> {
+    return this.block
+      .createQueryBuilder()
+      .where('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .orderBy('"id"', 'DESC')
+      .limit(1)
+      .getOne();
   }
 
-  async getBlocksDictionary(blockNumbers: number[]): Promise<BlocksDictionary> {
-    // Ensure all requested blocks are fetched and stored
-    await this.update(blockNumbers);
+  async getBlocksDictionary(blockNumbers: number[], deployment: Deployment): Promise<BlocksDictionary> {
+    await this.update(blockNumbers, deployment);
 
-    // Fetch the blocks from the database
     const blocksInDb = await this.block
       .createQueryBuilder()
       .where('id IN (:...blockNumbers)', { blockNumbers })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .getMany();
 
-    // Construct and return the dictionary
     const result: BlocksDictionary = {};
     blocksInDb.forEach((block) => {
       result[block.id] = block.timestamp;
@@ -118,13 +110,18 @@ export class BlockService {
     return result;
   }
 
-  async getLastBlockFromBlockchain(): Promise<number> {
-    const web3 = new Web3(this.blockchainConfig.ethereumEndpoint);
+  async getLastBlockFromBlockchain(deployment: Deployment): Promise<number> {
+    const web3 = new Web3(deployment.rpcEndpoint);
     const blockNumber = await web3.eth.getBlockNumber();
     return Number(blockNumber);
   }
 
-  async getFirst(): Promise<Block> {
-    return this.block.createQueryBuilder('blocks').orderBy('id', 'ASC').limit(1).getOne();
+  async getFirst(deployment: Deployment): Promise<Block> {
+    return this.block
+      .createQueryBuilder('blocks')
+      .where('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .orderBy('id', 'ASC')
+      .limit(1)
+      .getOne();
   }
 }

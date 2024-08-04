@@ -9,12 +9,22 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'pairs' })
 export class Pair {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @ManyToOne(() => Block, { eager: true })
   block: Block;

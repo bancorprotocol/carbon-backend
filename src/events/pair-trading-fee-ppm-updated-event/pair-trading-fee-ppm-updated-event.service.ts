@@ -5,6 +5,7 @@ import { PairTradingFeePpmUpdatedEvent } from './pair-trading-fee-ppm-updated-ev
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 export interface PairTradingFeePpmDictionary {
   [address: string]: number;
@@ -18,18 +19,12 @@ export class PairTradingFeePpmUpdatedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async all(): Promise<PairTradingFeePpmUpdatedEvent[]> {
-    return this.repository
-      .createQueryBuilder('pairTradingFeePpmUpdatedEvents')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.block', 'block')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.pair', 'pair')
-      .leftJoinAndSelect('pair.token0', 'token0')
-      .leftJoinAndSelect('pair.token1', 'token1')
-      .orderBy('block.id', 'ASC')
-      .getMany();
-  }
-
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'pair-trading-fee-ppm-updated-events',
       contractName: 'CarbonController',
@@ -41,20 +36,8 @@ export class PairTradingFeePpmUpdatedEventService {
       customFns: [this.parseEvent],
       bigNumberFields: ['prevFeePPM', 'newFeePPM'],
       tagTimestampFromBlock: true,
+      deployment,
     });
-  }
-
-  async get(startBlock: number, endBlock: number): Promise<PairTradingFeePpmUpdatedEvent[]> {
-    return this.repository
-      .createQueryBuilder('pairTradingFeePpmUpdatedEvents')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.block', 'block')
-      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.pair', 'pair')
-      .leftJoinAndSelect('pair.token0', 'token0')
-      .leftJoinAndSelect('pair.token1', 'token1')
-      .where('block.id > :startBlock', { startBlock })
-      .andWhere('block.id <= :endBlock', { endBlock })
-      .orderBy('block.id', 'ASC')
-      .getMany();
   }
 
   async parseEvent(args: CustomFnArgs): Promise<any> {
@@ -65,8 +48,23 @@ export class PairTradingFeePpmUpdatedEventService {
     return event;
   }
 
-  async allAsDictionary(): Promise<PairTradingFeePpmDictionary> {
-    const all = await this.all();
+  async all(deployment: Deployment): Promise<PairTradingFeePpmUpdatedEvent[]> {
+    return this.repository
+      .createQueryBuilder('pairTradingFeePpmUpdatedEvents')
+      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.block', 'block')
+      .leftJoinAndSelect('pairTradingFeePpmUpdatedEvents.pair', 'pair')
+      .leftJoinAndSelect('pair.token0', 'token0')
+      .leftJoinAndSelect('pair.token1', 'token1')
+      .where('pairTradingFeePpmUpdatedEvents.blockchainType = :blockchainType', {
+        blockchainType: deployment.blockchainType,
+      })
+      .andWhere('pairTradingFeePpmUpdatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
+      .orderBy('block.id', 'ASC')
+      .getMany();
+  }
+
+  async allAsDictionary(deployment: Deployment): Promise<PairTradingFeePpmDictionary> {
+    const all = await this.all(deployment);
     const dictionary = {};
     all.forEach((p) => {
       if (!(p.pair.token0.address in dictionary)) {

@@ -19,6 +19,9 @@ import { V1Module } from './v1/v1.module';
 import { DuneModule } from './dune/dune.module';
 import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
 import { ActivityModule } from './activity/activity.module';
+import { VolumeModule } from './volume/volume.module';
+import { TvlModule } from './tvl/tvl.module';
+import { DeploymentModule } from './deployment/deployment.module';
 
 @Module({
   imports: [
@@ -33,7 +36,7 @@ import { ActivityModule } from './activity/activity.module';
         if (process.env.NODE_ENV === 'production') {
           const secrets = new SecretManagerServiceClient();
           let [version] = await secrets.accessSecretVersion({
-            name: configService.get('CARBON_BACKEND_SQL_URL'),
+            name: configService.get('DATABASE_URL'),
           });
           url = version.payload.data.toString();
           [version] = await secrets.accessSecretVersion({
@@ -53,7 +56,7 @@ import { ActivityModule } from './activity/activity.module';
             honorCipherOrder: true,
           };
         } else {
-          url = configService.get('CARBON_BACKEND_SQL_URL');
+          url = configService.get('DATABASE_URL');
         }
         return {
           type: 'postgres',
@@ -80,7 +83,7 @@ import { ActivityModule } from './activity/activity.module';
         }
         return {
           store: await redisStore({
-            url: configService.get('CARBON_REDIS_URL'),
+            url: configService.get('REDIS_URL'),
           }),
           ttl: 300,
         };
@@ -101,6 +104,9 @@ import { ActivityModule } from './activity/activity.module';
     DuneModule,
     HistoricQuoteModule,
     ActivityModule,
+    VolumeModule,
+    TvlModule,
+    DeploymentModule,
   ],
 
   providers: [

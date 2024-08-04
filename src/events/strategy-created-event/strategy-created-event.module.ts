@@ -8,9 +8,6 @@ import { StrategyCreatedEventService } from './strategy-created-event.service';
 @Module({
   imports: [TypeOrmModule.forFeature([StrategyCreatedEvent]), HarvesterModule],
   providers: [ConfigService, StrategyCreatedEventService],
-  exports: [
-    StrategyCreatedEventService,
-    TypeOrmModule.forFeature([StrategyCreatedEvent]),
-  ],
+  exports: [StrategyCreatedEventService, TypeOrmModule.forFeature([StrategyCreatedEvent])],
 })
 export class StrategyCreatedEventModule {}

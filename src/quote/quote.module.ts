@@ -6,9 +6,10 @@ import { ConfigService } from '@nestjs/config';
 import { RedisModule } from '../redis/redis.module';
 import { TokenModule } from '../token/token.module';
 import { CoinGeckoService } from './coingecko.service';
+import { DeploymentModule } from '../deployment/deployment.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Quote]), RedisModule, TokenModule],
+  imports: [TypeOrmModule.forFeature([Quote]), RedisModule, TokenModule, DeploymentModule],
   providers: [ConfigService, QuoteService, CoinGeckoService],
   exports: [QuoteService, TypeOrmModule.forFeature([Quote]), CoinGeckoService],
 })

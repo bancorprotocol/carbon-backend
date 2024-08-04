@@ -9,6 +9,7 @@ import {
   Unique,
 } from 'typeorm';
 import { Block } from '../../block/block.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'pair-created-events' })
 @Unique('pair-created-events-transactionIndex_transactionHash_logIndex', [
@@ -19,6 +20,14 @@ import { Block } from '../../block/block.entity';
 export class PairCreatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Index()
   @ManyToOne(() => Block, { eager: true })

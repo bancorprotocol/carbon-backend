@@ -11,6 +11,7 @@ import {
 import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
 import { Pair } from '../../pair/pair.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'tokens-traded-events' })
 @Unique('tokens-traded-events-transactionIndex_transactionHash_logIndex', [
@@ -21,6 +22,14 @@ import { Pair } from '../../pair/pair.entity';
 export class TokensTradedEvent {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Index()
   @ManyToOne(() => Block, { eager: true })

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
+import { Deployment } from '../deployment/deployment.service';
 
 @Injectable()
 export class CoinGeckoService {
@@ -8,9 +9,9 @@ export class CoinGeckoService {
 
   private readonly baseURL = 'https://pro-api.coingecko.com/api/v3';
 
-  async getLatestPrices(contractAddresses: string[], convert = ['usd']): Promise<any> {
+  async getLatestPrices(contractAddresses: string[], deployment: Deployment, convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
-    const blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
+    const blockchainType = deployment.blockchainType;
     const batchSize = 150;
 
     try {
@@ -45,10 +46,10 @@ export class CoinGeckoService {
     }
   }
 
-  async getLatestGasTokenPrice(convert = ['usd']): Promise<any> {
+  async getLatestGasTokenPrice(deployment: Deployment, convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
-    const blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
-    const ETH = this.configService.get('ETH');
+    const blockchainType = deployment.blockchainType;
+    const gasToken = deployment.gasToken;
 
     try {
       const response = await axios.get(`${this.baseURL}/simple/price`, {
@@ -63,27 +64,27 @@ export class CoinGeckoService {
       });
 
       const result = {
-        [ETH.toLowerCase()]: {
+        [gasToken.address.toLowerCase()]: {
           last_updated_at: response.data[blockchainType]['last_updated_at'],
         },
       };
       convert.forEach((c) => {
-        result[ETH.toLowerCase()][c.toLowerCase()] = response.data[blockchainType][c.toLowerCase()];
+        result[gasToken.address.toLowerCase()][c.toLowerCase()] = response.data[blockchainType][c.toLowerCase()];
       });
       return result;
     } catch (error) {
-      throw new Error(`Failed to fetch latest token prices: ${error.message}`);
+      throw new Error(`Failed to fetch latest gas token prices: ${error.message}`);
     }
   }
 
-  async getCoinPrices(contractAddresses: string[], convert = ['usd']): Promise<any> {
+  async getCoinPrices(coinIds: string[], convert = ['usd']): Promise<any> {
     const apiKey = this.configService.get('COINGECKO_API_KEY');
     const batchSize = 150;
 
     try {
       const batches: string[][] = [];
-      for (let i = 0; i < contractAddresses.length; i += batchSize) {
-        const batch = contractAddresses.slice(i, i + batchSize);
+      for (let i = 0; i < coinIds.length; i += batchSize) {
+        const batch = coinIds.slice(i, i + batchSize);
         batches.push(batch);
       }
 

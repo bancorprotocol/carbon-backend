@@ -1,9 +1,14 @@
-import { Entity, Column, CreateDateColumn, UpdateDateColumn, PrimaryColumn } from 'typeorm';
+import { Entity, Column, CreateDateColumn, UpdateDateColumn, PrimaryColumn, Index } from 'typeorm';
+import { BlockchainType } from '../deployment/deployment.service';
 
 @Entity({ name: 'blocks' })
 export class Block {
   @PrimaryColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
 
   @Column()
   timestamp: Date;
