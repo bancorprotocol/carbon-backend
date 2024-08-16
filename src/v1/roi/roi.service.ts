@@ -43,6 +43,12 @@ export class RoiService {
         left join tokens t0 on t0.id = s."token0Id"
         left join tokens t1 on t1.id = s."token1Id"
     ),
+    trade_count AS (
+        SELECT "strategyId" as id, COUNT(*) as trade_count
+        FROM "strategy-updated-events"
+        WHERE reason = 1
+        GROUP BY "strategyId"
+    ),
     all_txs AS (
         SELECT *
         FROM created
@@ -279,9 +285,10 @@ export class RoiService {
         LEFT JOIN lifetime l ON l.id = n.id
         WHERE descr = 'ZFinal Novation'
     )
-    SELECT id, ROI
-    FROM recent_roi_only
-    ORDER BY ROI DESC;
+    SELECT r.id, r.ROI, COALESCE(t.trade_count, 0) AS Trades
+    FROM recent_roi_only r
+    LEFT JOIN trade_count t ON r.id = t.id
+    ORDER BY r.ROI DESC;
     `;
 
     const result = await this.strategy.query(query);
