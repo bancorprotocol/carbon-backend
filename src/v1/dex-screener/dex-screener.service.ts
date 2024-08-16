@@ -532,67 +532,83 @@ ORDER BY
   private async getPairs(): Promise<any> {
     const query = `WITH pairs AS (
       SELECT
-          id,
-          'carbondefi' AS dexKey,
-          CASE
-              WHEN token0 <= token1 THEN token0
-              ELSE token1
-          END AS asset0Id,
-          CASE
-              WHEN token0 <= token1 THEN token1
-              ELSE token0
-          END AS asset1Id,
-          "blockId" AS createdAtBlockNumber,
-          "createdAt" AS createdAtBlockTimestamp,
-          "transactionHash" AS createdAtTxnId
+        pt.id,
+        'carbondefi' AS dexKey,
+        CASE
+            WHEN t0.address <= t1.address THEN t0.address
+            ELSE t1.address
+        END AS asset0Id,
+        CASE
+            WHEN t0.address <= t1.address THEN t1.address
+            ELSE t0.address
+        END AS asset1Id,
+        pt."blockId" AS createdAtBlockNumber,
+        pt."createdAt" AS createdAtBlockTimestamp
       FROM
-          "pair-created-events"
-  ),
-  pairFees AS (
+        pairs pt
+        LEFT JOIN tokens t0 ON t0."id" = pt."token0Id"
+        LEFT JOIN tokens t1 ON t1."id" = pt."token1Id"
+    ),
+    pairFees AS (
       SELECT
-          DISTINCT ON ("pairId") "pairId",
-          "newFeePPM" :: NUMERIC AS feePPM,
-          "blockId"
+        DISTINCT ON ("pairId") "pairId",
+        "newFeePPM" :: NUMERIC AS feePPM,
+        "blockId"
       FROM
-          "pair-trading-fee-ppm-updated-events"
+        "pair-trading-fee-ppm-updated-events"
       ORDER BY
-          "pairId",
-          "blockId" DESC
-  ),
-  latestDefaultFee AS (
+        "pairId",
+        "blockId" DESC
+    ),
+    latestDefaultFee AS (
       SELECT
-          "newFeePPM" :: NUMERIC AS feePPM
+        "newFeePPM" :: NUMERIC AS feePPM
       FROM
-          "trading-fee-ppm-updated-events"
+        "trading-fee-ppm-updated-events"
       WHERE
-          "blockId" = (
-              SELECT
-                  MAX("blockId")
-              FROM
-                  "trading-fee-ppm-updated-events"
-          )
+        "blockId" = (
+            SELECT
+                MAX("blockId")
+            FROM
+                "trading-fee-ppm-updated-events"
+        )
       LIMIT
-          1
-  ), pairsWithFee AS (
+        1
+    ), pairsWithFee AS (
       SELECT
-          ps.*,
-          COALESCE(
-              pf.feePPM,
-              (
-                  SELECT
-                      feePPM
-                  FROM
-                      latestDefaultFee
-              )
-          ) / 100 AS feeBps
+        ps.*,
+        COALESCE(
+            pf.feePPM,
+            (
+                SELECT
+                    feePPM
+                FROM
+                    latestDefaultFee
+            )
+        ) / 100 AS feeBps
       FROM
-          pairs ps
-          LEFT JOIN pairFees pf ON ps.id = pf."pairId"
-  )
-  SELECT
+        pairs ps
+        LEFT JOIN pairFees pf ON ps.id = pf."pairId"
+    ),
+    pairsWithTxHash AS (
+      SELECT
+        pf.*,
+        pce."transactionHash" AS createdAtTxnId
+      FROM
+        pairsWithFee pf
+        LEFT JOIN "pair-created-events" pce ON (
+            pce.token0 = pf.asset0Id
+            AND pce.token1 = pf.asset1Id
+        )
+        OR (
+            pce.token0 = pf.asset1Id
+            AND pce.token1 = pf.asset0Id
+        )
+    )
+    SELECT
       *
-  FROM
-      pairsWithFee`;
+    FROM
+    pairsWithTxHash`;
 
     const result = await this.strategy.query(query);
     result.forEach((r) => {
