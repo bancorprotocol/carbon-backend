@@ -116,14 +116,14 @@ add_new_creation AS (
         y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 
         descr
     FROM descriptions
-    UNION ALL
+    UNION
     SELECT evt_block_time, evt_block_number, id, token0, token1, reason, symbol0, decimals0, symbol1, decimals1, 
         y0, y1, liquidity0, liquidity1,
         y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 
         'ZCreate Substrategy' AS descr
     FROM descriptions
     WHERE (reason = 0 AND y0_delta != 0) OR (reason = 0 AND y1_delta != 0)
-    UNION ALL
+    UNION
     SELECT date_trunc('minute', current_timestamp) AS evt_block_time, evt_block_number, id, token0, token1, 0 AS reason, symbol0, decimals0, symbol1, decimals1, 
         y0, y1, liquidity0, liquidity1, 
         y0_delta, y1_delta, y0_deposited, y1_deposited, y0_withdrawn, y1_withdrawn, cuml_y0_deposit, cuml_y1_deposit, cuml_y0_withdrawn, cuml_y1_withdrawn, 

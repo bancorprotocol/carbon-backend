@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Param } from '@nestjs/common';
+import { Controller, Get, Header } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { RoiService } from './roi.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
