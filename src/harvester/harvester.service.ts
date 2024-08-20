@@ -353,31 +353,22 @@ export class HarvesterService {
   }
 
   async stringsWithMulticall(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
-    if (deployment.blockchainType === BlockchainType.Sei) {
-      return this.stringsWithMulticallSei(addresses, abi, fn, deployment);
-    } else if (deployment.blockchainType === BlockchainType.Ethereum) {
-      return this.stringsWithMulticallEthereum(addresses, abi, fn, deployment);
-    } else if (deployment.blockchainType === BlockchainType.Celo) {
-      return this.stringsWithMulticallSei(addresses, abi, fn, deployment);
+    if (deployment.blockchainType === BlockchainType.Ethereum) {
+      return this.stringsWithMulticallV2(addresses, abi, fn, deployment);
+    } else {
+      return this.stringsWithMulticallV3(addresses, abi, fn, deployment);
     }
   }
 
   async integersWithMulticall(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<number[]> {
-    if (deployment.blockchainType === BlockchainType.Sei) {
-      return this.integersWithMulticallSei(addresses, abi, fn, deployment);
-    } else if (deployment.blockchainType === BlockchainType.Ethereum) {
+    if (deployment.blockchainType === BlockchainType.Ethereum) {
       return this.integersWithMulticallEthereum(addresses, abi, fn, deployment);
-    } else if (deployment.blockchainType === BlockchainType.Celo) {
+    } else {
       return this.integersWithMulticallSei(addresses, abi, fn, deployment);
     }
   }
 
-  async stringsWithMulticallEthereum(
-    addresses: string[],
-    abi: any,
-    fn: string,
-    deployment: Deployment,
-  ): Promise<string[]> {
+  async stringsWithMulticallV2(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
     const data = await this.withMulticallEthereum(addresses, abi, fn, deployment);
     return data.map((r) => hexToString(r.data).replace(/[^a-zA-Z0-9]/g, ''));
   }
@@ -392,7 +383,7 @@ export class HarvesterService {
     return data.map((r) => parseInt(r.data));
   }
 
-  async stringsWithMulticallSei(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
+  async stringsWithMulticallV3(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
     const data = await this.withMulticallSei(addresses, abi, fn, deployment);
     return data.map((r) => hexToString(r).replace(/[^a-zA-Z0-9]/g, ''));
   }
