@@ -16,7 +16,6 @@ import { TokenModule } from './token/token.module';
 import { APP_INTERCEPTOR } from '@nestjs/core';
 import { redisStore } from 'cache-manager-redis-yet';
 import { V1Module } from './v1/v1.module';
-import { DuneModule } from './dune/dune.module';
 import { HistoricQuoteModule } from './historic-quote/historic-quote.module';
 import { ActivityModule } from './activity/activity.module';
 import { VolumeModule } from './volume/volume.module';
@@ -101,7 +100,6 @@ import { DeploymentModule } from './deployment/deployment.module';
     TokenModule,
     UpdaterModule,
     V1Module,
-    DuneModule,
     HistoricQuoteModule,
     ActivityModule,
     VolumeModule,
