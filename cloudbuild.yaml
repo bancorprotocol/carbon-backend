@@ -92,7 +92,7 @@ steps:
 
   # Update the traffic
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester', '--to-latest', '--region', 'europe-west2']
+    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester-2', '--to-latest', '--region', 'europe-west2']
     waitFor: ['deploy_endpoint']
     id: 'update_traffic'
 
