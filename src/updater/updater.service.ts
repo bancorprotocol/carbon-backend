@@ -134,8 +134,8 @@ export class UpdaterService {
       // await this.volumeService.update(endBlock, deployment);
       // console.log(`CARBON SERVICE - Finished updating volume for ${deployment.exchangeId}`);
 
-      await this.tvlService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
+      // await this.tvlService.update(endBlock, deployment);
+      // console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;
