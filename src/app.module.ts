@@ -29,20 +29,11 @@ import { DeploymentModule } from './deployment/deployment.module';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService): Promise<any> => {
-        let url: string;
         let ssl: any;
         const dbSync = configService.get('DB_SYNC') === '1' ? true : false;
         if (process.env.NODE_ENV === 'production') {
-          const secrets = new SecretManagerServiceClient();
-          let [version] = await secrets.accessSecretVersion({
-            name: configService.get('DATABASE_URL'),
-          });
-          url = version.payload.data.toString();
-          [version] = await secrets.accessSecretVersion({
-            name: configService.get('CARBON_BACKEND_SQL_CERTIFICATION'),
-          });
           ssl = {
-            ca: version.payload.data.toString(),
+            ca: configService.get('CARBON_BACKEND_SQL_CERTIFICATION'),
             ciphers: [
               'ECDHE-RSA-AES128-SHA256',
               'DHE-RSA-AES128-SHA256',
@@ -54,12 +45,11 @@ import { DeploymentModule } from './deployment/deployment.module';
             ].join(':'),
             honorCipherOrder: true,
           };
-        } else {
-          url = configService.get('DATABASE_URL');
         }
+
         return {
           type: 'postgres',
-          url,
+          url: configService.get('DATABASE_URL'),
           entities: [__dirname + '/**/*.entity.js'],
           migrations: [__dirname + '/migrations/*.js'],
           cli: {
