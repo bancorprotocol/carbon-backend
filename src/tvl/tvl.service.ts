@@ -47,15 +47,12 @@ export class TvlService {
 
     // Query to get the TVL data
     const query = `
-        -- saved startBlock and saved startDate for each tvl update
--- individual queries receive startDate and endDate
--- Get all StrategyCreated, StrategyUpdated, StrategyDeleted events before endBlock
 WITH strategy_created AS (
     SELECT
-        0 as transaction_index,
+        0 AS transaction_index,
         timestamp AS evt_block_time,
         sce."blockId" AS evt_block_number,
-        sce."strategyId" AS id,
+        sce."strategyId" AS strategyId,
         order0,
         order1,
         t0.address AS token0,
@@ -72,14 +69,14 @@ WITH strategy_created AS (
         LEFT JOIN tokens t1 ON t1.id = sce."token1Id"
         LEFT JOIN pairs ps ON ps.id = sce."pairId"
     WHERE
-    	sce."exchangeId" = '${deployment.exchangeId}'
+        sce."exchangeId" = '${deployment.exchangeId}'
 ),
 strategy_updated AS (
     SELECT
-        sue.id as transaction_index,
+        sue.id AS transaction_index,
         timestamp AS evt_block_time,
         sue."blockId" AS evt_block_number,
-        sue."strategyId" AS id,
+        sue."strategyId" AS strategyId,
         order0,
         order1,
         t0.address AS token0,
@@ -96,14 +93,14 @@ strategy_updated AS (
         LEFT JOIN tokens t1 ON t1.id = sue."token1Id"
         LEFT JOIN pairs ps ON ps."id" = sue."pairId"
     WHERE
-    	sue."exchangeId" = '${deployment.exchangeId}'        
+        sue."exchangeId" = '${deployment.exchangeId}'        
 ),
 strategy_deleted AS (
     SELECT
-        99999999999 as transaction_index,
+        99999999999 AS transaction_index,
         timestamp AS evt_block_time,
         sde."blockId" AS evt_block_number,
-        sde."strategyId" AS id,
+        sde."strategyId" AS strategyId,
         order0,
         order1,
         t0.address AS token0,
@@ -120,105 +117,40 @@ strategy_deleted AS (
         LEFT JOIN tokens t1 ON t1.id = sde."token1Id"
         LEFT JOIN pairs ps ON ps."id" = sde."pairId"
     WHERE
-    	sde."exchangeId" = '${deployment.exchangeId}'        
+        sde."exchangeId" = '${deployment.exchangeId}'                
 ),
 all_txs AS (
     SELECT
         *
     FROM
         strategy_created
-    UNION ALL
+    UNION
+    ALL
     SELECT
         *
     FROM
         strategy_updated
-    UNION ALL
+    UNION
+    ALL
     SELECT
         *
     FROM
         strategy_deleted
 ),
-selected_txs AS (
+recent_txs AS (
     SELECT
         *
     FROM
         all_txs
     WHERE
-        evt_block_number > ${startBlock}  -- saved start_block
-),
-prior_txs AS (
-    SELECT
-        *,
-        ROW_NUMBER() OVER (PARTITION BY id ORDER BY evt_block_number DESC, transaction_index DESC NULLS LAST) AS row_num
-    FROM
-        all_txs
-    WHERE
-        evt_block_number <= ${startBlock}  -- saved start_block
-),
-last_strategy_events AS (
-    SELECT
-        pt.transaction_index,
-        pt.id,
-        pt.evt_block_number,
-        pt.evt_block_time,
-        pt.order0,
-        pt.order1,
-        pt.token0,
-        pt.symbol0,
-        pt.decimals0,
-        pt.token1,
-        pt.symbol1,
-        pt.decimals1,
-        pt.reason,
-        pt.pairName
-    FROM
-        prior_txs pt
-    WHERE
-        pt.row_num = 1
-), selected_txs_with_last_events AS (
-    SELECT
-        transaction_index,
-        evt_block_number,
-        evt_block_time,
-        id AS strategyId,
-        order0,
-        order1,
-        token0,
-        symbol0,
-        decimals0,
-        token1,
-        symbol1,
-        decimals1,
-        reason,
-        pairName
-    FROM
-        last_strategy_events
-    WHERE
-        reason != 4 -- not deleted
-    UNION ALL
-    SELECT
-        transaction_index,
-        evt_block_number,
-        evt_block_time,
-        id AS strategyId,
-        order0,
-        order1,
-        token0,
-        symbol0,
-        decimals0,
-        token1,
-        symbol1,
-        decimals1,
-        reason,
-        pairName
-    FROM
-        selected_txs
+        evt_block_number > ${startBlock} -- saved start_block
 ),
 -- Get y and truncated day
 orders_with_y_and_day AS (
     SELECT
         evt_block_number,
         evt_block_time,
+        transaction_index,
         DATE_TRUNC('day', evt_block_time) AS evt_day,
         token0,
         strategyId,
@@ -232,11 +164,12 @@ orders_with_y_and_day AS (
         COALESCE((order0 :: json ->> 'y') :: double precision, 0) AS y0,
         COALESCE((order1 :: json ->> 'y') :: double precision, 0) AS y1
     FROM
-        selected_txs_with_last_events
+        recent_txs
 ),
 split_orders AS (
     SELECT
         evt_block_time,
+        transaction_index,
         evt_day,
         evt_block_number,
         strategyId,
@@ -252,6 +185,7 @@ split_orders AS (
     ALL
     SELECT
         evt_block_time,
+        transaction_index,
         evt_day,
         evt_block_number,
         strategyId,
@@ -276,22 +210,6 @@ orders_with_tvl AS (
     FROM
         split_orders
 ),
-min_max_evt_day AS (
-    SELECT
-        strategyId,
-        address,
-        pairName,
-        symbol,
-        MIN(evt_day) + INTERVAL '1 day' AS min_evt_day,
-        MAX(evt_day) AS max_evt_day
-    FROM
-        orders_with_tvl
-    GROUP BY
-        strategyId,
-        address,
-        pairName,
-        symbol
-),
 start_date_from_blocks AS (
     SELECT
         COALESCE(
@@ -301,7 +219,7 @@ start_date_from_blocks AS (
                 FROM
                     "blocks"
                 WHERE
-                    id <= ${startBlock}  -- saved start_block
+                    id <= ${startBlock} -- saved start_block
                 ORDER BY
                     id DESC
                 LIMIT
@@ -309,189 +227,11 @@ start_date_from_blocks AS (
             ), TO_DATE('1970-01-01', 'YYYY-MM-DD')
         ) AS timestamp
 ),
-start_end_dates AS (
+tvl AS (
     SELECT
-        mmed.strategyId,
-        mmed.address,
-        mmed.pairName,
-        mmed.symbol,
-        CASE
-            WHEN (
-                SELECT
-                    timestamp
-                FROM
-                    start_date_from_blocks
-                LIMIT
-                    1
-            ) <= mmed.min_evt_day THEN mmed.min_evt_day
-            ELSE (
-                SELECT
-                    timestamp
-                FROM
-                    start_date_from_blocks
-                LIMIT
-                    1
-            )
-        END AS startDate,
-        CASE
-            WHEN owt.reason = 4 THEN mmed.max_evt_day
-            ELSE CURRENT_DATE
-        END AS endDate
-    FROM
-        min_max_evt_day mmed
-        LEFT JOIN (
-            SELECT
-                strategyId,
-                address,
-                pairName,
-                symbol,
-                reason,
-                evt_day
-            FROM
-                (
-                    SELECT
-                        strategyId,
-                        address,
-                        pairName,
-                        symbol,
-                        reason,
-                        evt_day,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY strategyId
-                            ORDER BY
-                                evt_block_number DESC
-                        ) AS rn
-                    FROM
-                        orders_with_tvl
-                ) sub
-            WHERE
-                rn = 1
-        ) owt ON mmed.strategyId = owt.strategyId
-        AND mmed.max_evt_day = owt.evt_day
-),
-forwarded_dates AS (
-    SELECT
-        strategyId,
-        address,
-        pairName,
-        symbol,
-        startDate,
-        endDate,
-        generate_series(startDate, endDate, INTERVAL '1 day') AS evt_block_time
-    FROM
-        start_end_dates
-),
-missing_dates AS (
-    SELECT
-        strategyId,
-        address,
-        pairName,
-        symbol,
-        evt_block_time
-    FROM
-        forwarded_dates fd
-    WHERE
-        NOT EXISTS (
-            SELECT
-                1
-            FROM
-                orders_with_tvl owt
-            WHERE
-                fd.strategyId = owt.strategyId
-                AND fd.evt_block_time = owt.evt_day
-        )
-),
-tvl_with_missing_dates AS (
-    SELECT
-        evt_block_time,
-        evt_day,
-        evt_block_number,
-        strategyId,
-        pairname,
-        reason,
-        address,
-        symbol,
-        tvl
+        *
     FROM
         orders_with_tvl
-    UNION
-    ALL
-    SELECT
-        evt_block_time,
-        evt_block_time AS evt_day,
-        NULL AS evt_block_number,
-        strategyId,
-        pairname,
-        5 AS reason,
-        address,
-        symbol,
-        NULL AS tvl
-    FROM
-        missing_dates
-),
-tvl_forwarded AS (
-    SELECT
-        evt_block_time,
-        strategyId,
-        pairName,
-        symbol,
-        address,
-        first_value(tvl) OVER (
-            PARTITION BY strategyId,
-            address,
-            grp
-            ORDER BY
-                evt_block_time
-        ) AS tvl
-    FROM
-        (
-            SELECT
-                evt_block_time,
-                strategyId,
-                pairName,
-                symbol,
-                address,
-                count(tvl) OVER (
-                    PARTITION BY strategyId,
-                    address
-                    ORDER BY
-                        evt_block_time
-                ) AS grp,
-                tvl
-            FROM
-                tvl_with_missing_dates
-        ) sub
-),
-orders_with_prices AS (
-    SELECT
-        tf.*,
-        hq.usd :: NUMERIC AS symbolPrice
-    FROM
-        tvl_forwarded tf
-        LEFT JOIN LATERAL(
-            SELECT
-                usd
-            FROM
-                "historic-quotes"
-            WHERE
-                "tokenAddress" = tf.address
-                AND timestamp <= tf.evt_block_time + INTERVAL '1day'
-            ORDER BY
-                timestamp DESC
-            LIMIT
-                1
-        ) hq ON TRUE
-),
-tvl_rows_to_add AS (
-    SELECT
-        evt_block_time,
-        strategyId,
-        pairName,
-        symbol,
-        tvl,
-        COALESCE(symbolPrice * tvl, 0) AS tvl_usd
-    FROM
-        orders_with_prices
     WHERE
         evt_block_time >= (
             SELECT
@@ -504,7 +244,19 @@ tvl_rows_to_add AS (
     ORDER BY
         evt_block_time
 )
-SELECT * FROM tvl_rows_to_add
+SELECT
+    evt_block_time,
+    evt_block_number,
+    evt_day,
+    transaction_index,
+    strategyId,
+    pairName,
+    reason,
+    address,
+    symbol,
+    tvl
+FROM
+    tvl    
     `;
 
     const result = await this.dataSource.query(query);
@@ -513,12 +265,15 @@ SELECT * FROM tvl_rows_to_add
       const batch = result.slice(i, i + batchSize).map((record) => ({
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
-        strategyId: record.strategyid,
-        pair: record.pairname,
+        strategyid: record.strategyid,
+        pairname: record.pairname,
         symbol: record.symbol,
         tvl: record.tvl,
-        tvlUsd: record.tvl_usd,
-        timestamp: record.evt_block_time,
+        evt_block_time: record.evt_block_time,
+        address: record.address,
+        reason: record.reason,
+        evt_block_number: record.evt_block_number,
+        transaction_index: record.transaction_index,
       }));
       await this.tvlRepository.save(batch);
     }
