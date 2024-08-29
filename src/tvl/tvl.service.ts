@@ -5,6 +5,7 @@ import { TvlDto } from '../v1/analytics/tvl.dto';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { Tvl } from './tvl.entity';
 import { Deployment } from '../deployment/deployment.service';
+import moment from 'moment';
 
 @Injectable()
 export class TvlService {
@@ -15,30 +16,385 @@ export class TvlService {
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
-  async getTvl(params: TvlDto): Promise<Tvl[]> {
-    const queryBuilder = this.tvlRepository.createQueryBuilder('tvl');
-
+  async getTvl(deployment: Deployment, params: TvlDto): Promise<Tvl[]> {
+    let start;
     if (params.start) {
-      queryBuilder.andWhere('tvl.timestamp >= :start', { start: new Date(params.start * 1000) });
+      start = moment.utc(params.start * 1000).format('YYYY-MM-DD HH:mm:ss');
+    } else {
+      start = moment.utc().subtract(7, 'days').startOf('day').format('YYYY-MM-DD HH:mm:ss');
     }
 
+    let end;
     if (params.end) {
-      queryBuilder.andWhere('tvl.timestamp <= :end', { end: new Date(params.end * 1000) });
+      end = moment.utc(params.end * 1000).format('YYYY-MM-DD HH:mm:ss');
+    } else {
+      end = moment.utc().format('YYYY-MM-DD HH:mm:ss');
     }
-
-    queryBuilder.orderBy('tvl.timestamp', 'DESC');
 
     const limit = params.limit || 10000; // Default limit of 10,000
+    const offset = params.offset || 0;
 
-    if (limit) {
-      queryBuilder.take(limit);
-    }
+    const query = `
+WITH start_block_from_date AS (
+    SELECT
+        COALESCE(
+            (
+                SELECT
+                    id
+                FROM
+                    "blocks"
+                WHERE
+                    timestamp <= DATE_TRUNC('day', TIMESTAMP '${start}') -- start_date
+                    AND "blockchainType" = '${deployment.blockchainType}'
+                ORDER BY
+                    timestamp DESC
+                LIMIT
+                    1
+            ), 0
+        ) AS evt_block_number
+),
+cast_tvl AS (
+    SELECT
+        evt_block_time,
+        evt_block_number,
+        DATE_TRUNC('day', evt_block_time) AS evt_day,
+        transaction_index,
+        strategyId,
+        pairName,
+        reason :: INTEGER,
+        address,
+        symbol,
+        tvl :: DOUBLE PRECISION
+    FROM
+        tvl
+    WHERE
+        "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+),
+selected_txs AS (
+    SELECT
+        *
+    FROM
+        cast_tvl
+    WHERE
+        evt_block_number > (
+            SELECT
+                evt_block_number
+            FROM
+                start_block_from_date
+            LIMIT
+                1
+        )
+), prior_txs AS (
+    SELECT
+        *,
+        ROW_NUMBER() OVER (
+            PARTITION BY strategyId
+            ORDER BY
+                evt_block_number DESC,
+                transaction_index DESC NULLS LAST
+        ) AS row_num
+    FROM
+        cast_tvl
+    WHERE
+        evt_block_number <= (
+            SELECT
+                evt_block_number
+            FROM
+                start_block_from_date
+            LIMIT
+                1
+        )
+), last_strategy_events AS (
+    SELECT
+        pt.transaction_index,
+        pt.strategyId,
+        pt.evt_day,
+        pt.evt_block_number,
+        pt.evt_block_time,
+        pt.address,
+        pt.symbol,
+        pt.reason,
+        pt.pairName,
+        pt.tvl
+    FROM
+        prior_txs pt
+    WHERE
+        pt.row_num = 1
+),
+selected_txs_with_last_events AS (
+    SELECT
+        transaction_index,
+        evt_day,
+        evt_block_number,
+        evt_block_time,
+        strategyId,
+        address,
+        symbol,
+        reason,
+        pairName,
+        tvl
+    FROM
+        last_strategy_events
+    WHERE
+        reason != 4 -- not deleted
+    UNION
+    ALL
+    SELECT
+        transaction_index,
+        evt_day,
+        evt_block_number,
+        evt_block_time,
+        strategyId,
+        address,
+        symbol,
+        reason,
+        pairName,
+        tvl
+    FROM
+        selected_txs
+),
+min_max_evt_day AS (
+    SELECT
+        strategyId,
+        address,
+        pairName,
+        symbol,
+        MIN(evt_day) + INTERVAL '1 day' AS min_evt_day,
+        MAX(evt_day) AS max_evt_day
+    FROM
+        selected_txs_with_last_events
+    GROUP BY
+        strategyId,
+        address,
+        pairName,
+        symbol
+),
+start_end_dates AS (
+    SELECT
+        mmed.strategyId,
+        mmed.address,
+        mmed.pairName,
+        mmed.symbol,
+        CASE
+            WHEN '${start}' <= mmed.min_evt_day THEN mmed.min_evt_day
+            ELSE '${start}'
+        END AS startDate,
+        CASE
+            WHEN owt.reason = 4 THEN mmed.max_evt_day
+            ELSE CURRENT_DATE
+        END AS endDate
+    FROM
+        min_max_evt_day mmed
+        LEFT JOIN (
+            SELECT
+                strategyId,
+                address,
+                pairName,
+                symbol,
+                reason,
+                evt_day
+            FROM
+                (
+                    SELECT
+                        strategyId,
+                        address,
+                        pairName,
+                        symbol,
+                        reason,
+                        evt_day,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY strategyId
+                            ORDER BY
+                                evt_block_number DESC
+                        ) AS rn
+                    FROM
+                        selected_txs_with_last_events
+                ) sub
+            WHERE
+                rn = 1
+        ) owt ON mmed.strategyId = owt.strategyId
+        AND mmed.max_evt_day = owt.evt_day
+),
+forwarded_dates AS (
+    SELECT
+        strategyId,
+        address,
+        pairName,
+        symbol,
+        startDate,
+        endDate,
+        generate_series(startDate, endDate, INTERVAL '1 day') AS evt_block_time
+    FROM
+        start_end_dates
+),
+missing_dates AS (
+    SELECT
+        strategyId,
+        address,
+        pairName,
+        symbol,
+        evt_block_time
+    FROM
+        forwarded_dates fd
+    WHERE
+        NOT EXISTS (
+            SELECT
+                1
+            FROM
+                selected_txs_with_last_events stwl
+            WHERE
+                fd.strategyId = stwl.strategyId
+                AND fd.evt_block_time = stwl.evt_day
+        )
+),
+tvl_with_missing_dates AS (
+    SELECT
+        evt_block_time,
+        evt_day,
+        evt_block_number,
+        strategyId,
+        pairname,
+        reason,
+        address,
+        symbol,
+        tvl
+    FROM
+        selected_txs_with_last_events
+    UNION
+    ALL
+    SELECT
+        evt_block_time,
+        evt_block_time AS evt_day,
+        NULL AS evt_block_number,
+        strategyId,
+        pairname,
+        5 AS reason,
+        address,
+        symbol,
+        NULL AS tvl
+    FROM
+        missing_dates
+),
+tvl_forwarded AS (
+    SELECT
+        evt_block_time,
+        strategyId,
+        pairName,
+        symbol,
+        address,
+        first_value(tvl) OVER (
+            PARTITION BY strategyId,
+            address,
+            grp
+            ORDER BY
+                evt_block_time
+        ) AS tvl
+    FROM
+        (
+            SELECT
+                evt_block_time,
+                strategyId,
+                pairName,
+                symbol,
+                address,
+                count(tvl) OVER (
+                    PARTITION BY strategyId,
+                    address
+                    ORDER BY
+                        evt_block_time
+                ) AS grp,
+                tvl
+            FROM
+                tvl_with_missing_dates
+        ) sub
+),
+tvl_forwarded_with_price AS (
+    SELECT
+        tf.*,
+        hq.usd :: NUMERIC AS symbolPrice
+    FROM
+        tvl_forwarded tf
+        LEFT JOIN LATERAL(
+            SELECT
+                usd
+            FROM
+                "historic-quotes"
+            WHERE
+                "tokenAddress" = tf.address
+                AND timestamp <= tf.evt_block_time + INTERVAL '1day'
+            ORDER BY
+                timestamp DESC
+            LIMIT
+                1
+        ) hq ON TRUE
+),
+daily_tvl AS (
+    SELECT
+        evt_block_time,
+        strategyId,
+        pairName,
+        symbol,
+        address,
+        tvl,
+        COALESCE(symbolPrice * tvl, 0) AS tvl_usd
+    FROM
+        tvl_forwarded_with_price
+    WHERE
+        evt_block_time >= '${start}' -- start date
+    ORDER BY
+        evt_block_time
+),
+symbol_daily_aggregates AS (
+    SELECT
+        DATE_TRUNC('day', evt_block_time) AS evt_day,
+        strategyId,
+        address,
+        symbol,
+        AVG(tvl) AS avg_tvl,
+        AVG(tvl_usd) AS avg_tvl_usd
+    FROM
+        daily_tvl
+    WHERE
+        evt_block_time BETWEEN DATE_TRUNC(
+            'day',
+            TIMESTAMP '${start}'
+        )
+        AND DATE_TRUNC(
+            'day',
+            TIMESTAMP '${end}' 
+        )
+    GROUP BY
+        DATE_TRUNC('day', evt_block_time),
+        strategyId,
+        address,
+        symbol
+),
+symbol_final_aggregates AS (
+    SELECT
+        evt_day,
+        symbol,
+        address,
+        SUM(avg_tvl) AS total_tvl,
+        SUM(avg_tvl_usd) AS total_tvl_usd
+    FROM
+        symbol_daily_aggregates
+    GROUP BY
+        evt_day,
+        address,
+        symbol
+)
+SELECT
+    *
+FROM
+    symbol_final_aggregates
+ORDER BY
+    evt_day
+LIMIT ${limit}
+OFFSET ${offset};
+    
+    `;
 
-    if ('offset' in params && params.offset) {
-      queryBuilder.skip(params.offset);
-    }
-
-    return queryBuilder.getMany();
+    return await this.dataSource.query(query);
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {

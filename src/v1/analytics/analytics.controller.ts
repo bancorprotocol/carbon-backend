@@ -23,7 +23,7 @@ export class AnalyticsController {
   @ApiExchangeIdParam()
   async tvl(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlDto): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    return this.tvlService.getTvl(query);
+    return this.tvlService.getTvl(deployment, query);
   }
 
   @Get('volume')
