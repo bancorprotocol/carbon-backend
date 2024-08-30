@@ -15,6 +15,8 @@ import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
   'reason',
   'transaction_index',
 ])
+@Index('idx_evt_block_time', ['evt_block_time']) // Index on evt_block_time
+@Index('idx_address_symbol_blockchain_exchange', ['address', 'symbol', 'blockchainType', 'exchangeId']) // Composite index
 export class Tvl {
   @PrimaryGeneratedColumn()
   id: number;

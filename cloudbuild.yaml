@@ -50,7 +50,7 @@ steps:
       [
         'run',
         'deploy',
-        'carbon-multi-harvester-2',
+        'carbon-multi-harvester',
         '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
         '--set-env-vars=SHOULD_HARVEST=1',
