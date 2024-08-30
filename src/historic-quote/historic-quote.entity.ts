@@ -10,7 +10,9 @@ import {
 import { BlockchainType } from '../deployment/deployment.service';
 
 @Entity({ name: 'historic-quotes' })
-@Index(['tokenAddress', 'timestamp'], { unique: false })
+@Index(['blockchainType', 'timestamp']) // Composite index for blockchainType and timestamp
+@Index(['tokenAddress', 'timestamp']) // Composite index for tokenAddress and timestamp for filtering and grouping
+@Index(['blockchainType', 'tokenAddress', 'timestamp']) // Composite index for gapfill query efficiency
 export class HistoricQuote {
   @PrimaryGeneratedColumn()
   id: number;
@@ -29,7 +31,7 @@ export class HistoricQuote {
   @Column()
   provider: string;
 
-  @Column()
+  @Column() // Keep usd as text
   usd: string;
 
   @CreateDateColumn({
