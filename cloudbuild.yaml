@@ -44,18 +44,29 @@ steps:
     waitFor: ['tag_image']
     id: 'push'
 
+  # Fetch the DATABASE_URL secret using gcloud
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        DATABASE_URL=$(gcloud secrets versions access latest --secret=CM_DATABASE_URL)
+        echo "DATABASE_URL=${DATABASE_URL}" >> /workspace/env.txt
+    waitFor: ['push']
+    id: 'fetch_database_url'
+
   # Run the migration using Docker before deploying
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'sh'
     args:
       - '-c'
       - |
-        DATABASE_URL=$(gcloud secrets versions access latest --secret=CM_DATABASE_URL) && \
+        source /workspace/env.txt && \
         docker run --rm \
-          -e DATABASE_URL=$$DATABASE_URL \
+          -e DATABASE_URL="$DATABASE_URL" \
           europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
           npm run migration:run
-    waitFor: ['push']
+    waitFor: ['fetch_database_url']
     id: 'run_migrations'
 
   # Deploy the harvester service
