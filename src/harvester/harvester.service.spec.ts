@@ -8,7 +8,7 @@ import { RedisModule } from '../../redis/redis.module';
 import { Pool } from '../pair/pair.entity';
 import { BlockService } from '../../block/block.service';
 import { QuoteService } from '../../quote/quote.service';
-import { Rate } from 'src/rate/rate.entity';
+import { Rate } from '../rate/rate.entity';
 import { BnRate } from '../bn-rate/bn-rate.entity';
 
 describe('HarvesterService', () => {
@@ -193,9 +193,7 @@ describe('HarvesterService', () => {
     it('parses constants', async () => {
       jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
       jest.spyOn(repository, 'save').mockImplementation();
-      jest
-        .spyOn(service, 'fetchEventsFromBlockchain')
-        .mockResolvedValue([eventMock]);
+      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([eventMock]);
       await service.processEvents({
         ...processEventsArgs,
         constants: [{ key: 'foo', value: 'bar' }],

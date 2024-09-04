@@ -11,7 +11,7 @@ import {
 } from 'typeorm';
 import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
-import { Token } from 'src/token/token.entity';
+import { Token } from '../../token/token.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-created-events' })

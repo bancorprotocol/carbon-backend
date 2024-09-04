@@ -1,8 +1,13 @@
-import { IsOptional, IsNumber } from 'class-validator';
+import { IsOptional, IsNumber, IsEnum, Min, Max } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { GroupBy } from '../../tvl/tvl.service';
 
 export class TvlDto {
+  @IsOptional()
+  @IsEnum(GroupBy)
+  groupBy?: GroupBy; // New groupBy parameter
+
   @IsOptional()
   @IsNumber()
   @Transform(({ value }) => Number(value))
@@ -33,10 +38,12 @@ export class TvlDto {
   @IsOptional()
   @IsNumber()
   @Transform(({ value }) => Number(value))
+  @Min(0)
+  @Max(1000)
   @ApiPropertyOptional({
     type: Number,
     description: 'Limit for pagination',
-    default: 10000,
+    default: 1000,
   })
   limit?: number;
 }

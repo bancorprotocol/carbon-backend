@@ -1,4 +1,4 @@
-import { TokensTradedEvent } from 'src/events/tokens-traded-event/tokens-traded-event.entity';
+import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { Block } from '../block/block.entity';
 import { Token } from '../token/token.entity';
 import {

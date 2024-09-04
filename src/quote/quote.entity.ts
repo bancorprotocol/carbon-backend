@@ -1,4 +1,4 @@
-import { Token } from 'src/token/token.entity';
+import { Token } from '../token/token.entity';
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, Index } from 'typeorm';
 import { BlockchainType } from '../deployment/deployment.service';
 

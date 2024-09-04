@@ -3,8 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyDeletedEvent } from './strategy-deleted-event.entity';
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
-import { PairsDictionary } from 'src/pair/pair.service';
-import { TokensByAddress } from 'src/token/token.service';
+import { PairsDictionary } from '../../pair/pair.service';
+import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
 import { Deployment } from '../../deployment/deployment.service';
 

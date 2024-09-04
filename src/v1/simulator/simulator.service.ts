@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as childProcess from 'child_process';
 import Decimal from 'decimal.js';
 import moment from 'moment';
-import { toTimestamp } from 'src/utilities';
+import { toTimestamp } from '../../utilities';
 import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';

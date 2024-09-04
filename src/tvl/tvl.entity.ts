@@ -5,8 +5,8 @@ import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 @Unique([
   'blockchainType',
   'exchangeId',
-  'strategyid',
-  'pairname',
+  'strategyId',
+  'pairName',
   'symbol',
   'tvl',
   'address',
@@ -15,10 +15,8 @@ import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
   'reason',
   'transaction_index',
 ])
-@Index('idx_evt_block_time', ['evt_block_time']) // Index on evt_block_time
-@Index('idx_address_symbol_blockchain_exchange', ['address', 'symbol', 'blockchainType', 'exchangeId']) // Composite index for grouping by address, symbol, blockchainType, and exchangeId
-@Index('idx_pairname_blockchain_exchange', ['pairname', 'blockchainType', 'exchangeId']) // Composite index for grouping by pairname, blockchainType, and exchangeId
-@Index('idx_symbol_blockchain_exchange', ['symbol', 'blockchainType', 'exchangeId']) // Composite index for grouping by symbol, blockchainType, and exchangeId
+@Index(['pairId', 'blockchainType', 'exchangeId'])
+@Index(['address', 'blockchainType', 'exchangeId'])
 export class Tvl {
   @PrimaryGeneratedColumn()
   id: number;
@@ -32,33 +30,37 @@ export class Tvl {
   exchangeId: ExchangeId;
 
   @PrimaryColumn('timestamp')
+  @Index()
   evt_block_time: Date;
 
-  @Column({ type: 'int', nullable: false })
+  @Column({ type: 'int' })
   evt_block_number: number;
 
-  @Column({ type: 'text', nullable: false })
-  @Index('idx_strategyid_pairname') // Composite index for strategyid and pairname
-  strategyid: string;
+  @Column({ type: 'text' })
+  @Index()
+  strategyId: string;
 
-  @Column({ type: 'text', nullable: false })
-  pairname: string;
+  @Column({ type: 'text' })
+  pairName: string;
 
-  @Column({ type: 'text', nullable: false })
-  @Index('idx_symbol_address') // Composite index for symbol and address
+  @Column()
+  @Index()
+  pairId: number;
+
+  @Column({ type: 'text' })
   symbol: string;
 
-  @Column({ type: 'text', nullable: false })
+  @Column({ type: 'text' })
   address: string;
 
-  @Column({ type: 'text', nullable: false })
-  @Index('idx_tvl_reason', { where: "reason != '4'" }) // Partial index for filtering by reason != 4
+  @Column({ type: 'text' })
   tvl: string;
 
-  @Column({ type: 'text', nullable: false })
+  @Column({ type: 'text' })
+  @Index()
   reason: string;
 
-  @Column({ type: 'text', nullable: false })
+  @Column({ type: 'text' })
   @Index() // Index for transaction_index for optimization in filtering
   transaction_index: string;
 }

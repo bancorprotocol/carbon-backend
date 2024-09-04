@@ -22,6 +22,7 @@ export class HistoricQuote {
   blockchainType: BlockchainType;
 
   @PrimaryColumn('timestamp')
+  @Index()
   timestamp: Date;
 
   @Column()

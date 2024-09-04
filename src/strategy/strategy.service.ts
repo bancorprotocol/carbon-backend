@@ -6,7 +6,7 @@ import { LastProcessedBlockService } from '../last-processed-block/last-processe
 import Decimal from 'decimal.js';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 import { StrategyUpdatedEventService } from '../events/strategy-updated-event/strategy-updated-event.service';
-import { StrategyDeletedEventService } from 'src/events/strategy-deleted-event/strategy-deleted-event.service';
+import { StrategyDeletedEventService } from '../events/strategy-deleted-event/strategy-deleted-event.service';
 import { PairsDictionary } from '../pair/pair.service';
 import { TokensByAddress } from '../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
