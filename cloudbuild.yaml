@@ -50,8 +50,9 @@ steps:
     args:
       - '-c'
       - |
+        DATABASE_URL=$(gcloud secrets versions access latest --secret=CM_DATABASE_URL) && \
         docker run --rm \
-          -e DATABASE_URL=$(gcloud secrets versions access latest --secret=CM_DATABASE_URL) \
+          -e DATABASE_URL=$DATABASE_URL \
           europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
           npm run migration:run
     waitFor: ['push']
