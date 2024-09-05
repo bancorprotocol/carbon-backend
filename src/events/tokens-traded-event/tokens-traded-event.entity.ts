@@ -14,11 +14,7 @@ import { Pair } from '../../pair/pair.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'tokens-traded-events' })
-@Unique('tokens-traded-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class TokensTradedEvent {
   @PrimaryGeneratedColumn()
   id: number;

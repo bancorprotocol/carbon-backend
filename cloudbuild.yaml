@@ -85,7 +85,7 @@ steps:
         '--set-env-vars=SHOULD_HARVEST=1',
         '--set-env-vars=SHOULD_POLL_QUOTES=1',
         '--set-env-vars=POLL_QUOTES_INTERVAL=60000',
-        '--set-env-vars=DB_SYNC=1',
+        '--set-env-vars=DB_SYNC=0',
         '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=1',
         '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
         '--set-env-vars=SHOULD_UPDATE_ANALYTICS=1',
@@ -121,7 +121,7 @@ steps:
 
   # Update the traffic
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester-2', '--to-latest', '--region', 'europe-west2']
+    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester', '--to-latest', '--region', 'europe-west2']
     waitFor: ['deploy_endpoint']
     id: 'update_traffic'
 

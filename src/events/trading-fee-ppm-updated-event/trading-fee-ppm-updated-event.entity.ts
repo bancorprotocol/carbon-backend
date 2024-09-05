@@ -12,11 +12,7 @@ import { Block } from '../../block/block.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'trading-fee-ppm-updated-events' })
-@Unique('trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class TradingFeePpmUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;

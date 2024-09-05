@@ -14,7 +14,7 @@ import {
 import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'strategies' })
-@Unique('strategies-blockchainType-exchangeId-strategyId', ['blockchainType', 'exchangeId', 'strategyId'])
+@Unique(['blockchainType', 'exchangeId', 'strategyId'])
 export class Strategy {
   @PrimaryGeneratedColumn()
   id: string;

@@ -15,11 +15,7 @@ import { Strategy } from '../../strategy/strategy.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-deleted-events' })
-@Unique('strategy-deleted-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class StrategyDeletedEvent {
   @PrimaryGeneratedColumn()
   id: number;

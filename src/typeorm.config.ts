@@ -18,12 +18,13 @@ const ssl =
         ].join(':'),
         honorCipherOrder: true,
       }
-    : {};
+    : null;
 
 export default new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: ['**/*.entity.ts'], // Adjust the path to your entities
-  migrations: ['dist/migrations/*.js'], // Path to compiled migration files
+  entities: ['**/*.entity.ts'],
+  migrations: ['dist/migrations/*.js'],
   ssl,
+  synchronize: false,
 });

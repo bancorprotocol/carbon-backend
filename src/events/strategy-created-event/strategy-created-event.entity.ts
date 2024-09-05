@@ -15,11 +15,7 @@ import { Token } from '../../token/token.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-created-events' })
-@Unique('strategy-created-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class StrategyCreatedEvent {
   @PrimaryGeneratedColumn()
   id: string;

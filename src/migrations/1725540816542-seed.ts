@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class Seed1725450544504 implements MigrationInterface {
-  name = 'Seed1725450544504';
+export class Seed1725540816542 implements MigrationInterface {
+  name = 'Seed1725540816542';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
@@ -34,20 +34,11 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE TYPE "public"."historic-quotes_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "historic-quotes" ("id" SERIAL NOT NULL, "blockchainType" "public"."historic-quotes_blockchaintype_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "tokenAddress" character varying NOT NULL, "provider" character varying NOT NULL, "usd" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "updatedAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, CONSTRAINT "PK_e342adbd6f8f907b412ff681929" PRIMARY KEY ("id", "timestamp"))`,
+      `CREATE TABLE "historic-quotes" ("id" SERIAL NOT NULL, "blockchainType" "public"."historic-quotes_blockchaintype_enum" NOT NULL DEFAULT 'ethereum', "timestamp" TIMESTAMP NOT NULL, "tokenAddress" character varying NOT NULL, "provider" character varying NOT NULL, "usd" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "updatedAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, CONSTRAINT "PK_e342adbd6f8f907b412ff681929" PRIMARY KEY ("id", "timestamp"))`,
     );
     await queryRunner.query(`CREATE INDEX "IDX_51502c505f256a69be325a6345" ON "historic-quotes" ("blockchainType") `);
     await queryRunner.query(`CREATE INDEX "IDX_ab617affe46aa00bdd295edce0" ON "historic-quotes" ("timestamp") `);
     await queryRunner.query(`CREATE INDEX "IDX_5ab5c8ab52bc42e68dcbc96558" ON "historic-quotes" ("tokenAddress") `);
-    await queryRunner.query(
-      `CREATE INDEX "IDX_9e13b1c45c5d2beb1b69711236" ON "historic-quotes" ("blockchainType", "tokenAddress", "timestamp") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_96e92ee9ed0bdce266d5efa783" ON "historic-quotes" ("tokenAddress", "timestamp") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_5bb71f2c28b8fbefa45483be0e" ON "historic-quotes" ("blockchainType", "timestamp") `,
-    );
     await queryRunner.query(
       `CREATE TABLE "last_processed_block" ("id" SERIAL NOT NULL, "param" character varying NOT NULL, "block" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_3914bf93d966710965afd83ce55" PRIMARY KEY ("id"))`,
     );
@@ -63,20 +54,13 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX "IDX_1fc8c9748b497072859bb0cceb" ON "tokens" ("blockchainType") `);
     await queryRunner.query(`CREATE INDEX "IDX_66ddea115f5596805dea0cd676" ON "tokens" ("exchangeId") `);
     await queryRunner.query(
-      `CREATE TYPE "public"."quotes_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
-    );
-    await queryRunner.query(
-      `CREATE TABLE "quotes" ("id" SERIAL NOT NULL, "blockchainType" "public"."quotes_blockchaintype_enum" NOT NULL, "provider" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "usd" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "updatedAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "tokenId" integer, CONSTRAINT "PK_99a0e8bcbcd8719d3a41f23c263" PRIMARY KEY ("id"))`,
-    );
-    await queryRunner.query(`CREATE INDEX "IDX_f016f6740e3e54b90a08b478ff" ON "quotes" ("blockchainType") `);
-    await queryRunner.query(
       `CREATE TYPE "public"."tokens-traded-events_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
     );
     await queryRunner.query(
       `CREATE TYPE "public"."tokens-traded-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "tokens-traded-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."tokens-traded-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."tokens-traded-events_exchangeid_enum" NOT NULL, "trader" character varying NOT NULL, "type" character varying NOT NULL, "sourceAmount" character varying NOT NULL, "targetAmount" character varying NOT NULL, "tradingFeeAmount" character varying NOT NULL, "byTargetAmount" boolean NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "callerId" character varying, "logIndex" integer NOT NULL, "timestamp" TIMESTAMP NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, "pairId" integer, "sourceTokenId" integer, "targetTokenId" integer, CONSTRAINT "tokens-traded-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_5aa00d572774b0b66ee8ea01314" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "tokens-traded-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."tokens-traded-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."tokens-traded-events_exchangeid_enum" NOT NULL, "trader" character varying NOT NULL, "type" character varying NOT NULL, "sourceAmount" character varying NOT NULL, "targetAmount" character varying NOT NULL, "tradingFeeAmount" character varying NOT NULL, "byTargetAmount" boolean NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "callerId" character varying, "logIndex" integer NOT NULL, "timestamp" TIMESTAMP NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, "pairId" integer, "sourceTokenId" integer, "targetTokenId" integer, CONSTRAINT "UQ_908649b973c9978cd4235cf1cc9" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_5aa00d572774b0b66ee8ea01314" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_c2d17f5848e8253a52408ff189" ON "tokens-traded-events" ("blockchainType") `,
@@ -94,13 +78,20 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX "IDX_2adf8fe1e85377fa39cba7757b" ON "pairs" ("blockchainType") `);
     await queryRunner.query(`CREATE INDEX "IDX_1d894c6215a2a86d1b5bf661be" ON "pairs" ("exchangeId") `);
     await queryRunner.query(
+      `CREATE TYPE "public"."quotes_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
+    );
+    await queryRunner.query(
+      `CREATE TABLE "quotes" ("id" SERIAL NOT NULL, "blockchainType" "public"."quotes_blockchaintype_enum" NOT NULL, "provider" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "usd" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "updatedAt" TIMESTAMP NOT NULL DEFAULT ('now'::text)::timestamp(6) with time zone, "tokenId" integer, CONSTRAINT "PK_99a0e8bcbcd8719d3a41f23c263" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(`CREATE INDEX "IDX_f016f6740e3e54b90a08b478ff" ON "quotes" ("blockchainType") `);
+    await queryRunner.query(
       `CREATE TYPE "public"."strategies_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
     );
     await queryRunner.query(
       `CREATE TYPE "public"."strategies_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "strategies" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategies_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategies_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "deleted" boolean NOT NULL DEFAULT false, "liquidity0" character varying NOT NULL, "lowestRate0" character varying NOT NULL, "highestRate0" character varying NOT NULL, "marginalRate0" character varying NOT NULL, "liquidity1" character varying NOT NULL, "lowestRate1" character varying NOT NULL, "highestRate1" character varying NOT NULL, "marginalRate1" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, "pairId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "strategies-blockchainType-exchangeId-strategyId" UNIQUE ("blockchainType", "exchangeId", "strategyId"), CONSTRAINT "PK_9a0d363ddf5b40d080147363238" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "strategies" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategies_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategies_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "deleted" boolean NOT NULL DEFAULT false, "liquidity0" character varying NOT NULL, "lowestRate0" character varying NOT NULL, "highestRate0" character varying NOT NULL, "marginalRate0" character varying NOT NULL, "liquidity1" character varying NOT NULL, "lowestRate1" character varying NOT NULL, "highestRate1" character varying NOT NULL, "marginalRate1" character varying NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, "pairId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "UQ_ca3ef6c54f8acf3f8acd7e14e32" UNIQUE ("blockchainType", "exchangeId", "strategyId"), CONSTRAINT "PK_9a0d363ddf5b40d080147363238" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(`CREATE INDEX "IDX_2776b53d13ebed1a86d430276f" ON "strategies" ("blockchainType") `);
     await queryRunner.query(`CREATE INDEX "IDX_fa07d821f14ecc71eeae746d69" ON "strategies" ("exchangeId") `);
@@ -136,7 +127,7 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE TYPE "public"."pair-created-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "pair-created-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."pair-created-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."pair-created-events_exchangeid_enum" NOT NULL, "token0" character varying NOT NULL, "token1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "pair-created-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_2e5b322880060ee74d19b8d4a07" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "pair-created-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."pair-created-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."pair-created-events_exchangeid_enum" NOT NULL, "token0" character varying NOT NULL, "token1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "UQ_dcc1a2cd3b18918ca3a8b47007d" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_2e5b322880060ee74d19b8d4a07" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_8b60bbe8a3935e59d07f9e2084" ON "pair-created-events" ("blockchainType") `,
@@ -150,7 +141,7 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE TYPE "public"."pair-trading-fee-ppm-updated-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "pair-trading-fee-ppm-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."pair-trading-fee-ppm-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."pair-trading-fee-ppm-updated-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "prevFeePPM" integer NOT NULL, "newFeePPM" integer NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, CONSTRAINT "pair-trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_1020b3004ba5966b027e8a08d54" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "pair-trading-fee-ppm-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."pair-trading-fee-ppm-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."pair-trading-fee-ppm-updated-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "prevFeePPM" integer NOT NULL, "newFeePPM" integer NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, CONSTRAINT "UQ_9c812bc262cb7467560cf562ad4" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_1020b3004ba5966b027e8a08d54" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_3ecc36cb48e31b527dc43f307f" ON "pair-trading-fee-ppm-updated-events" ("blockId") `,
@@ -168,7 +159,7 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE TYPE "public"."strategy-created-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "strategy-created-events" ("id" SERIAL NOT NULL, "strategyId" character varying NOT NULL, "blockchainType" "public"."strategy-created-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-created-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "owner" character varying NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "strategy-created-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_3121f8f9aa9a96e48e103ef09c1" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "strategy-created-events" ("id" SERIAL NOT NULL, "strategyId" character varying NOT NULL, "blockchainType" "public"."strategy-created-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-created-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "owner" character varying NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "UQ_52086ff805f342661c5b77bc1ae" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_3121f8f9aa9a96e48e103ef09c1" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_00faad78686d13fd0c26264ae8" ON "strategy-created-events" ("strategyId") `,
@@ -186,32 +177,13 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`CREATE INDEX "IDX_92fe5683849f39db695c9b4995" ON "strategy-created-events" ("token0Id") `);
     await queryRunner.query(`CREATE INDEX "IDX_d580d7fd7977675aaf649e0b7f" ON "strategy-created-events" ("token1Id") `);
     await queryRunner.query(
-      `CREATE TYPE "public"."strategy-deleted-events_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
-    );
-    await queryRunner.query(
-      `CREATE TYPE "public"."strategy-deleted-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
-    );
-    await queryRunner.query(
-      `CREATE TABLE "strategy-deleted-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategy-deleted-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-deleted-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "strategy-deleted-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_631d016adec08e3c3ae77c267b6" PRIMARY KEY ("id"))`,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_8b93141dbde79a439f8c1bfd46" ON "strategy-deleted-events" ("blockchainType") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_2019b1709d451d3739d3e93aa9" ON "strategy-deleted-events" ("exchangeId") `,
-    );
-    await queryRunner.query(
-      `CREATE INDEX "IDX_19b2559796c490b51ad46c6686" ON "strategy-deleted-events" ("strategyId") `,
-    );
-    await queryRunner.query(`CREATE INDEX "IDX_eac564b54c2e686f3bbbdfb7f7" ON "strategy-deleted-events" ("blockId") `);
-    await queryRunner.query(
       `CREATE TYPE "public"."strategy-updated-events_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
     );
     await queryRunner.query(
       `CREATE TYPE "public"."strategy-updated-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "strategy-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategy-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-updated-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "reason" integer NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "strategy-updated-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_03ba1851eb69ff0f541a632279f" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "strategy-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategy-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-updated-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "reason" integer NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "UQ_b206162147f84fc87256bf03b23" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_03ba1851eb69ff0f541a632279f" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_0c842871c198090f0467451e9d" ON "strategy-updated-events" ("blockchainType") `,
@@ -227,13 +199,32 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE INDEX "IDX_d2611fb5f6bb25ef81a62b20fb" ON "strategy-updated-events" ("timestamp") `,
     );
     await queryRunner.query(
+      `CREATE TYPE "public"."strategy-deleted-events_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
+    );
+    await queryRunner.query(
+      `CREATE TYPE "public"."strategy-deleted-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
+    );
+    await queryRunner.query(
+      `CREATE TABLE "strategy-deleted-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."strategy-deleted-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."strategy-deleted-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "order0" character varying NOT NULL, "order1" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "pairId" integer, "blockId" integer, "token0Id" integer, "token1Id" integer, CONSTRAINT "UQ_9830850139cbddfd88f602fbf50" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_631d016adec08e3c3ae77c267b6" PRIMARY KEY ("id"))`,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_8b93141dbde79a439f8c1bfd46" ON "strategy-deleted-events" ("blockchainType") `,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_2019b1709d451d3739d3e93aa9" ON "strategy-deleted-events" ("exchangeId") `,
+    );
+    await queryRunner.query(
+      `CREATE INDEX "IDX_19b2559796c490b51ad46c6686" ON "strategy-deleted-events" ("strategyId") `,
+    );
+    await queryRunner.query(`CREATE INDEX "IDX_eac564b54c2e686f3bbbdfb7f7" ON "strategy-deleted-events" ("blockId") `);
+    await queryRunner.query(
       `CREATE TYPE "public"."trading-fee-ppm-updated-events_blockchaintype_enum" AS ENUM('ethereum', 'sei-network', 'celo', 'blast')`,
     );
     await queryRunner.query(
       `CREATE TYPE "public"."trading-fee-ppm-updated-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "trading-fee-ppm-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."trading-fee-ppm-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."trading-fee-ppm-updated-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "prevFeePPM" integer NOT NULL, "newFeePPM" integer NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_c3db6da119f4169b7563d1fdc93" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "trading-fee-ppm-updated-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."trading-fee-ppm-updated-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."trading-fee-ppm-updated-events_exchangeid_enum" NOT NULL, "timestamp" TIMESTAMP NOT NULL, "prevFeePPM" integer NOT NULL, "newFeePPM" integer NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "UQ_059b582e451654f70bebb491e05" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_c3db6da119f4169b7563d1fdc93" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_af9af71f6ad35cf07505151c41" ON "trading-fee-ppm-updated-events" ("blockchainType") `,
@@ -251,7 +242,7 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE TYPE "public"."voucher-transfer-events_exchangeid_enum" AS ENUM('ethereum', 'sei', 'celo', 'blast')`,
     );
     await queryRunner.query(
-      `CREATE TABLE "voucher-transfer-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."voucher-transfer-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."voucher-transfer-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "from" character varying NOT NULL, "to" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "voucher-transfer-events-transactionIndex_transactionHash_logIndex" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_15f265cac4047455031ec2b4e41" PRIMARY KEY ("id"))`,
+      `CREATE TABLE "voucher-transfer-events" ("id" SERIAL NOT NULL, "blockchainType" "public"."voucher-transfer-events_blockchaintype_enum" NOT NULL, "exchangeId" "public"."voucher-transfer-events_exchangeid_enum" NOT NULL, "strategyId" character varying NOT NULL, "timestamp" TIMESTAMP NOT NULL, "from" character varying NOT NULL, "to" character varying NOT NULL, "transactionIndex" integer NOT NULL, "transactionHash" character varying NOT NULL, "logIndex" integer NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), "blockId" integer, CONSTRAINT "UQ_b302936970b7fd28132928c4e77" UNIQUE ("transactionIndex", "transactionHash", "logIndex"), CONSTRAINT "PK_15f265cac4047455031ec2b4e41" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
       `CREATE INDEX "IDX_2e20328d5565ff6b3131ae93b5" ON "voucher-transfer-events" ("blockchainType") `,
@@ -260,9 +251,6 @@ export class Seed1725450544504 implements MigrationInterface {
       `CREATE INDEX "IDX_3e7da58e7cdefd620d5d780fe8" ON "voucher-transfer-events" ("exchangeId") `,
     );
     await queryRunner.query(`CREATE INDEX "IDX_dcceb3e56b344cc9c8c703ae2d" ON "voucher-transfer-events" ("blockId") `);
-    await queryRunner.query(
-      `ALTER TABLE "quotes" ADD CONSTRAINT "FK_50aa379b097f3082da450455f88" FOREIGN KEY ("tokenId") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
-    );
     await queryRunner.query(
       `ALTER TABLE "tokens-traded-events" ADD CONSTRAINT "FK_bff069546ba7ea84e319446a267" FOREIGN KEY ("blockId") REFERENCES "blocks"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
@@ -283,6 +271,9 @@ export class Seed1725450544504 implements MigrationInterface {
     );
     await queryRunner.query(
       `ALTER TABLE "pairs" ADD CONSTRAINT "FK_e4001a1eedce46eb130d0d7a941" FOREIGN KEY ("token1Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "quotes" ADD CONSTRAINT "FK_50aa379b097f3082da450455f88" FOREIGN KEY ("tokenId") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
       `ALTER TABLE "strategies" ADD CONSTRAINT "FK_0b83ed9a45964f7abc611abf4d7" FOREIGN KEY ("blockId") REFERENCES "blocks"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
@@ -318,18 +309,6 @@ export class Seed1725450544504 implements MigrationInterface {
       `ALTER TABLE "strategy-created-events" ADD CONSTRAINT "FK_d580d7fd7977675aaf649e0b7f6" FOREIGN KEY ("token1Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
-      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_ddac7ee8a786ed10b4bf750b511" FOREIGN KEY ("pairId") REFERENCES "pairs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_eac564b54c2e686f3bbbdfb7f74" FOREIGN KEY ("blockId") REFERENCES "blocks"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_f7bc0579a75b1d5106c772a3b20" FOREIGN KEY ("token0Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
-      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_0a5bda86b666abda143f8ce0f53" FOREIGN KEY ("token1Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
-    );
-    await queryRunner.query(
       `ALTER TABLE "strategy-updated-events" ADD CONSTRAINT "FK_82cb0ebf64bd87a123f7c152d9f" FOREIGN KEY ("pairId") REFERENCES "pairs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
@@ -342,6 +321,18 @@ export class Seed1725450544504 implements MigrationInterface {
       `ALTER TABLE "strategy-updated-events" ADD CONSTRAINT "FK_f0be62f9a5e4fe9a02b57c4c02f" FOREIGN KEY ("token1Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
+      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_ddac7ee8a786ed10b4bf750b511" FOREIGN KEY ("pairId") REFERENCES "pairs"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_eac564b54c2e686f3bbbdfb7f74" FOREIGN KEY ("blockId") REFERENCES "blocks"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_f7bc0579a75b1d5106c772a3b20" FOREIGN KEY ("token0Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
+      `ALTER TABLE "strategy-deleted-events" ADD CONSTRAINT "FK_0a5bda86b666abda143f8ce0f53" FOREIGN KEY ("token1Id") REFERENCES "tokens"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
+    );
+    await queryRunner.query(
       `ALTER TABLE "trading-fee-ppm-updated-events" ADD CONSTRAINT "FK_aca9132d7db5f03850246670044" FOREIGN KEY ("blockId") REFERENCES "blocks"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`,
     );
     await queryRunner.query(
@@ -349,10 +340,10 @@ export class Seed1725450544504 implements MigrationInterface {
     );
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE`);
     await queryRunner.query(`SELECT create_hypertable('historic-quotes', 'timestamp')`);
-    await queryRunner.query(
-      `CREATE INDEX idx_covering_token_address_timestamp ON "historic-quotes" ("tokenAddress", "timestamp" DESC) INCLUDE (id, "blockchainType", provider, usd);`,
-    );
     await queryRunner.query(`SELECT create_hypertable('tvl', 'evt_block_time')`);
+    await queryRunner.query(
+      `CREATE INDEX "IDX_token_address_desc" ON "historic-quotes" ("tokenAddress", "timestamp" DESC) INCLUDE (id, "blockchainType", provider, usd)`,
+    );
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
@@ -360,14 +351,14 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(
       `ALTER TABLE "trading-fee-ppm-updated-events" DROP CONSTRAINT "FK_aca9132d7db5f03850246670044"`,
     );
-    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_f0be62f9a5e4fe9a02b57c4c02f"`);
-    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_1eb8296ac6180bbc2e05ef7af3a"`);
-    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_f6cd36e84afc2fdf1d9cea35cec"`);
-    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_82cb0ebf64bd87a123f7c152d9f"`);
     await queryRunner.query(`ALTER TABLE "strategy-deleted-events" DROP CONSTRAINT "FK_0a5bda86b666abda143f8ce0f53"`);
     await queryRunner.query(`ALTER TABLE "strategy-deleted-events" DROP CONSTRAINT "FK_f7bc0579a75b1d5106c772a3b20"`);
     await queryRunner.query(`ALTER TABLE "strategy-deleted-events" DROP CONSTRAINT "FK_eac564b54c2e686f3bbbdfb7f74"`);
     await queryRunner.query(`ALTER TABLE "strategy-deleted-events" DROP CONSTRAINT "FK_ddac7ee8a786ed10b4bf750b511"`);
+    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_f0be62f9a5e4fe9a02b57c4c02f"`);
+    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_1eb8296ac6180bbc2e05ef7af3a"`);
+    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_f6cd36e84afc2fdf1d9cea35cec"`);
+    await queryRunner.query(`ALTER TABLE "strategy-updated-events" DROP CONSTRAINT "FK_82cb0ebf64bd87a123f7c152d9f"`);
     await queryRunner.query(`ALTER TABLE "strategy-created-events" DROP CONSTRAINT "FK_d580d7fd7977675aaf649e0b7f6"`);
     await queryRunner.query(`ALTER TABLE "strategy-created-events" DROP CONSTRAINT "FK_92fe5683849f39db695c9b4995a"`);
     await queryRunner.query(`ALTER TABLE "strategy-created-events" DROP CONSTRAINT "FK_9c5a2e9a334403254efb836f04e"`);
@@ -383,6 +374,7 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "strategies" DROP CONSTRAINT "FK_7d86dcba41d17e33e08296701b5"`);
     await queryRunner.query(`ALTER TABLE "strategies" DROP CONSTRAINT "FK_f7fb6533dfb9a761cedf52cfc91"`);
     await queryRunner.query(`ALTER TABLE "strategies" DROP CONSTRAINT "FK_0b83ed9a45964f7abc611abf4d7"`);
+    await queryRunner.query(`ALTER TABLE "quotes" DROP CONSTRAINT "FK_50aa379b097f3082da450455f88"`);
     await queryRunner.query(`ALTER TABLE "pairs" DROP CONSTRAINT "FK_e4001a1eedce46eb130d0d7a941"`);
     await queryRunner.query(`ALTER TABLE "pairs" DROP CONSTRAINT "FK_fc7983e49c0c77fe123cb43b3c9"`);
     await queryRunner.query(`ALTER TABLE "pairs" DROP CONSTRAINT "FK_c68180ccb7c24531e2795b294ae"`);
@@ -390,7 +382,6 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`ALTER TABLE "tokens-traded-events" DROP CONSTRAINT "FK_c03a21b4dead9ab3345f3ad4902"`);
     await queryRunner.query(`ALTER TABLE "tokens-traded-events" DROP CONSTRAINT "FK_c081dde529d0e03627b56844e45"`);
     await queryRunner.query(`ALTER TABLE "tokens-traded-events" DROP CONSTRAINT "FK_bff069546ba7ea84e319446a267"`);
-    await queryRunner.query(`ALTER TABLE "quotes" DROP CONSTRAINT "FK_50aa379b097f3082da450455f88"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_dcceb3e56b344cc9c8c703ae2d"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_3e7da58e7cdefd620d5d780fe8"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_2e20328d5565ff6b3131ae93b5"`);
@@ -403,6 +394,13 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "trading-fee-ppm-updated-events"`);
     await queryRunner.query(`DROP TYPE "public"."trading-fee-ppm-updated-events_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."trading-fee-ppm-updated-events_blockchaintype_enum"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_eac564b54c2e686f3bbbdfb7f7"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_19b2559796c490b51ad46c6686"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_2019b1709d451d3739d3e93aa9"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_8b93141dbde79a439f8c1bfd46"`);
+    await queryRunner.query(`DROP TABLE "strategy-deleted-events"`);
+    await queryRunner.query(`DROP TYPE "public"."strategy-deleted-events_exchangeid_enum"`);
+    await queryRunner.query(`DROP TYPE "public"."strategy-deleted-events_blockchaintype_enum"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_d2611fb5f6bb25ef81a62b20fb"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_f6cd36e84afc2fdf1d9cea35ce"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_d8ddb719df9d2a26006b415f98"`);
@@ -411,13 +409,6 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "strategy-updated-events"`);
     await queryRunner.query(`DROP TYPE "public"."strategy-updated-events_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."strategy-updated-events_blockchaintype_enum"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_eac564b54c2e686f3bbbdfb7f7"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_19b2559796c490b51ad46c6686"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_2019b1709d451d3739d3e93aa9"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_8b93141dbde79a439f8c1bfd46"`);
-    await queryRunner.query(`DROP TABLE "strategy-deleted-events"`);
-    await queryRunner.query(`DROP TYPE "public"."strategy-deleted-events_exchangeid_enum"`);
-    await queryRunner.query(`DROP TYPE "public"."strategy-deleted-events_blockchaintype_enum"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_d580d7fd7977675aaf649e0b7f"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_92fe5683849f39db695c9b4995"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_c239f8c77980389a6ed16872d3"`);
@@ -460,6 +451,9 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "strategies"`);
     await queryRunner.query(`DROP TYPE "public"."strategies_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."strategies_blockchaintype_enum"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_f016f6740e3e54b90a08b478ff"`);
+    await queryRunner.query(`DROP TABLE "quotes"`);
+    await queryRunner.query(`DROP TYPE "public"."quotes_blockchaintype_enum"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_1d894c6215a2a86d1b5bf661be"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_2adf8fe1e85377fa39cba7757b"`);
     await queryRunner.query(`DROP TABLE "pairs"`);
@@ -472,18 +466,12 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "tokens-traded-events"`);
     await queryRunner.query(`DROP TYPE "public"."tokens-traded-events_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."tokens-traded-events_blockchaintype_enum"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_f016f6740e3e54b90a08b478ff"`);
-    await queryRunner.query(`DROP TABLE "quotes"`);
-    await queryRunner.query(`DROP TYPE "public"."quotes_blockchaintype_enum"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_66ddea115f5596805dea0cd676"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_1fc8c9748b497072859bb0cceb"`);
     await queryRunner.query(`DROP TABLE "tokens"`);
     await queryRunner.query(`DROP TYPE "public"."tokens_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."tokens_blockchaintype_enum"`);
     await queryRunner.query(`DROP TABLE "last_processed_block"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_5bb71f2c28b8fbefa45483be0e"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_96e92ee9ed0bdce266d5efa783"`);
-    await queryRunner.query(`DROP INDEX "public"."IDX_9e13b1c45c5d2beb1b69711236"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_5ab5c8ab52bc42e68dcbc96558"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_ab617affe46aa00bdd295edce0"`);
     await queryRunner.query(`DROP INDEX "public"."IDX_51502c505f256a69be325a6345"`);
@@ -505,5 +493,6 @@ export class Seed1725450544504 implements MigrationInterface {
     await queryRunner.query(`DROP TABLE "activities"`);
     await queryRunner.query(`DROP TYPE "public"."activities_exchangeid_enum"`);
     await queryRunner.query(`DROP TYPE "public"."activities_blockchaintype_enum"`);
+    await queryRunner.query(`DROP INDEX "public"."IDX_token_address_desc"`);
   }
 }

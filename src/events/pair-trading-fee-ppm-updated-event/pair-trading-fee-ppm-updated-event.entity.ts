@@ -15,11 +15,7 @@ import { Strategy } from '../../strategy/strategy.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'pair-trading-fee-ppm-updated-events' })
-@Unique('pair-trading-fee-ppm-updated-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class PairTradingFeePpmUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;

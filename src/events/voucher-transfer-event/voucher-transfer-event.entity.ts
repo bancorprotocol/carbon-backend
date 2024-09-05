@@ -15,11 +15,7 @@ import { Strategy } from '../../strategy/strategy.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'voucher-transfer-events' })
-@Unique('voucher-transfer-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class VoucherTransferEvent {
   @PrimaryGeneratedColumn()
   id: number;
