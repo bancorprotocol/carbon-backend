@@ -108,11 +108,16 @@ export class HistoricQuoteService implements OnModuleInit {
   }
 
   async getLatest(): Promise<{ [key: string]: HistoricQuote }> {
-    const latestQuotes = await this.repository
-      .createQueryBuilder('hq')
-      .distinctOn(['hq.tokenAddress'])
-      .orderBy({ 'hq.tokenAddress': 'ASC', 'hq.timestamp': 'DESC' })
-      .getMany();
+    // Execute the provided SQL query directly
+    const latestQuotes = await this.repository.query(`
+      SELECT 
+          "tokenAddress",
+          "blockchainType",
+          last(usd, "timestamp") AS usd,
+          last("timestamp", "timestamp") AS timestamp
+      FROM "historic-quotes"
+      GROUP BY "tokenAddress", "blockchainType";
+    `);
 
     const result: { [key: string]: HistoricQuote } = {};
     latestQuotes.forEach((quote) => {

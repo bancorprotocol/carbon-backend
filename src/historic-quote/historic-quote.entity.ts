@@ -9,9 +9,7 @@ import {
 } from 'typeorm';
 import { BlockchainType } from '../deployment/deployment.service';
 
-// @Index(['blockchainType', 'timestamp']) // Composite index for blockchainType and timestamp
-// @Index(['tokenAddress', 'timestamp']) // Composite index for tokenAddress and timestamp for filtering and grouping
-// @Index(['blockchainType', 'tokenAddress', 'timestamp']) // Composite index for gapfill query efficiency
+@Index(['blockchainType', 'tokenAddress', 'timestamp']) // Composite index for gapfill query efficiency
 @Entity({ name: 'historic-quotes' })
 @Index('IDX_token_address_desc', { synchronize: false })
 export class HistoricQuote {
