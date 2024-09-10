@@ -48,6 +48,7 @@ export class Tvl {
   pairId: number;
 
   @Column({ type: 'text' })
+  @Index()
   symbol: string;
 
   @Column({ type: 'text' })

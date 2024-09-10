@@ -44,14 +44,16 @@ export class TvlService {
             time_bucket_gapfill('1 day', tvl.evt_block_time, '${start}', '${end}') AS day,
             tvl."${groupByColumn}",
             ${params.groupBy === GroupBy.PAIR ? 'tvl."pairName", tvl."pairId",' : ''}
-            ${params.groupBy === GroupBy.ADDRESS ? 'locf(avg(tvl.tvl::numeric)) AS tvl,' : ''}
+            ${params.groupBy === GroupBy.ADDRESS ? 'locf(avg(tvl.tvl::numeric)) AS tvl, symbol,' : ''}
             locf(avg(tvl."tvlUsd"::numeric)) AS "tvlUsd"
         FROM tvl
         WHERE
             tvl."blockchainType" = '${deployment.blockchainType}'
             AND tvl."exchangeId" = '${deployment.exchangeId}'
             AND tvl.evt_block_time <= '${end}'
-        GROUP BY tvl."${groupByColumn}", day ${params.groupBy === GroupBy.PAIR ? ', tvl."pairName", tvl."pairId"' : ''}
+        GROUP BY tvl."${groupByColumn}", day ${
+      params.groupBy === GroupBy.PAIR ? ', tvl."pairName", tvl."pairId"' : ', tvl."symbol"'
+    }
         ORDER BY day, tvl."${groupByColumn}"
         LIMIT ${limit} OFFSET ${offset};
     `;
@@ -75,6 +77,7 @@ export class TvlService {
       if (params.groupBy === GroupBy.ADDRESS) {
         result.tvl = tvlRow.tvl;
         result.address = tvlRow.address;
+        result.symbol = tvlRow.symbol;
       }
 
       // Include pairName and pairId if grouped by PAIR
