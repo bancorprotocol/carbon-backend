@@ -4,6 +4,7 @@ import { Repository, DataSource } from 'typeorm';
 import { Volume } from './volume.entity';
 import { VolumeDto } from '../v1/analytics/volume.dto';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
+import { Deployment } from '../deployment/deployment.service';
 
 @Injectable()
 export class VolumeService {
@@ -40,55 +41,25 @@ export class VolumeService {
     return queryBuilder.getMany();
   }
 
-  async update(endBlock: number): Promise<void> {
-    const startBlock = (await this.lastProcessedBlockService.get('volume')) || 1;
+  async update(endBlock: number, deployment: Deployment): Promise<void> {
+    const startBlock =
+      (await this.lastProcessedBlockService.get(`${deployment.blockchainType}-${deployment.exchangeId}-volume`)) || 1;
 
     // Query to get the volume data
-    const query = `-- Include the previous state up to the start block
-WITH previous_state AS (
-  SELECT *
-  FROM volume_fee_usd
-  WHERE block_number <= ${startBlock}
-  ORDER BY block_number DESC, sorting_order DESC
-  LIMIT 1
-),
--- Main query for the specified block range
-main_query AS (
-  ${this.getVolumeQuery(startBlock, endBlock)}
-)
--- Combine the previous state with the main query
-SELECT * FROM previous_state
-UNION ALL
-SELECT * FROM main_query
-ORDER BY block_number, sorting_order`;
-
-    const result = await this.dataSource.query(query);
-    const batchSize = 1000;
-    for (let i = 0; i < result.length; i += batchSize) {
-      const batch = result.slice(i, i + batchSize).map((record) => ({
-        timestamp: record.timestamp,
-        feeSymbol: record.feesymbol,
-        feeAddress: record.feeAddress,
-        tradingFeeAmountReal: record.tradingFeeAmount_real,
-        tradingFeeAmountUsd: record.tradingFeeAmount_usd,
-        targetSymbol: record.targetsymbol,
-        targetAddress: record.targetAddress,
-        targetAmountReal: record.targetamount_real,
-        targetAmountUsd: record.targetamount_usd,
-      }));
-      await this.volumeRepository.save(batch);
-    }
-
-    // Update the last processed block number
-    await this.lastProcessedBlockService.update('volume', endBlock); // Uncomment if needed
-  }
-
-  private getVolumeQuery(startBlock: number, endBlock: number): string {
-    return `-- Your complex query here
-WITH tokens_traded_with_token_info AS (
+    const query = `
+      WITH tokens_traded_within_interval AS (
     SELECT
+        *
+    FROM
+        "tokens-traded-events"
+    WHERE
+        "blockId" > ${startBlock}
+        AND "exchangeId" = '${deployment.exchangeId}'
+),
+tokens_traded_with_token_info AS (
+    SELECT
+        tte."id" AS transactionIndex,
         tte."timestamp" AS timestamp,
-        tte."transactionHash" AS transactionHash,
         tte."blockId" AS blockId,
         tte."trader" AS trader,
         tte."byTargetAmount" AS byTargetAmount,
@@ -102,24 +73,29 @@ WITH tokens_traded_with_token_info AS (
         ts."decimals" AS sourceDecimals,
         tt."address" AS targetAddress,
         tt."symbol" AS targetSymbol,
-        tt."decimals" AS targetDecimals
+        tt."decimals" AS targetDecimals,
+        tte."pairId" AS pairId,
+        ps."name" AS pairName
     FROM
-        "tokens-traded-events" tte
+        tokens_traded_within_interval tte
         JOIN tokens ts ON tte."sourceTokenId" = ts."id"
         JOIN tokens tt ON tte."targetTokenId" = tt."id"
-    WHERE
-        tte."blockId" > ${startBlock} AND tte."blockId" <= ${endBlock}
+        JOIN pairs ps ON tte."pairId" = ps."id"
 ),
 correct_fee_units AS (
     SELECT
         trader,
         timestamp,
+        blockId,
+        transactionIndex,
         targetSymbol,
         targetAddress,
         targetDecimals,
         targetTokenId,
         targetAmount :: NUMERIC,
         tradingFeeAmount :: NUMERIC,
+        pairName,
+        pairId,
         CASE
             WHEN byTargetAmount = TRUE THEN sourceSymbol
             ELSE targetSymbol
@@ -138,6 +114,8 @@ correct_fee_units AS (
 fee_volume_wo_decimals AS (
     SELECT
         timestamp,
+        blockId,
+        transactionIndex,
         trader,
         feeSymbol,
         LOWER(feeAddress) AS feeAddress,
@@ -145,55 +123,102 @@ fee_volume_wo_decimals AS (
         targetSymbol,
         LOWER(targetAddress) AS targetAddress,
         targetAmount / POWER(10, targetDecimals) AS targetAmount_real,
-        DATE_TRUNC('day', timestamp) AS evt_day
+        DATE_TRUNC('day', timestamp) AS evt_day,
+        pairName,
+        pairId
     FROM
         correct_fee_units
-),
-prices AS (
-    SELECT
-        LOWER("tokenAddress") AS tokenAddress,
-        MAX("usd" :: NUMERIC) AS max_usd,
-        DATE_TRUNC('day', "timestamp") AS timestamp_day
-    FROM
-        "historic-quotes"
-    GROUP BY
-        "tokenAddress",
-        DATE_TRUNC('day', "timestamp")
 ),
 fee_usd AS (
     SELECT
         fvwd.*,
-        COALESCE(pr.max_usd, 0) AS fee_usd,
-        COALESCE(pr.max_usd * tradingFeeAmount_real, 0) AS tradingFeeAmount_usd
+        hq.usd :: NUMERIC AS fee_usd,
+        COALESCE(hq.usd :: NUMERIC * tradingFeeAmount_real, 0) AS tradingFeeAmount_usd
     FROM
         fee_volume_wo_decimals fvwd
-        LEFT JOIN prices pr ON fvwd.feeAddress = pr.tokenAddress
-        AND fvwd.evt_day = pr.timestamp_day
+        LEFT JOIN LATERAL(
+            SELECT
+                usd
+            FROM
+                "historic-quotes"
+            WHERE
+                "tokenAddress" = fvwd.feeAddress
+                AND timestamp <= fvwd.timestamp + INTERVAL '1 day'
+            ORDER BY
+                timestamp DESC
+            LIMIT
+                1
+        ) hq ON TRUE
 ),
-volume_fee_usd AS (
+volume_rows_to_add AS (
     SELECT
         fu.*,
-        COALESCE(pr.max_usd, 0) AS target_usd,
-        COALESCE(pr.max_usd * targetAmount_real, 0) AS targetAmount_usd
+        hq.usd :: NUMERIC AS target_usd,
+        COALESCE(hq.usd :: NUMERIC * targetAmount_real, 0) AS targetAmount_usd
     FROM
         fee_usd fu
-        LEFT JOIN prices pr ON fu.targetAddress = pr.tokenAddress
-        AND fu.evt_day = pr.timestamp_day
+        LEFT JOIN LATERAL(
+            SELECT
+                usd
+            FROM
+                "historic-quotes"
+            WHERE
+                "tokenAddress" = fu.targetAddress
+                AND timestamp <= fu.timestamp + INTERVAL '1 day'
+            ORDER BY
+                timestamp DESC
+            LIMIT
+                1
+        ) hq ON TRUE
 )
 SELECT
     timestamp,
-    feesymbol,
+    blockId,
+    transactionIndex,
+    trader,
+    pairName,
+    pairId,
+    feeSymbol,
     feeAddress,
     tradingFeeAmount_real,
-    tradingFeeAmount_usd,
-    targetsymbol,
+    fee_usd,
+    targetSymbol,
     targetAddress,
-    targetamount_real,
-    targetamount_usd,
-    "blockId" AS block_number
+    targetAmount_real,
+    targetamount_usd
 FROM
-    volume_fee_usd
+    volume_rows_to_add
 ORDER BY
-    timestamp`;
+    timestamp
+    `;
+
+    const result = await this.dataSource.query(query);
+    const batchSize = 1000;
+    for (let i = 0; i < result.length; i += batchSize) {
+      const batch = result.slice(i, i + batchSize).map((record) => ({
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        timestamp: record.timestamp,
+        feeSymbol: record.feesymbol,
+        feeAddress: record.feeaddress,
+        tradingFeeAmountReal: record.tradingfeeamount_real,
+        tradingFeeAmountUsd: record.fee_usd,
+        targetSymbol: record.targetsymbol,
+        targetAddress: record.targetaddress,
+        targetAmountReal: record.targetamount_real,
+        targetAmountUsd: record.targetamount_usd,
+        transactionIndex: record.transactionindex,
+        blockNumber: record.blockid,
+        pairId: record.pairid,
+        trader: record.trader,
+      }));
+      await this.volumeRepository.save(batch);
+    }
+
+    // Update the last processed block number
+    await this.lastProcessedBlockService.update(
+      `${deployment.blockchainType}-${deployment.exchangeId}-volume`,
+      endBlock,
+    );
   }
 }
