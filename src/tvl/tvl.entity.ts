@@ -57,6 +57,12 @@ export class Tvl {
   tvl: string;
 
   @Column({ type: 'text' })
+  tvlUsd: string;
+
+  @Column({ type: 'text' })
+  usdRate: string;
+
+  @Column({ type: 'text' })
   @Index()
   reason: string;
 
