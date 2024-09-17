@@ -34,6 +34,7 @@ export class Tvl {
   evt_block_time: Date;
 
   @Column({ type: 'int' })
+  @Index()
   evt_block_number: number;
 
   @Column({ type: 'text' })
@@ -56,12 +57,6 @@ export class Tvl {
 
   @Column({ type: 'text' })
   tvl: string;
-
-  @Column({ type: 'text' })
-  tvlUsd: string;
-
-  @Column({ type: 'text' })
-  usdRate: string;
 
   @Column({ type: 'text' })
   @Index()

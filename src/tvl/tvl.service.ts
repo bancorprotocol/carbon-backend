@@ -39,78 +39,90 @@ export class TvlService {
     const limit = Math.min(params.limit, HARD_LIMIT) || HARD_LIMIT;
     const offset = params.offset || 0;
 
-    // Query to get the last TVL before the start date for each pairId/address combination
+    // Initial TVL Query to include grouping by strategyId
     const initialTvlQuery = `
       SELECT
-        tvl."pairId", tvl."pairName", tvl.address, tvl.symbol,
+        tvl."pairId", tvl."pairName", tvl.address, tvl.symbol, tvl."strategyId",
         last(tvl.tvl::numeric, tvl.evt_block_time) AS initial_tvl
       FROM tvl
       WHERE
         tvl.evt_block_time < '${start}'
         AND tvl."blockchainType" = '${deployment.blockchainType}'
         AND tvl."exchangeId" = '${deployment.exchangeId}'
-      GROUP BY tvl."pairId", tvl."pairName", tvl.address, tvl.symbol;
+      GROUP BY tvl."pairId", tvl."pairName", tvl.address, tvl.symbol, tvl."strategyId";
     `;
 
-    // Simple TVL Query fetching all data within the date range
+    // TVL Query fetching all data within the date range with stable sorting
     const tvlQuery = `
       SELECT
-        tvl."pairId", tvl."pairName", tvl.address, tvl.symbol,
-        tvl.tvl::numeric, tvl.evt_block_time
+        tvl."pairId", tvl."pairName", tvl.address, tvl.symbol, tvl."strategyId",
+        tvl.tvl::numeric, tvl.evt_block_time, tvl.evt_block_number, tvl.transaction_index
       FROM tvl
       WHERE
         tvl.evt_block_time <= '${end}'
         AND tvl.evt_block_time >= '${start}'
         AND tvl."blockchainType" = '${deployment.blockchainType}'
         AND tvl."exchangeId" = '${deployment.exchangeId}'
-      ORDER BY tvl.evt_block_time;
+      ORDER BY tvl.evt_block_time, tvl."pairId", tvl.address, tvl."strategyId", tvl.evt_block_number, tvl.transaction_index;
     `;
 
-    // USD Rate Query from the "historic-quotes" table
-    const usdRateQuery = `
-      SELECT
-        time_bucket_gapfill('1 day', timestamp, '${usdStart}', '${end}') AS day,
-        "tokenAddress" AS address,
-        locf(avg("usd"::numeric)) AS usd  
-      FROM "historic-quotes"
-      WHERE
-        timestamp <= '${end}'  
-        AND timestamp >= '${usdStart}'  
-        AND "blockchainType" = '${deployment.blockchainType}'
-      GROUP BY "tokenAddress", day;
-    `;
-
-    // Execute all queries concurrently
-    const [initialTvlResults, tvlResults, usdRateResults] = await Promise.all([
+    // Execute initial TVL and TVL data queries concurrently
+    const [initialTvlResults, tvlResults] = await Promise.all([
       this.dataSource.query(initialTvlQuery),
       this.dataSource.query(tvlQuery),
-      this.dataSource.query(usdRateQuery),
     ]);
 
-    // Create a map of USD rates for easier lookup
-    const usdRateMap = new Map<string, number>();
-    usdRateResults.forEach((rateRow) => {
-      const key = `${moment(rateRow.day).format('YYYY-MM-DD')}_${rateRow.address as string}`;
-      usdRateMap.set(key, rateRow.usd);
+    // Initialize maps to store TVL values
+    const initialTvlMap = new Map<string, Decimal>(); // Map to store the last known TVL for each pairId/address/strategyId combination
+    initialTvlResults.forEach((row) => {
+      const key = `${row.pairId}_${row.address as string}_${row.strategyId}`;
+      initialTvlMap.set(key, new Decimal(row.initial_tvl || 0));
     });
 
-    // Initialize maps to store TVL values
-    const initialTvlMap = new Map<string, Decimal>(); // Map to store the last known TVL for each pairId/address combination
+    // Create a map to store the first TVL date for each address
+    const firstTvlDateMap = new Map<string, string>();
+
+    // Determine the earliest TVL date for each address from initialTvlResults
     initialTvlResults.forEach((row) => {
-      const key = `${row.pairId}_${row.address as string}`;
-      initialTvlMap.set(key, new Decimal(row.initial_tvl || 0));
+      const address = row.address as string;
+      const date = moment(row.evt_block_time).format('YYYY-MM-DD');
+
+      if (!firstTvlDateMap.has(address) || date < firstTvlDateMap.get(address)!) {
+        firstTvlDateMap.set(address, date);
+      }
+    });
+
+    // Determine the earliest TVL date for each address from tvlResults
+    tvlResults.forEach((row) => {
+      const address = row.address as string;
+      const date = moment(row.evt_block_time).format('YYYY-MM-DD');
+
+      if (!firstTvlDateMap.has(address) || date < firstTvlDateMap.get(address)!) {
+        firstTvlDateMap.set(address, date);
+      }
     });
 
     // Map to store the aggregated daily TVL by address
     const dailyTvlMap = new Map<
       string,
-      { day: string; address: string; pairId: string; pairName: string; symbol: string; tvl: Decimal }
+      {
+        day: string;
+        address: string;
+        pairId: string;
+        pairName: string;
+        symbol: string;
+        tvl: Decimal;
+        evt_block_time: string;
+        evt_block_number: number;
+        strategyId: string;
+        transaction_index: string;
+      }
     >();
 
     // Process TVL updates within the date range
-    const lastKnownTvlByPairAddress = new Map<string, Decimal>(); // Track the latest TVL value by pairId/address
+    const lastKnownTvlByPairAddressStrategy = new Map<string, Decimal>(); // Track the latest TVL value by pairId/address/strategyId
     initialTvlMap.forEach((initialValue, key) => {
-      lastKnownTvlByPairAddress.set(key, initialValue); // Initialize with the last known value before start date
+      lastKnownTvlByPairAddressStrategy.set(key, initialValue); // Initialize with the last known value before start date
     });
 
     // Process each TVL row in the date range
@@ -120,14 +132,18 @@ export class TvlService {
       const pairId = tvlRow.pairId as string; // Ensure the type is string
       const pairName = tvlRow.pairName as string;
       const symbol = tvlRow.symbol as string;
-      const pairAddressKey = `${pairId}_${address}`; // Unique identifier for pairId/address
+      const strategyId = tvlRow.strategyId as string; // Include strategyId
+      const evt_block_time = tvlRow.evt_block_time; // Include evt_block_time
+      const evt_block_number = tvlRow.evt_block_number; // Include evt_block_number
+      const transaction_index = tvlRow.transaction_index; // Include transaction_index
+      const pairAddressStrategyKey = `${pairId}_${address}_${strategyId}`; // Unique identifier for pairId/address/strategyId
       const dailyKey = `${day}_${address}`;
 
-      // Update the last known value for this pair/address
-      lastKnownTvlByPairAddress.set(pairAddressKey, new Decimal(tvlRow.tvl));
+      // Update the last known value for this pair/address/strategy
+      lastKnownTvlByPairAddressStrategy.set(pairAddressStrategyKey, new Decimal(tvlRow.tvl));
 
-      // Calculate the daily TVL for this address by summing the TVLs of all its pairs
-      const dailyTvl = Array.from(lastKnownTvlByPairAddress.entries())
+      // Calculate the daily TVL for this address by summing the TVLs of all its strategies
+      const dailyTvl = Array.from(lastKnownTvlByPairAddressStrategy.entries())
         .filter(([key]) => key.split('_')[1] === address) // Filter by address
         .reduce((sum, [_, value]) => sum.plus(value), new Decimal(0)); // Sum the TVLs for that day
 
@@ -138,6 +154,10 @@ export class TvlService {
         pairName: pairName,
         symbol: symbol,
         tvl: dailyTvl,
+        evt_block_time: evt_block_time,
+        evt_block_number: evt_block_number,
+        strategyId: strategyId,
+        transaction_index: transaction_index,
       });
     });
 
@@ -150,28 +170,51 @@ export class TvlService {
     // Fill missing dates with the last known TVL value or updated value
     const filledTvlData = new Map<
       string,
-      { day: string; address: string; pairId: string; pairName: string; symbol: string; tvl: Decimal }
+      {
+        day: string;
+        address: string;
+        pairId: string;
+        pairName: string;
+        symbol: string;
+        tvl: Decimal;
+        evt_block_time: string;
+        evt_block_number: number;
+        strategyId: string;
+        transaction_index: string;
+      }
     >();
 
     addresses.forEach((address) => {
-      // Initialize the last known TVL for the address by summing all pairs for that address
-      let lastKnownValue = Array.from(lastKnownTvlByPairAddress.entries())
+      // Get the first TVL date for this address
+      const firstTvlDate = firstTvlDateMap.get(address);
+
+      // Initialize the last known TVL for the address by summing all strategies for that address
+      let lastKnownValue = Array.from(lastKnownTvlByPairAddressStrategy.entries())
         .filter(([key]) => key.split('_')[1] === address)
         .reduce((sum, [_, value]) => sum.plus(value), new Decimal(0));
 
-      for (let current = moment.utc(start); current <= moment.utc(end); current.add(1, 'day')) {
+      // Fill the data starting from the first TVL date
+      for (let current = moment.utc(firstTvlDate); current <= moment.utc(end); current.add(1, 'day')) {
         const formattedDay = current.format('YYYY-MM-DD');
         const key = `${formattedDay}_${address}`;
 
         let pairId = '';
         let pairName = '';
         let symbol = '';
+        let evt_block_time = '';
+        let evt_block_number = 0; // Default evt_block_number to 0
+        let strategyId = '';
+        let transaction_index = '';
 
         if (dailyTvlMap.has(key)) {
           lastKnownValue = dailyTvlMap.get(key)!.tvl; // Update last known value if there is an update
           pairId = dailyTvlMap.get(key)!.pairId;
           pairName = dailyTvlMap.get(key)!.pairName;
           symbol = dailyTvlMap.get(key)!.symbol;
+          evt_block_time = dailyTvlMap.get(key)!.evt_block_time;
+          evt_block_number = dailyTvlMap.get(key)!.evt_block_number;
+          strategyId = dailyTvlMap.get(key)!.strategyId;
+          transaction_index = dailyTvlMap.get(key)!.transaction_index;
         } else {
           // If there's no entry in dailyTvlMap for this key, use the last known values
           const knownEntry = Array.from(dailyTvlMap.values()).find((entry) => entry.address === address);
@@ -179,6 +222,10 @@ export class TvlService {
             pairId = knownEntry.pairId;
             pairName = knownEntry.pairName;
             symbol = knownEntry.symbol;
+            evt_block_time = knownEntry.evt_block_time;
+            evt_block_number = knownEntry.evt_block_number;
+            strategyId = knownEntry.strategyId;
+            transaction_index = knownEntry.transaction_index;
           }
         }
 
@@ -189,45 +236,121 @@ export class TvlService {
           pairName: pairName,
           symbol: symbol,
           tvl: lastKnownValue, // Use last known value
+          evt_block_time: evt_block_time,
+          evt_block_number: evt_block_number,
+          strategyId: strategyId,
+          transaction_index: transaction_index,
         });
       }
     });
 
-    // Calculate TVL in USD and format results
+    // Calculate TVL without USD rates and format results
     const finalResults = Array.from(filledTvlData.values()).map((tvlEntry) => {
-      const usdRateKey = `${tvlEntry.day}_${tvlEntry.address}`;
+      const dayTimestamp = moment(tvlEntry.day).unix(); // Convert day to Unix timestamp in seconds
+      const evtBlockTimeTimestamp = moment(tvlEntry.evt_block_time).unix(); // Convert evt_block_time to Unix timestamp
+
+      return {
+        day: dayTimestamp,
+        pairId: tvlEntry.pairId,
+        pairName: tvlEntry.pairName,
+        address: tvlEntry.address,
+        symbol: tvlEntry.symbol,
+        tvl: tvlEntry.tvl.toNumber(),
+        evt_block_time: evtBlockTimeTimestamp, // Use Unix timestamp for evt_block_time
+        evt_block_number: tvlEntry.evt_block_number,
+        strategyId: tvlEntry.strategyId,
+        transaction_index: tvlEntry.transaction_index,
+      };
+    });
+
+    // Ensure results are sorted consistently for pagination
+    finalResults.sort((a, b) => {
+      if (a.pairId === null || a.pairId === undefined) {
+        console.log('Missing pairId in finalResults:', a); // Log when a.pairId is null or undefined
+      }
+      if (b.pairId === null || b.pairId === undefined) {
+        console.log('Missing pairId in finalResults:', b); // Log when b.pairId is null or undefined
+      }
+
+      // Safely coerce pairId to numbers for arithmetic comparison
+      const pairIdA = Number(a.pairId) || 0;
+      const pairIdB = Number(b.pairId) || 0;
+
+      return (
+        a.day - b.day ||
+        a.evt_block_time - b.evt_block_time || // Use Unix timestamp comparison
+        pairIdA - pairIdB || // Correct numerical comparison for pairId
+        (a.address || '').localeCompare(b.address || '') || // Ensure string comparison for address
+        (a.strategyId || '').localeCompare(b.strategyId || '') || // Ensure string comparison for strategyId
+        a.evt_block_number - b.evt_block_number || // Correct numerical comparison for evt_block_number
+        (a.transaction_index || '').localeCompare(b.transaction_index || '') // Ensure string comparison for transaction_index
+      );
+    });
+
+    // Perform pagination using slice
+    const paginatedResults = finalResults.slice(offset, offset + limit);
+
+    // Determine unique addresses from the paginated results
+    const uniqueAddresses = new Set<string>(paginatedResults.map((result) => result.address));
+
+    // Query for USD rates only for these unique addresses
+    const usdRateQuery = `
+      SELECT
+        time_bucket_gapfill('1 day', timestamp, '${usdStart}', '${end}') AS day,
+        "tokenAddress" AS address,
+        locf(avg("usd"::numeric)) AS usd  
+      FROM "historic-quotes"
+      WHERE
+        timestamp <= '${end}'  
+        AND timestamp >= '${usdStart}'  
+        AND "blockchainType" = '${deployment.blockchainType}'
+        AND "tokenAddress" IN (${Array.from(uniqueAddresses)
+          .map((address) => `'${address}'`)
+          .join(',')})
+      GROUP BY "tokenAddress", day;
+    `;
+    const usdRateResults = await this.dataSource.query(usdRateQuery);
+
+    // Create a map of USD rates for easier lookup
+    const usdRateMap = new Map<string, number>();
+    usdRateResults.forEach((rateRow) => {
+      const key = `${moment(rateRow.day).format('YYYY-MM-DD')}_${rateRow.address as string}`;
+      usdRateMap.set(key, rateRow.usd);
+    });
+
+    // Add USD data to the paginated results
+    const finalResultsWithUsd = paginatedResults.map((result) => {
+      const usdRateKey = `${moment.unix(result.day).format('YYYY-MM-DD')}_${result.address}`;
       const usdRate = usdRateMap.get(usdRateKey) || 0;
-      const tvlUsd = tvlEntry.tvl.mul(usdRate).toNumber();
+      const tvlUsd = result.tvl * usdRate;
 
       // Return different structures based on groupBy
       if (params.groupBy === GroupBy.PAIR) {
         return {
-          day: tvlEntry.day,
-          pairId: tvlEntry.pairId,
-          pairName: tvlEntry.pairName,
-          tvl: tvlEntry.tvl.toNumber(),
+          pair: result.pairName, // Correct property for pair grouping
           tvlUsd: tvlUsd,
+          day: result.day,
         };
       } else {
         return {
-          day: tvlEntry.day,
-          address: tvlEntry.address,
-          symbol: tvlEntry.symbol,
-          tvl: tvlEntry.tvl.toNumber(),
+          address: result.address, // Correct property for address grouping
+          tvl: result.tvl,
           tvlUsd: tvlUsd,
+          symbol: result.symbol,
+          day: result.day,
         };
       }
     });
 
     // Check if groupBy is pair and sum TVL values for all addresses with the same pairId
     if (params.groupBy === GroupBy.PAIR) {
-      const groupedByPair = new Map<string, { pairName: string; day: string; tvlUsd: number }>();
+      const groupedByPair = new Map<string, { pairName: string; day: number; tvlUsd: number }>();
 
-      finalResults.forEach((result) => {
-        const key = `${result.day}_${result.pairId}`;
+      finalResultsWithUsd.forEach((result) => {
+        const key = `${result.day}_${result.pair}`; // Correct property access
         if (!groupedByPair.has(key)) {
           groupedByPair.set(key, {
-            pairName: result.pairName,
+            pairName: result.pair,
             day: result.day,
             tvlUsd: result.tvlUsd,
           });
@@ -243,8 +366,8 @@ export class TvlService {
       }));
     }
 
-    // Return the final results, grouped by address, respecting the limit and offset
-    return finalResults.slice(offset, offset + limit);
+    // Return the final results with USD data, respecting the limit and offset
+    return finalResultsWithUsd;
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
@@ -483,40 +606,10 @@ export class TvlService {
     const lastDate =
       result.length > 0 ? moment(result[result.length - 1].evt_block_time).format('YYYY-MM-DD HH:mm:ss') : null;
 
-    // Fetch USD rates for all unique addresses in result
     if (firstDate && lastDate) {
-      const uniqueAddresses = Array.from(new Set(result.map((row) => `'${row.address}'`))).join(',');
-      const usdQuery = `
-        SELECT
-          time_bucket_gapfill('1 day', hq.timestamp, '${firstDate}', '${lastDate}') AS day,
-          hq."tokenAddress" AS address,
-          locf(last(hq.usd::numeric, hq.timestamp)) AS usd
-        FROM "historic-quotes" hq
-        WHERE
-          hq."blockchainType" = '${deployment.blockchainType}'
-          AND hq."tokenAddress" IN (${uniqueAddresses})
-          AND hq.timestamp <= '${lastDate}'
-        GROUP BY hq."tokenAddress", day
-        ORDER BY day, hq."tokenAddress";
-      `;
-
-      const usdResults = await this.dataSource.query(usdQuery);
-
-      // Map USD rates for easy lookup
-      const usdMap = new Map<string, number>();
-      usdResults.forEach((usdRow) => {
-        const day = moment(usdRow.day).format('YYYY-MM-DD'); // Ensure date is formatted as 'YYYY-MM-DD'
-        usdMap.set(`${day}-${usdRow.address}`, parseFloat(usdRow.usd) || 0);
-      });
-
       // Process the batches and store with USD rates
       for (let i = 0; i < result.length; i += batchSize) {
         const batch = result.slice(i, i + batchSize).map((record) => {
-          const day = moment(record.evt_block_time).format('YYYY-MM-DD');
-          const address = record.address.toLowerCase();
-          const usdRate = usdMap.get(`${day}-${address}`) || 0;
-          const tvlUsd = parseFloat(record.tvl) * usdRate;
-
           return {
             blockchainType: deployment.blockchainType,
             exchangeId: deployment.exchangeId,
@@ -530,8 +623,6 @@ export class TvlService {
             reason: record.reason,
             evt_block_number: record.evt_block_number,
             transaction_index: record.transaction_index,
-            usdRate: usdRate.toString(),
-            tvlUsd: tvlUsd.toString(),
           };
         });
 
