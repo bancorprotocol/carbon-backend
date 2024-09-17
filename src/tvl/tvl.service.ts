@@ -35,7 +35,7 @@ export class TvlService {
     // For the USD query, decrease the start date by 7 days
     const usdStart = moment.utc(start).subtract(7, 'days').format('YYYY-MM-DD HH:mm:ss');
 
-    const HARD_LIMIT = 1000;
+    const HARD_LIMIT = 10000;
     const limit = Math.min(params.limit, HARD_LIMIT) || HARD_LIMIT;
     const offset = params.offset || 0;
 

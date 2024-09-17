@@ -43,7 +43,7 @@ export class TvlDto {
   @ApiPropertyOptional({
     type: Number,
     description: 'Limit for pagination',
-    default: 1000,
+    default: 10000,
   })
   limit?: number;
 }
