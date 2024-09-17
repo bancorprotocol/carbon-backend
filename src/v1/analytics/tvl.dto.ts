@@ -39,7 +39,7 @@ export class TvlDto {
   @IsNumber()
   @Transform(({ value }) => Number(value))
   @Min(0)
-  @Max(1000)
+  @Max(10000)
   @ApiPropertyOptional({
     type: Number,
     description: 'Limit for pagination',
