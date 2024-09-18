@@ -53,7 +53,7 @@ export class TvlTokensDto {
   @IsString({ each: true })
   @IsAddress({ each: true }) // Updated to support array validation
   @ApiProperty({
-    type: [String],
+    type: String,
     description: 'Array of addresses or comma-separated list of addresses to filter TVL',
   })
   addresses: string[]; // Updated to be an array of strings

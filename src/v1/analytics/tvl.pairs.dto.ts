@@ -2,7 +2,6 @@ import { IsOptional, IsNumber, Min, Max, IsString, IsArray, ValidateNested, Arra
 import { Transform, Type } from 'class-transformer';
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
 import { formatEthereumAddress, IsAddress } from '../../isAddress.validator';
-import { isAddress } from 'ethers/lib/utils';
 
 class TokenPair {
   @IsAddress()
@@ -59,24 +58,20 @@ export class TvlPairsDto {
   @ValidateNested({ each: true })
   @Type(() => TokenPair)
   @Transform(({ value }) => {
-    // Transform the comma-separated pairs into an array of TokenPair objects
     if (typeof value === 'string') {
       return value.split(',').map((pair: string) => {
         const [token0, token1] = pair.split('_').map((addr: string, index: number) => {
           const key = index === 0 ? 'token0' : 'token1';
-
-          // Format the address using the utility function
           return formatEthereumAddress({ value: addr.trim(), key });
         });
-
         return { token0, token1 };
       });
     }
     return value;
   })
   @ApiProperty({
-    type: [String],
-    description: 'Comma-separated list of token pairs in the format address1_address2',
+    type: String, // Display as a string in Swagger
+    description: 'Comma-separated list of token pairs in the format address1_address2, address3_address4',
   })
-  pairs: TokenPair[]; // Each entry will be an object with token0 and token1
+  pairs: TokenPair[]; // Internally processed as an array of TokenPair objects
 }
