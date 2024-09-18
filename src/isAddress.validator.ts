@@ -8,7 +8,6 @@ export function IsAddress(validationOptions?: ValidationOptions) {
       name: 'isAddress',
       target: object.constructor,
       propertyName: propertyName,
-      constraints: [],
       options: {
         ...validationOptions,
         message: `${propertyName} must be a valid token address or an array of valid addresses`,
@@ -17,13 +16,13 @@ export function IsAddress(validationOptions?: ValidationOptions) {
         validate(value: any, args: ValidationArguments) {
           try {
             if (Array.isArray(value)) {
-              // If value is an array, validate each address
+              // Validate each address in the array if 'each' is true
               return value.every((addr) => {
                 const address = toChecksumAddress(addr);
                 return isAddress(address);
               });
             } else {
-              // If value is a single address
+              // Validate a single address
               const address = toChecksumAddress(value);
               return isAddress(address);
             }

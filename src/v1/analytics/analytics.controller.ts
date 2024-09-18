@@ -8,6 +8,7 @@ import { GroupBy, TvlService } from '../../tvl/tvl.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { PairService } from '../../pair/pair.service';
+import { TvlPairsDto } from './tvl.pairs.dto';
 
 @Controller({ version: '1', path: ':exchangeId?/analytics' })
 export class AnalyticsController {
@@ -25,33 +26,18 @@ export class AnalyticsController {
   @ApiExchangeIdParam()
   async tvlByTokens(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlTokensDto): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    if (!query.groupBy || query.groupBy === GroupBy.ADDRESS) {
-      return this.tvlService.getTvlByAddress(deployment, query);
-    }
-
-    // if (!query.groupBy || query.groupBy === GroupBy.PAIR) {
-    //   return this.tvlService.getTvlByPair(deployment, query);
-    // }
-
-    // const pairs = await this.pairService.allAsDictionary(deployment);
+    return this.tvlService.getTvlByAddress(deployment, query);
   }
 
-  // @Get('tvl/pairs')
-  // @CacheTTL(1 * 60 * 1000)
-  // @Header('Cache-Control', 'public, max-age=60')
-  // @ApiExchangeIdParam()
-  // async tvlByPair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlTokensDto): Promise<any> {
-  //   const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
-  //   if (!query.groupBy || query.groupBy === GroupBy.ADDRESS) {
-  //     return this.tvlService.getTvlByAddress(deployment, query);
-  //   }
-
-  //   if (!query.groupBy || query.groupBy === GroupBy.PAIR) {
-  //     return this.tvlService.getTvlByPair(deployment, query, pairs);
-  //   }
-
-  //   const pairs = await this.pairService.allAsDictionary(deployment);
-  // }
+  @Get('tvl/pairs')
+  @CacheTTL(1 * 1000)
+  @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
+  async tvlByPair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlPairsDto): Promise<any> {
+    const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
+    const pairs = await this.pairService.allAsDictionary(deployment);
+    return this.tvlService.getTvlByPair(deployment, query, pairs);
+  }
 
   @Get('volume')
   @CacheTTL(1 * 60 * 1000)

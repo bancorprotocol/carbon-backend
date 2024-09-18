@@ -8,6 +8,7 @@ import { Deployment } from '../deployment/deployment.service';
 import moment from 'moment';
 import Decimal from 'decimal.js';
 import { PairsDictionary } from '../pair/pair.service';
+import { TvlPairsDto } from '../v1/analytics/tvl.pairs.dto';
 
 export enum GroupBy {
   ADDRESS = 'address',
@@ -331,7 +332,7 @@ export class TvlService {
       GROUP BY 
         "timestam", address, symbol
       ORDER BY 
-        "timestam" ASC
+        "timestam", address, symbol ASC
       OFFSET ${params.offset} LIMIT ${params.limit};
     `;
 
@@ -403,35 +404,161 @@ export class TvlService {
     return combinedResult;
   }
 
-  async getTvlByPair(deployment: Deployment, params: TvlTokensDto, pairs: PairsDictionary): Promise<any[]> {
+  private async generateTvlByPair(deployment: Deployment, params: TvlPairsDto, pairIds: number[]): Promise<any[]> {
+    const startFormatted = moment.unix(params.start).format('YYYY-MM-DD');
+    const endFormatted = moment.unix(params.end).add(1, 'day').format('YYYY-MM-DD');
+
+    // Construct the SQL query using pre-computed pairIds
+    const query = `
+      WITH gapfilled_tvl AS (
+        SELECT 
+          time_bucket_gapfill('1 day', "evt_block_time", '${startFormatted}', '${endFormatted}') AS "timestam",
+          "pairId",
+          "pairName",
+          locf(LAST("tvl"::decimal, "evt_block_time")) AS "daily_tvl",
+          address,
+          "strategyId"
+        FROM 
+          tvl
+        WHERE 
+          "pairId" IN (${pairIds.join(', ')})
+          AND "exchangeId" = '${deployment.exchangeId}'
+          AND "blockchainType" = '${deployment.blockchainType}'
+        GROUP BY 
+          "pairId",
+          timestam,
+          "pairName",
+          address,
+          "strategyId"
+        ORDER BY 
+          "timestam", "pairId" ASC
+      )
+      SELECT
+        "timestam",
+        "pairId",
+        "pairName",
+        address,
+        SUM("daily_tvl")::decimal AS total_daily_tvl
+      FROM 
+        gapfilled_tvl
+      WHERE 
+        "timestam" >= '${startFormatted}'
+      GROUP BY 
+        "timestam", "pairId", "pairName", address
+      ORDER BY 
+        "timestam", "pairId" ASC;
+    `;
+
+    // Execute the query using the data source
+    const result = await this.dataSource.query(query);
+
+    // Format the output as requested using moment.js
+    return result.map((row) => ({
+      day: moment.utc(row.timestam).unix(),
+      pairId: row.pairId,
+      pairName: row.pairName,
+      tvl: new Decimal(row.total_daily_tvl),
+      address: row.address,
+    }));
+  }
+
+  async getTvlByPair(deployment: Deployment, params: TvlPairsDto, pairs: PairsDictionary): Promise<any[]> {
     const start = params.start ?? moment().subtract(1, 'year').unix();
     const end = params.end ?? moment().unix();
     const offset = params.offset ?? 0;
-    const limit = params.limit ?? 10000;
-    const updatedParams = { ...params, start, end, offset, limit };
+    const limit = params.limit ?? 10000; // You can adjust or default these values
 
     // Format start and end to the required timestamp string format
     const startFormatted = moment.unix(start).format('YYYY-MM-DD HH:mm:ss');
     const endFormatted = moment.unix(end).format('YYYY-MM-DD HH:mm:ss');
 
+    // Extract the pairIds and token addresses based on the pairs array from the DTO
+    const pairIds: number[] = [];
+    const tokenAddresses: string[] = [];
+
+    // Create a map to store token0 and token1 for each pairId
+    const pairTokensMap: Record<number, { token0: string; token1: string }> = {};
+
+    for (const { token0, token1 } of params.pairs) {
+      // Lookup the pair in the pairs dictionary
+      const pair = pairs[token0]?.[token1];
+      if (pair) {
+        pairIds.push(pair.id);
+        tokenAddresses.push(pair.token0.address.toLowerCase(), pair.token1.address.toLowerCase());
+
+        // Store token0 and token1 for this pairId
+        pairTokensMap[pair.id] = {
+          token0: pair.token0.address.toLowerCase(),
+          token1: pair.token1.address.toLowerCase(),
+        };
+      } else {
+        console.warn(`Pair not found for tokens: ${token0}, ${token1}`);
+      }
+    }
+
     // Use Promise.all to run both methods concurrently
     const [tvlData, usdRates] = await Promise.all([
-      this.generateTvlByAddress(deployment, updatedParams),
-      this.getUsdRates(deployment, updatedParams.addresses, startFormatted, endFormatted), // Use the formatted start/end
+      this.generateTvlByPair(deployment, { ...params, start, end }, pairIds),
+      this.getUsdRates(deployment, tokenAddresses, startFormatted, endFormatted),
     ]);
 
-    // Combine TVL data with USD rates
-    const combinedResult = tvlData.map((tvlEntry) => {
-      const usdRate = usdRates.find(
-        (usdEntry) => usdEntry.day === tvlEntry.day && usdEntry.address === tvlEntry.address,
-      );
-      const tvlUsd = usdRate ? new Decimal(tvlEntry.tvl).mul(new Decimal(usdRate.usd)).toNumber() : null;
+    // Step 1: Calculate tvlUsd for each row
+    const tvlWithUsd = tvlData.map((tvlEntry) => {
+      // Find the USD rate for the token address in the tvl entry
+      const usdRate = usdRates.find((usdEntry) => usdEntry.address === tvlEntry.address.toLowerCase());
+
+      // Calculate the tvlUsd value for the given address
+      const tvlUsd = usdRate ? new Decimal(tvlEntry.tvl).mul(usdRate.usd) : new Decimal(0);
+
       return {
-        ...tvlEntry,
+        day: tvlEntry.day,
+        pairId: tvlEntry.pairId,
+        pairName: tvlEntry.pairName,
         tvlUsd,
+        address: tvlEntry.address, // Include the address to help find token0 and token1 later
       };
     });
 
-    return combinedResult;
+    // Step 2: Group and sum by pairId and day
+    const groupedResult = tvlWithUsd.reduce((acc, tvlEntry) => {
+      const groupKey = `${tvlEntry.pairId}_${tvlEntry.day}`;
+
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          day: tvlEntry.day,
+          pairId: tvlEntry.pairId,
+          pairName: tvlEntry.pairName,
+          tvlUsd: new Decimal(0),
+          token0: pairTokensMap[tvlEntry.pairId]?.token0, // Add token0 from the pairTokensMap
+          token1: pairTokensMap[tvlEntry.pairId]?.token1, // Add token1 from the pairTokensMap
+        };
+      }
+
+      // Sum the tvlUsd for each pairId/day combination
+      acc[groupKey].tvlUsd = acc[groupKey].tvlUsd.add(tvlEntry.tvlUsd);
+
+      return acc;
+    }, {});
+
+    // Step 3: Convert the grouped result into an array and sort by day, pairId, and pairName in ascending order
+    const sortedResult = Object.values(groupedResult)
+      .map((group) => ({
+        day: group['day'],
+        pairId: group['pairId'],
+        pairName: group['pairName'],
+        tvlUsd: group['tvlUsd'].toNumber(),
+        token0: group['token0'], // Include token0
+        token1: group['token1'], // Include token1
+      }))
+      .sort((a, b) => {
+        if (a.day !== b.day) return a.day - b.day;
+        if (a.pairId !== b.pairId) return a.pairId - b.pairId;
+        return a.pairName.localeCompare(b.pairName);
+      });
+
+    // Step 4: Apply pagination (offset and limit) on the sorted result
+    const paginatedResult = sortedResult.slice(offset, offset + limit);
+
+    return paginatedResult;
   }
 }
