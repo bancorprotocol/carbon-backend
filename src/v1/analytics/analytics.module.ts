@@ -5,9 +5,10 @@ import { AnalyticsController } from './analytics.controller';
 import { VolumeModule } from '../../volume/volume.module';
 import { TvlModule } from '../../tvl/tvl.module';
 import { DeploymentModule } from '../../deployment/deployment.module';
+import { PairModule } from '../../pair/pair.module';
 
 @Module({
-  imports: [StrategyModule, VolumeModule, TvlModule, DeploymentModule],
+  imports: [StrategyModule, VolumeModule, TvlModule, DeploymentModule, PairModule],
   providers: [AnalyticsService],
   exports: [AnalyticsService],
   controllers: [AnalyticsController],
