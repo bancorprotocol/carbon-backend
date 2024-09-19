@@ -408,7 +408,7 @@ export class TvlService {
     // Combine TVL data with USD rates
     const combinedResult = tvlData.map((tvlEntry) => {
       const usdRate = usdRates.find(
-        (usdEntry) => usdEntry.day === tvlEntry.day && usdEntry.address === tvlEntry.address,
+        (usdEntry) => usdEntry.day === tvlEntry.timestamp && usdEntry.address === tvlEntry.address,
       );
       const tvlUsd = usdRate ? new Decimal(tvlEntry.tvl).mul(new Decimal(usdRate.usd)).toNumber() : null;
       return {

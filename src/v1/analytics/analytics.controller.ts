@@ -4,7 +4,7 @@ import { AnalyticsService } from './analytics.service';
 import { VolumeDto } from './volume.dto';
 import { TvlTokensDto } from './tvl.tokens.dto';
 import { VolumeService } from '../../volume/volume.service';
-import { GroupBy, TvlService } from '../../tvl/tvl.service';
+import { TvlService } from '../../tvl/tvl.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { PairService } from '../../pair/pair.service';
