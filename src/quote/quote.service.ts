@@ -80,8 +80,8 @@ export class QuoteService implements OnModuleInit {
     return this.quoteRepository.find();
   }
 
-  async allByAddress(): Promise<QuotesByAddress> {
-    const all = await this.all();
+  async allByAddress(deployment: Deployment): Promise<QuotesByAddress> {
+    const all = await this.quoteRepository.find({ where: { blockchainType: deployment.blockchainType } });
     const tokensByAddress = {};
     all.forEach((q) => (tokensByAddress[q.token.address] = q));
     return tokensByAddress;

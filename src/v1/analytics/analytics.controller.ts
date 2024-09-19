@@ -9,6 +9,7 @@ import { DeploymentService, ExchangeId } from '../../deployment/deployment.servi
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { PairService } from '../../pair/pair.service';
 import { TvlPairsDto } from './tvl.pairs.dto';
+import { TotalTvlDto } from './tvl.total.dto';
 
 @Controller({ version: '1', path: ':exchangeId?/analytics' })
 export class AnalyticsController {
@@ -30,13 +31,22 @@ export class AnalyticsController {
   }
 
   @Get('tvl/pairs')
-  @CacheTTL(1 * 1000)
+  @CacheTTL(1 * 60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   @ApiExchangeIdParam()
   async tvlByPair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TvlPairsDto): Promise<any> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const pairs = await this.pairService.allAsDictionary(deployment);
     return this.tvlService.getTvlByPair(deployment, query, pairs);
+  }
+
+  @Get('tvl')
+  @CacheTTL(1 * 60 * 1000)
+  @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
+  async tvl(@ExchangeIdParam() exchangeId: ExchangeId, @Query() query: TotalTvlDto): Promise<any> {
+    const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
+    return this.tvlService.getTotalTvl(deployment, query);
   }
 
   @Get('volume')

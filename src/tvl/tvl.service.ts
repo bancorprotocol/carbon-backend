@@ -9,6 +9,10 @@ import moment from 'moment';
 import Decimal from 'decimal.js';
 import { PairsDictionary } from '../pair/pair.service';
 import { TvlPairsDto } from '../v1/analytics/tvl.pairs.dto';
+import { TotalTvl } from './total-tvl.entity';
+import { TotalTvlDto } from '../v1/analytics/tvl.total.dto';
+import { QuotesByAddress } from '../quote/quote.service';
+import { toChecksumAddress } from 'web3-utils';
 
 export enum GroupBy {
   ADDRESS = 'address',
@@ -20,13 +24,23 @@ export class TvlService {
   constructor(
     @InjectRepository(Tvl)
     private tvlRepository: Repository<Tvl>,
+    @InjectRepository(TotalTvl) private totalTvlRepository: Repository<TotalTvl>,
     private dataSource: DataSource,
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
-  async update(endBlock: number, deployment: Deployment): Promise<void> {
+  async update(endBlock: number, deployment: Deployment, quotes: QuotesByAddress): Promise<void> {
     const startBlock =
       (await this.lastProcessedBlockService.get(`${deployment.blockchainType}-${deployment.exchangeId}-tvl`)) || 1;
+
+    // perform cleanup
+    await this.tvlRepository
+      .createQueryBuilder()
+      .delete()
+      .where('evt_block_number >= :startBlock', { startBlock })
+      .andWhere('blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
+      .execute();
 
     const query = `
       WITH strategy_created AS (
@@ -284,6 +298,8 @@ export class TvlService {
       }
     }
 
+    await this.updateTotalTvl(deployment, quotes);
+
     // Update the last processed block number
     await this.lastProcessedBlockService.update(`${deployment.blockchainType}-${deployment.exchangeId}-tvl`, endBlock);
   }
@@ -341,7 +357,7 @@ export class TvlService {
 
     // Format the output as requested using moment.js
     const formattedResult = result.map((row) => ({
-      day: moment.utc(row.timestam).unix(),
+      timestamp: moment.utc(row.timestam).unix(),
       tvl: parseFloat(row.total_daily_tvl),
       address: row.address,
       symbol: row.symbol,
@@ -543,7 +559,7 @@ export class TvlService {
     // Step 3: Convert the grouped result into an array and sort by day, pairId, and pairName in ascending order
     const sortedResult = Object.values(groupedResult)
       .map((group) => ({
-        day: group['day'],
+        timestamp: group['day'],
         pairId: group['pairId'],
         pairName: group['pairName'],
         tvlUsd: group['tvlUsd'].toNumber(),
@@ -551,7 +567,7 @@ export class TvlService {
         token1: group['token1'], // Include token1
       }))
       .sort((a, b) => {
-        if (a.day !== b.day) return a.day - b.day;
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
         if (a.pairId !== b.pairId) return a.pairId - b.pairId;
         return a.pairName.localeCompare(b.pairName);
       });
@@ -560,5 +576,158 @@ export class TvlService {
     const paginatedResult = sortedResult.slice(offset, offset + limit);
 
     return paginatedResult;
+  }
+
+  private async updateTotalTvl(deployment: Deployment, quotes: QuotesByAddress): Promise<void> {
+    // Find the most recent timestamp already processed
+    const lastProcessedTvl = await this.totalTvlRepository
+      .createQueryBuilder('total_tvl')
+      .where('total_tvl."blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('total_tvl."exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+      .orderBy('total_tvl.timestamp', 'DESC')
+      .limit(1)
+      .getOne();
+
+    // If there's a previously processed record, get the timestamp
+    let lastProcessedTimestamp;
+    if (lastProcessedTvl) {
+      lastProcessedTimestamp = moment(lastProcessedTvl.timestamp).format('YYYY-MM-DD HH:mm:ss');
+    } else {
+      const firstTvlUpdate = await this.tvlRepository
+        .createQueryBuilder('tvl')
+        .where('tvl."blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+        .andWhere('tvl."exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+        .orderBy('tvl.evt_block_number', 'ASC')
+        .limit(1)
+        .getOne();
+      lastProcessedTimestamp = moment(firstTvlUpdate.evt_block_time).format('YYYY-MM-DD HH:mm:ss');
+    }
+
+    const startFormatted = lastProcessedTimestamp;
+    const endFormatted = moment().format('YYYY-MM-DD HH:mm:ss'); // Calculate until now
+
+    const query = `
+    WITH gapfilled_tvl AS (
+      SELECT
+        time_bucket_gapfill('1 hour', "evt_block_time", '${startFormatted}', '${endFormatted}') AS "timestam",
+        locf(LAST("tvl" :: decimal, "evt_block_time")) AS "hourly_tvl",
+        address,
+        "strategyId"
+      FROM
+        tvl
+      WHERE
+        "exchangeId" = '${deployment.exchangeId}'
+        AND "blockchainType" = '${deployment.blockchainType}'
+      GROUP BY
+        timestam, address, "strategyId"
+      ORDER BY
+        "timestam", "address" ASC
+    )
+    SELECT
+      "timestam",
+      address,
+      SUM("hourly_tvl") :: decimal AS total_hourly_tvl
+    FROM
+      gapfilled_tvl
+    WHERE
+      "timestam" > '${startFormatted}'
+    GROUP BY
+      "timestam", address
+    ORDER BY
+      "timestam";
+  `;
+
+    const tvlData = await this.dataSource.query(query);
+
+    // Step 1: Group and sum by address and timestamp
+    const groupedResult = tvlData.reduce((acc, tvlEntry) => {
+      const groupKey = `${tvlEntry.timestam}`;
+      if (!acc[groupKey]) {
+        acc[groupKey] = {
+          timestamp: tvlEntry.timestam,
+          totalTvl: new Decimal(0),
+        };
+      }
+
+      const quote = quotes[toChecksumAddress(tvlEntry.address)];
+      if (quote && tvlEntry.total_hourly_tvl) {
+        const tvlUsd = new Decimal(tvlEntry.total_hourly_tvl).mul(quote.usd);
+        acc[groupKey].totalTvl = acc[groupKey].totalTvl.add(tvlUsd);
+      }
+      return acc;
+    }, {});
+
+    // Step 2: Insert or update the records in total_tvl
+    for (const key in groupedResult) {
+      const row = groupedResult[key];
+
+      const existingRecord = await this.totalTvlRepository.findOne({
+        where: {
+          timestamp: row.timestamp,
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+        },
+      });
+
+      if (existingRecord) {
+        // Update existing record with new TVL
+        existingRecord.tvl = row.totalTvl.toString();
+        await this.totalTvlRepository.save(existingRecord);
+      } else {
+        // Insert new record
+        const newRecord = this.totalTvlRepository.create({
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          timestamp: row.timestamp,
+          tvl: row.totalTvl.toString(),
+        });
+        await this.totalTvlRepository.save(newRecord);
+      }
+    }
+  }
+
+  async getTotalTvl(deployment: Deployment, params: TotalTvlDto): Promise<any[]> {
+    const start = params.start ?? moment().subtract(1, 'year').unix();
+    const end = params.end ?? moment().unix();
+    const offset = params.offset ?? 0;
+    const limit = params.limit ?? 10000;
+
+    const startFormatted = moment.unix(start).format('YYYY-MM-DD HH:mm:ss');
+    const endFormatted = moment.unix(end).format('YYYY-MM-DD HH:mm:ss');
+
+    const query = `
+      WITH gapfilled_tvl AS (
+        SELECT 
+          time_bucket_gapfill('1 day', "timestamp", '${startFormatted}', '${endFormatted}') AS "timestam",
+          locf(avg(tvl::decimal)) AS "tvl"
+        FROM 
+          "total-tvl"
+        WHERE 
+          "blockchainType" = '${deployment.blockchainType}'
+        AND
+          "exchangeId" = '${deployment.exchangeId}'
+        GROUP BY 
+          "timestam"
+        ORDER BY 
+          "timestam" ASC
+      )
+        SELECT
+          "timestam",
+          tvl
+        FROM
+          gapfilled_tvl
+        WHERE
+          "timestam" >= '${startFormatted}'
+        ORDER BY
+          "timestam"
+        OFFSET ${offset} LIMIT ${limit};          
+    `;
+
+    const result = await this.dataSource.query(query);
+
+    return result.map((row) => ({
+      timestamp: moment.utc(row.timestam).unix(),
+      tvlUsd: parseFloat(row.tvl),
+    }));
   }
 }

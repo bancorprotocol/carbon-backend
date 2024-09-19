@@ -49,6 +49,7 @@ import { DeploymentModule } from '../deployment/deployment.module';
     VolumeModule,
     TvlModule,
     DeploymentModule,
+    QuoteModule,
   ],
   providers: [UpdaterService],
 })

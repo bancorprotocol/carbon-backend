@@ -3,9 +3,10 @@ import { TvlService } from './tvl.service';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Tvl } from './tvl.entity';
+import { TotalTvl } from './total-tvl.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Tvl]), LastProcessedBlockModule],
+  imports: [TypeOrmModule.forFeature([Tvl, TotalTvl]), LastProcessedBlockModule],
   providers: [TvlService],
   exports: [TvlService],
 })
