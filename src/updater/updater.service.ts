@@ -20,7 +20,6 @@ import { ActivityService } from '../activity/activity.service';
 import { VolumeService } from '../volume/volume.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service'; // Import DeploymentService
-import { QuoteService } from '../quote/quote.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -50,7 +49,6 @@ export class UpdaterService {
     private volumeService: VolumeService,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
-    private quoteService: QuoteService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -136,8 +134,7 @@ export class UpdaterService {
       await this.volumeService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating volume for ${deployment.exchangeId}`);
 
-      const quotes = await this.quoteService.allByAddress(deployment);
-      await this.tvlService.update(endBlock, deployment, quotes);
+      await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');

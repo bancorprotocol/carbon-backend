@@ -11,8 +11,6 @@ import { PairsDictionary } from '../pair/pair.service';
 import { TvlPairsDto } from '../v1/analytics/tvl.pairs.dto';
 import { TotalTvl } from './total-tvl.entity';
 import { TotalTvlDto } from '../v1/analytics/tvl.total.dto';
-import { QuotesByAddress } from '../quote/quote.service';
-import { toChecksumAddress } from 'web3-utils';
 
 export enum GroupBy {
   ADDRESS = 'address',
@@ -29,7 +27,7 @@ export class TvlService {
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
-  async update(endBlock: number, deployment: Deployment, quotes: QuotesByAddress): Promise<void> {
+  async update(endBlock: number, deployment: Deployment): Promise<void> {
     const startBlock =
       (await this.lastProcessedBlockService.get(`${deployment.blockchainType}-${deployment.exchangeId}-tvl`)) || 1;
 
@@ -298,7 +296,7 @@ export class TvlService {
       }
     }
 
-    await this.updateTotalTvl(deployment, quotes);
+    await this.updateTotalTvl(deployment);
 
     // Update the last processed block number
     await this.lastProcessedBlockService.update(`${deployment.blockchainType}-${deployment.exchangeId}-tvl`, endBlock);
@@ -367,16 +365,21 @@ export class TvlService {
   }
 
   async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
+    const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
+    const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
+
     const query = `
+      WITH gapfilled_quotes as (
       SELECT
-        time_bucket_gapfill('1 day', timestamp, '${start}', '${end}') AS day,
+        time_bucket_gapfill('1 day', timestamp, '${paddedStart}', '${paddedEnd}') AS day,
         "tokenAddress" AS address,
         locf(avg("usd"::numeric)) AS usd  
       FROM "historic-quotes"
       WHERE
         "blockchainType" = '${deployment.blockchainType}'
         AND "tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
-      GROUP BY "tokenAddress", day;
+      GROUP BY "tokenAddress", day
+     ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
     `;
 
     const result = await this.dataSource.query(query);
@@ -578,7 +581,7 @@ export class TvlService {
     return paginatedResult;
   }
 
-  private async updateTotalTvl(deployment: Deployment, quotes: QuotesByAddress): Promise<void> {
+  private async updateTotalTvl(deployment: Deployment): Promise<void> {
     // Find the most recent timestamp already processed
     const lastProcessedTvl = await this.totalTvlRepository
       .createQueryBuilder('total_tvl')
@@ -607,81 +610,108 @@ export class TvlService {
     const endFormatted = moment().format('YYYY-MM-DD HH:mm:ss'); // Calculate until now
 
     const query = `
-    WITH gapfilled_tvl AS (
-      SELECT
-        time_bucket_gapfill('1 hour', "evt_block_time", '${startFormatted}', '${endFormatted}') AS "timestam",
-        locf(LAST("tvl" :: decimal, "evt_block_time")) AS "hourly_tvl",
-        address,
-        "strategyId"
-      FROM
-        tvl
-      WHERE
-        "exchangeId" = '${deployment.exchangeId}'
-        AND "blockchainType" = '${deployment.blockchainType}'
-      GROUP BY
-        timestam, address, "strategyId"
-      ORDER BY
-        "timestam", "address" ASC
-    )
+  WITH gapfilled_tvl AS (
     SELECT
-      "timestam",
+      time_bucket_gapfill('1 hour', "evt_block_time", '${startFormatted}', '${endFormatted}') AS "timestam",
+      locf(LAST("tvl" :: decimal, "evt_block_time")) AS "hourly_tvl",
       address,
-      SUM("hourly_tvl") :: decimal AS total_hourly_tvl
+      "strategyId"
     FROM
-      gapfilled_tvl
+      tvl
     WHERE
-      "timestam" > '${startFormatted}'
+      "exchangeId" = '${deployment.exchangeId}'
+      AND "blockchainType" = '${deployment.blockchainType}'
     GROUP BY
-      "timestam", address
+      timestam, address, "strategyId"
     ORDER BY
-      "timestam";
+      "timestam", "address" ASC
+  )
+  SELECT
+    "timestam",
+    address,
+    SUM("hourly_tvl") :: decimal AS total_hourly_tvl
+  FROM
+    gapfilled_tvl
+  WHERE
+    "timestam" > '${startFormatted}'
+  GROUP BY
+    "timestam", address
+  ORDER BY
+    "timestam";
   `;
 
     const tvlData = await this.dataSource.query(query);
 
-    // Step 1: Group and sum by address and timestamp
-    const groupedResult = tvlData.reduce((acc, tvlEntry) => {
-      const groupKey = `${tvlEntry.timestam}`;
-      if (!acc[groupKey]) {
-        acc[groupKey] = {
-          timestamp: tvlEntry.timestam,
-          totalTvl: new Decimal(0),
-        };
-      }
+    // Get the date range from the TVL data to fetch relevant USD rates
+    const firstDate = tvlData.length > 0 ? moment(tvlData[0].timestam).format('YYYY-MM-DD') : null;
+    const lastDate = tvlData.length > 0 ? moment(tvlData[tvlData.length - 1].timestam).format('YYYY-MM-DD') : null;
 
-      const quote = quotes[toChecksumAddress(tvlEntry.address)];
-      if (quote && tvlEntry.total_hourly_tvl) {
-        const tvlUsd = new Decimal(tvlEntry.total_hourly_tvl).mul(quote.usd);
-        acc[groupKey].totalTvl = acc[groupKey].totalTvl.add(tvlUsd);
-      }
-      return acc;
-    }, {});
+    if (firstDate && lastDate) {
+      // Deduplicate addresses
+      const uniqueAddresses: string[] = Array.from(new Set(tvlData.map((entry) => entry.address)));
 
-    // Step 2: Insert or update the records in total_tvl
-    for (const key in groupedResult) {
-      const row = groupedResult[key];
+      // Fetch USD rates for unique addresses within the TVL data
+      const usdRates = await this.getUsdRates(deployment, uniqueAddresses, firstDate, lastDate);
 
-      const existingRecord = await this.totalTvlRepository.findOne({
-        where: {
-          timestamp: row.timestamp,
-          blockchainType: deployment.blockchainType,
-          exchangeId: deployment.exchangeId,
-        },
+      // Create a map from usdRates with the key being `${address}_${dayUnix}`
+      const usdRatesMap = new Map();
+      usdRates.forEach((usdEntry) => {
+        const dayUnix = moment.unix(usdEntry.day).startOf('day').unix(); // Ensure day is start of day
+        const key = `${usdEntry.address}_${dayUnix}`;
+        usdRatesMap.set(key, usdEntry.usd);
       });
 
-      if (existingRecord) {
-        // Update existing record with new TVL
-        existingRecord.tvl = row.totalTvl.toString();
-        await this.totalTvlRepository.save(existingRecord);
-      } else {
-        // Insert new record
-        const newRecord = this.totalTvlRepository.create({
-          blockchainType: deployment.blockchainType,
-          exchangeId: deployment.exchangeId,
-          timestamp: row.timestamp,
-          tvl: row.totalTvl.toString(),
+      // Now, use the map to find the usdRate in constant time
+      const groupedResult = tvlData.reduce((acc, tvlEntry) => {
+        const groupKey = `${tvlEntry.timestam}`;
+        if (!acc[groupKey]) {
+          acc[groupKey] = {
+            timestamp: tvlEntry.timestam,
+            totalTvl: new Decimal(0),
+          };
+        }
+
+        // Prepare the key for the map lookup
+        const tvlEntryTimestampStartOfDay = moment.utc(tvlEntry.timestam).startOf('day').unix();
+        const key = `${tvlEntry.address}_${tvlEntryTimestampStartOfDay}`;
+
+        // Get the USD rate from the map
+        const usdRate = usdRatesMap.get(key);
+
+        if (usdRate && tvlEntry.total_hourly_tvl) {
+          const tvlUsd = new Decimal(tvlEntry.total_hourly_tvl).mul(usdRate);
+          acc[groupKey].totalTvl = acc[groupKey].totalTvl.add(tvlUsd);
+        }
+
+        return acc;
+      }, {});
+
+      // Step 2: Insert or update the records in total_tvl
+      for (const key in groupedResult) {
+        const row = groupedResult[key];
+
+        const existingRecord = await this.totalTvlRepository.findOne({
+          where: {
+            timestamp: row.timestamp,
+            blockchainType: deployment.blockchainType,
+            exchangeId: deployment.exchangeId,
+          },
         });
-        await this.totalTvlRepository.save(newRecord);
+
+        if (existingRecord) {
+          // Update existing record with new TVL
+          existingRecord.tvl = row.totalTvl.toString();
+          await this.totalTvlRepository.save(existingRecord);
+        } else {
+          // Insert new record
+          const newRecord = this.totalTvlRepository.create({
+            blockchainType: deployment.blockchainType,
+            exchangeId: deployment.exchangeId,
+            timestamp: row.timestamp,
+            tvl: row.totalTvl.toString(),
+          });
+          await this.totalTvlRepository.save(newRecord);
+        }
       }
     }
   }
@@ -699,7 +729,7 @@ export class TvlService {
       WITH gapfilled_tvl AS (
         SELECT 
           time_bucket_gapfill('1 day', "timestamp", '${startFormatted}', '${endFormatted}') AS "timestam",
-          locf(avg(tvl::decimal)) AS "tvl"
+          locf(last(tvl::decimal, "timestamp")) AS "tvl"
         FROM 
           "total-tvl"
         WHERE 
