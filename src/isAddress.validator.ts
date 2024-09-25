@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { registerDecorator, ValidationOptions, ValidationArguments } from 'class-validator';
-import { isAddress, toChecksumAddress } from 'web3-utils';
+import { toChecksumAddress } from 'web3-utils';
 
 export function IsAddress(validationOptions?: ValidationOptions) {
   return function (object: object, propertyName: string) {
@@ -16,16 +16,13 @@ export function IsAddress(validationOptions?: ValidationOptions) {
         validate(value: any, args: ValidationArguments) {
           try {
             if (Array.isArray(value)) {
-              // Validate each address in the array if 'each' is true
-              return value.every((addr) => {
-                const address = toChecksumAddress(addr);
-                return isAddress(address);
-              });
+              (args.object as any)[propertyName] = value.map((a) =>
+                formatEthereumAddress({ value: a, key: args.property }),
+              );
             } else {
-              // Validate a single address
-              const address = toChecksumAddress(value);
-              return isAddress(address);
+              formatEthereumAddress({ value, key: args.property });
             }
+            return true;
           } catch (error) {
             return false;
           }

@@ -6,9 +6,10 @@ import { VolumeModule } from '../../volume/volume.module';
 import { TvlModule } from '../../tvl/tvl.module';
 import { DeploymentModule } from '../../deployment/deployment.module';
 import { PairModule } from '../../pair/pair.module';
+import { TokenModule } from '../../token/token.module';
 
 @Module({
-  imports: [StrategyModule, VolumeModule, TvlModule, DeploymentModule, PairModule],
+  imports: [StrategyModule, VolumeModule, TvlModule, DeploymentModule, PairModule, TokenModule],
   providers: [AnalyticsService],
   exports: [AnalyticsService],
   controllers: [AnalyticsController],

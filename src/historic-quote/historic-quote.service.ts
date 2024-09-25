@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
-import { BlockchainType } from '../deployment/deployment.service';
+import { BlockchainType, Deployment } from '../deployment/deployment.service';
 
 type Candlestick = {
   timestamp: number;
@@ -333,5 +333,32 @@ export class HistoricQuoteService implements OnModuleInit {
       }
     }
     return -1; // If no non-null open value found
+  }
+
+  async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
+    const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
+    const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
+
+    const query = `
+      WITH gapfilled_quotes as (
+      SELECT
+        time_bucket_gapfill('1 day', timestamp, '${paddedStart}', '${paddedEnd}') AS day,
+        "tokenAddress" AS address,
+        locf(avg("usd"::numeric)) AS usd  
+      FROM "historic-quotes"
+      WHERE
+        "blockchainType" = '${deployment.blockchainType}'
+        AND "tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
+      GROUP BY "tokenAddress", day
+     ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
+    `;
+
+    const result = await this.repository.query(query);
+
+    return result.map((row) => ({
+      day: moment.utc(row.day).unix(),
+      address: row.address.toLowerCase(),
+      usd: parseFloat(row.usd),
+    }));
   }
 }

@@ -7,6 +7,7 @@ import {
   Index,
   ManyToOne,
   Unique,
+  PrimaryColumn,
 } from 'typeorm';
 import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
@@ -14,7 +15,11 @@ import { Pair } from '../../pair/pair.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'tokens-traded-events' })
-@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex', 'timestamp'])
+@Index(['pair', 'blockchainType', 'exchangeId'])
+@Index(['sourceToken', 'blockchainType', 'exchangeId'])
+@Index(['targetToken', 'blockchainType', 'exchangeId'])
+@Index(['trader', 'blockchainType', 'exchangeId'])
 export class TokensTradedEvent {
   @PrimaryGeneratedColumn()
   id: number;
@@ -32,46 +37,54 @@ export class TokensTradedEvent {
   block: Block;
 
   @ManyToOne(() => Pair, { eager: true })
+  @Index()
   pair: Pair;
 
   @ManyToOne(() => Token, { eager: true })
+  @Index()
   sourceToken: Token;
 
   @ManyToOne(() => Token, { eager: true })
+  @Index()
   targetToken: Token;
 
-  @Column()
+  @Column({ type: 'text' })
+  @Index()
   trader: string;
 
-  @Column()
+  @Column({ type: 'text' })
   type: string;
 
-  @Column()
+  @Column({ type: 'text' })
   sourceAmount: string;
 
-  @Column()
+  @Column({ type: 'text' })
   targetAmount: string;
 
-  @Column()
+  @Column({ type: 'text' })
   tradingFeeAmount: string;
 
   @Column()
   byTargetAmount: boolean;
 
   @Column()
+  @Index()
   transactionIndex: number;
 
-  @Column()
+  @Column({ type: 'text' })
+  @Index()
   transactionHash: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true })
   @Index()
   callerId: string;
 
   @Column()
+  @Index()
   logIndex: number;
 
-  @Column()
+  @PrimaryColumn('timestamp')
+  @Index()
   timestamp: Date;
 
   @CreateDateColumn()

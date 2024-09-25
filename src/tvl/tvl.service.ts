@@ -11,6 +11,7 @@ import { PairsDictionary } from '../pair/pair.service';
 import { TvlPairsDto } from '../v1/analytics/tvl.pairs.dto';
 import { TotalTvl } from './total-tvl.entity';
 import { TotalTvlDto } from '../v1/analytics/tvl.total.dto';
+import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 
 export enum GroupBy {
   ADDRESS = 'address',
@@ -25,6 +26,7 @@ export class TvlService {
     @InjectRepository(TotalTvl) private totalTvlRepository: Repository<TotalTvl>,
     private dataSource: DataSource,
     private lastProcessedBlockService: LastProcessedBlockService,
+    private historicQuoteService: HistoricQuoteService,
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
@@ -364,33 +366,6 @@ export class TvlService {
     return formattedResult;
   }
 
-  async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
-    const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
-    const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
-
-    const query = `
-      WITH gapfilled_quotes as (
-      SELECT
-        time_bucket_gapfill('1 day', timestamp, '${paddedStart}', '${paddedEnd}') AS day,
-        "tokenAddress" AS address,
-        locf(avg("usd"::numeric)) AS usd  
-      FROM "historic-quotes"
-      WHERE
-        "blockchainType" = '${deployment.blockchainType}'
-        AND "tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
-      GROUP BY "tokenAddress", day
-     ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
-    `;
-
-    const result = await this.dataSource.query(query);
-
-    return result.map((row) => ({
-      day: moment.utc(row.day).unix(),
-      address: row.address.toLowerCase(),
-      usd: parseFloat(row.usd),
-    }));
-  }
-
   async getTvlByAddress(deployment: Deployment, params: TvlTokensDto): Promise<any[]> {
     const start = params.start ?? moment().subtract(1, 'year').unix();
     const end = params.end ?? moment().unix();
@@ -405,7 +380,7 @@ export class TvlService {
     // Use Promise.all to run both methods concurrently
     const [tvlData, usdRates] = await Promise.all([
       this.generateTvlByAddress(deployment, updatedParams),
-      this.getUsdRates(deployment, updatedParams.addresses, startFormatted, endFormatted), // Use the formatted start/end
+      this.historicQuoteService.getUsdRates(deployment, updatedParams.addresses, startFormatted, endFormatted), // Use the formatted start/end
     ]);
 
     // Combine TVL data with USD rates
@@ -518,7 +493,7 @@ export class TvlService {
     // Use Promise.all to run both methods concurrently
     const [tvlData, usdRates] = await Promise.all([
       this.generateTvlByPair(deployment, { ...params, start, end }, pairIds),
-      this.getUsdRates(deployment, tokenAddresses, startFormatted, endFormatted),
+      this.historicQuoteService.getUsdRates(deployment, tokenAddresses, startFormatted, endFormatted),
     ]);
 
     // Step 1: Calculate tvlUsd for each row
@@ -651,7 +626,7 @@ export class TvlService {
       const uniqueAddresses: string[] = Array.from(new Set(tvlData.map((entry) => entry.address)));
 
       // Fetch USD rates for unique addresses within the TVL data
-      const usdRates = await this.getUsdRates(deployment, uniqueAddresses, firstDate, lastDate);
+      const usdRates = await this.historicQuoteService.getUsdRates(deployment, uniqueAddresses, firstDate, lastDate);
 
       // Create a map from usdRates with the key being `${address}_${dayUnix}`
       const usdRatesMap = new Map();
