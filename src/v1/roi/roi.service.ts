@@ -197,6 +197,8 @@ prices AS (
     SELECT address AS contract_address, usd AS price
     FROM quotes q
     LEFT JOIN tokens t on t."id" = q."tokenId"
+    WHERE q."blockchainType" = '${deployment.blockchainType}'
+    
 ),
 
 current_orders8 AS (
