@@ -462,6 +462,8 @@ current_orders4 AS (
   FROM
     deletions_zero c
     LEFT JOIN "strategy-created-events" sce ON sce."strategyId" = c.id
+    WHERE sce."blockchainType" = '${deployment.blockchainType}'
+    AND sce."exchangeId" = '${deployment.exchangeId}'    
 ),
 order_lifespan AS (
   SELECT
