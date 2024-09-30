@@ -8,7 +8,7 @@ import { DeploymentService, ExchangeId } from '../../deployment/deployment.servi
 import { BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/market-rate' })
+@Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
   private blockchainType: BlockchainType;
 

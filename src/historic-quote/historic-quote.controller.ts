@@ -6,7 +6,7 @@ import { HistoricQuoteService } from './historic-quote.service';
 import { ExchangeId } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId/history/prices' })
+@Controller({ version: '1', path: ':exchangeId?/history/prices' })
 export class HistoricQuoteController {
   constructor(private historicQuoteService: HistoricQuoteService) {}
 
