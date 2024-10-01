@@ -13,7 +13,9 @@ export function extractExchangeId(request: Request, exchangeIdParam?: string): E
     if (subdomain.endsWith('-api')) {
       subdomain = subdomain.slice(0, -4); // Remove '-api' suffix
     }
-    exchangeId = subdomain as ExchangeId;
+
+    // Default to 'ethereum' if subdomain is empty
+    exchangeId = subdomain ? (subdomain as ExchangeId) : ('ethereum' as ExchangeId);
   }
 
   if (!Object.values(ExchangeId).includes(exchangeId)) {
