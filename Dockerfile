@@ -1,32 +1,31 @@
-# Use the official lightweight Node.js 18 image.
-FROM node:18-alpine
+# Use the official lightweight Node.js image, always updated to the latest version.
+FROM node:current-alpine
 
-ENV NODE_ENV production
+# Set environment variables
+ENV NODE_ENV=production
 
-# Install Python and pip
-RUN apk --no-cache add python3 py3-pip
+# Install dependencies and tools
+RUN apk --no-cache add python3 py3-pip \
+    && python3 -m venv /venv \
+    && /venv/bin/pip install --no-cache-dir pandas tabulate
 
-# Create a virtual environment and activate it
-RUN python3 -m venv /venv
+# Add virtual environment to the PATH
 ENV PATH="/venv/bin:$PATH"
 
-# Install pandas and tabulate within the virtual environment
-RUN pip3 install --no-cache-dir pandas tabulate
-
-# Create and change to the app directory.
+# Set the working directory
 WORKDIR /usr/src/app
 
-# Copy application dependency manifests to the container image.
-COPY package.json ./
+# Copy only package.json and package-lock.json first to leverage Docker layer caching
+COPY package.json package-lock.json ./
 
 # Install Node.js dependencies
 RUN npm install --omit=dev
 
-# Copy local code to the container image.
-COPY . ./
+# Copy the rest of the application code
+COPY . .
 
 # Build the application
 RUN npm run build
 
-# Run the web service on container startup.
+# Run the web service on container startup
 CMD [ "npm", "run", "start:prod" ]

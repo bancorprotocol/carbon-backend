@@ -7,6 +7,7 @@ import { CoinGeckoService } from './coingecko.service';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
+import { DeploymentService, Deployment } from '../deployment/deployment.service';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
@@ -25,12 +26,13 @@ export class QuoteService implements OnModuleInit {
     private coingeckoService: CoinGeckoService,
     private configService: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
+    private deploymentService: DeploymentService,
   ) {
     this.intervalDuration = +this.configService.get('POLL_QUOTES_INTERVAL') || 60000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES') === '1';
   }
 
-  onModuleInit() {
+  async onModuleInit() {
     if (this.shouldPollQuotes) {
       const callback = () => this.pollForLatest();
       const interval = setInterval(callback, this.intervalDuration);
@@ -47,13 +49,9 @@ export class QuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      const tokens = await this.tokenService.all();
-      const addresses = tokens.map((t) => t.address);
-      let newPrices = await this.coingeckoService.getLatestPrices(addresses);
-      const ethPrice = await this.coingeckoService.getLatestGasTokenPrice();
-      newPrices = { ...newPrices, ...ethPrice };
+      const deployments = await this.deploymentService.getDeployments();
 
-      await this.updateQuotes(tokens, newPrices);
+      await Promise.all(deployments.map((deployment) => this.pollForDeployment(deployment)));
     } catch (error) {
       this.logger.error(`Error fetching and storing quotes: ${error.message}`);
     } finally {
@@ -62,34 +60,48 @@ export class QuoteService implements OnModuleInit {
     }
   }
 
+  async pollForDeployment(deployment: Deployment): Promise<void> {
+    try {
+      const tokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
+      const addresses = tokens.map((t) => t.address);
+      let newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
+      const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
+      newPrices = { ...newPrices, ...gasTokenPrice };
+
+      await this.updateQuotes(tokens, newPrices, deployment);
+    } catch (error) {
+      this.logger.error(
+        `Error fetching and storing quotes for blockchain ${deployment.blockchainType}: ${error.message}`,
+      );
+    }
+  }
+
   async all(): Promise<Quote[]> {
     return this.quoteRepository.find();
   }
 
-  async allByAddress(): Promise<QuotesByAddress> {
-    const all = await this.all();
+  async allByAddress(deployment: Deployment): Promise<QuotesByAddress> {
+    const all = await this.quoteRepository.find({ where: { blockchainType: deployment.blockchainType } });
     const tokensByAddress = {};
     all.forEach((q) => (tokensByAddress[q.token.address] = q));
     return tokensByAddress;
   }
 
-  async fetchLatestPrice(address: string, convert = ['usd']): Promise<any> {
-    const ETH = this.configService.get('ETH');
+  async fetchLatestPrice(deployment: Deployment, address: string, convert = ['usd']): Promise<any> {
     try {
       let price;
-      if (address.toLowerCase() === ETH.toLowerCase()) {
-        price = await this.coingeckoService.getLatestGasTokenPrice(convert);
+      if (address.toLowerCase() === deployment.gasToken.address.toLowerCase()) {
+        price = await this.coingeckoService.getLatestGasTokenPrice(deployment, convert);
       } else {
-        price = await this.coingeckoService.getLatestPrices([address], convert);
+        price = await this.coingeckoService.getLatestPrices([address], deployment, convert);
       }
-
       return price;
     } catch (error) {
       this.logger.error(`Error fetching price: ${error.message}`);
     }
   }
 
-  private async updateQuotes(tokens: Token[], newPrices: Record<string, any>): Promise<void> {
+  private async updateQuotes(tokens: Token[], newPrices: Record<string, any>, deployment: Deployment): Promise<void> {
     const existingQuotes = await this.quoteRepository.find();
     const quoteEntities: Quote[] = [];
 
@@ -100,6 +112,7 @@ export class QuoteService implements OnModuleInit {
         const quote = existingQuotes.find((q) => q.token.id === token.id) || new Quote();
         quote.provider = 'CoinGecko';
         quote.token = token;
+        quote.blockchainType = deployment.blockchainType; // Set the blockchain type here
         quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
         quote.usd = priceWithTimestamp.usd;
         quoteEntities.push(quote);

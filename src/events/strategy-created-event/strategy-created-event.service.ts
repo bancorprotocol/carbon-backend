@@ -6,7 +6,7 @@ import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.servic
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
-import { BlocksDictionary } from '../../block/block.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class StrategyCreatedEventService {
@@ -16,7 +16,12 @@ export class StrategyCreatedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'strategy-created-events',
       contractName: 'CarbonController',
@@ -27,21 +32,24 @@ export class StrategyCreatedEventService {
       tokens,
       customFns: [this.parseEvent],
       tagTimestampFromBlock: true,
+      deployment,
     });
   }
 
-  async all(): Promise<StrategyCreatedEvent[]> {
+  async all(deployment: Deployment): Promise<StrategyCreatedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyCreatedEvents')
       .leftJoinAndSelect('strategyCreatedEvents.block', 'block')
       .leftJoinAndSelect('strategyCreatedEvents.pair', 'pair')
       .leftJoinAndSelect('strategyCreatedEvents.token0', 'token0')
       .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
+      .where('strategyCreatedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('strategyCreatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', 'ASC')
       .getMany();
   }
 
-  async get(startBlock: number, endBlock: number): Promise<StrategyCreatedEvent[]> {
+  async get(startBlock: number, endBlock: number, deployment: Deployment): Promise<StrategyCreatedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyCreatedEvents')
       .leftJoinAndSelect('strategyCreatedEvents.block', 'block')
@@ -50,6 +58,8 @@ export class StrategyCreatedEventService {
       .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
       .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
+      .andWhere('strategyCreatedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('strategyCreatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', 'ASC')
       .getMany();
   }
@@ -58,7 +68,7 @@ export class StrategyCreatedEventService {
     const { event, rawEvent } = args;
 
     // parse id
-    event['id'] = BigNumber.from(rawEvent.returnValues['id']).toString();
+    event['strategyId'] = BigNumber.from(rawEvent.returnValues['id']).toString();
 
     // parse orders
     for (let i = 0; i < 2; i++) {

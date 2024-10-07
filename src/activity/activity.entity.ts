@@ -1,9 +1,40 @@
-import { Entity, Column, PrimaryGeneratedColumn, Index } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, Index, Unique } from 'typeorm';
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'activities' })
+@Unique([
+  'blockchainType',
+  'exchangeId',
+  'strategyId',
+  'action',
+  'baseQuote',
+  'baseSellToken',
+  'baseSellTokenAddress',
+  'quoteBuyToken',
+  'quoteBuyTokenAddress',
+  'buyBudget',
+  'sellBudget',
+  'buyPriceA',
+  'buyPriceMarg',
+  'buyPriceB',
+  'sellPriceA',
+  'sellPriceMarg',
+  'sellPriceB',
+  'timestamp',
+  'txhash',
+  'blockNumber',
+])
 export class Activity {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @Column()
   @Index()

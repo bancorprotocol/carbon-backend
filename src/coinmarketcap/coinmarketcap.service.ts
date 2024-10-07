@@ -19,7 +19,7 @@ const ETH_ID = 1027;
 export class CoinMarketCapService {
   private ethAddress;
   constructor(private readonly configService: ConfigService) {
-    this.ethAddress = this.configService.get('ETH');
+    this.ethAddress = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
   }
 
   private getApiKey(): string {
@@ -39,10 +39,9 @@ export class CoinMarketCapService {
       });
 
       const data = response.data.data;
-      const eth = this.configService.get('ETH');
 
       const tokenIds = tokenAddresses.map((address) => {
-        if (address.toLowerCase() === eth.toLowerCase()) {
+        if (address.toLowerCase() === this.ethAddress.toLowerCase()) {
           return ETH_ID.toString();
         }
         const foundToken = data.find((token) => token.platform?.token_address.toLowerCase() === address.toLowerCase());

@@ -3,16 +3,20 @@ import { MarketRateDto } from './market-rate.dto';
 import { QuoteService } from '../../quote/quote.service';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { ConfigService } from '@nestjs/config';
-import { BlockchainType } from '../../harvester/harvester.service';
 import { CoinGeckoService } from '../../quote/coingecko.service';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import { BlockchainType, Deployment } from '../../deployment/deployment.service';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: 'market-rate' })
+@Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
   private blockchainType: BlockchainType;
+
   constructor(
     private configService: ConfigService,
     private quoteService: QuoteService,
     private coingeckoService: CoinGeckoService,
+    private deploymentService: DeploymentService,
   ) {
     this.blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
   }
@@ -20,12 +24,15 @@ export class MarketRateController {
   @Get('')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
-  async marketRate(@Query() params: MarketRateDto): Promise<any> {
+  @ApiExchangeIdParam()
+  async marketRate(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: MarketRateDto): Promise<any> {
+    const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { address, convert } = params;
     const currencies = convert.split(',');
     let _address = address;
     let data;
-    if (this.blockchainType === BlockchainType.Sei) {
+
+    if (deployment.blockchainType === BlockchainType.Sei) {
       const seiMap = {
         '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 'sei-network',
         '0x3894085ef7ff0f0aedf52e2a2704928d1ec074f1': 'usd-coin',
@@ -35,7 +42,7 @@ export class MarketRateController {
       _address = seiMap[address.toLowerCase()];
       data = await this.coingeckoService.getCoinPrices([_address], currencies);
     } else {
-      data = await this.quoteService.fetchLatestPrice(_address, currencies);
+      data = await this.quoteService.fetchLatestPrice(deployment, _address, currencies);
     }
 
     const result = {

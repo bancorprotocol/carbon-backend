@@ -3,10 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyDeletedEvent } from './strategy-deleted-event.entity';
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
-import { PairsDictionary } from 'src/pair/pair.service';
-import { TokensByAddress } from 'src/token/token.service';
+import { PairsDictionary } from '../../pair/pair.service';
+import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
-import { BlocksDictionary } from '../../block/block.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class StrategyDeletedEventService {
@@ -16,7 +16,12 @@ export class StrategyDeletedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'strategy-deleted-events',
       contractName: 'CarbonController',
@@ -25,20 +30,23 @@ export class StrategyDeletedEventService {
       repository: this.repository,
       pairsDictionary,
       tokens,
+      deployment,
       customFns: [this.parseEvent],
       tagTimestampFromBlock: true,
     });
   }
 
-  async get(startBlock: number, endBlock: number): Promise<StrategyDeletedEvent[]> {
+  async get(startBlock: number, endBlock: number, deployment: Deployment): Promise<StrategyDeletedEvent[]> {
     return this.repository
-      .createQueryBuilder('strategyUpdatedEvents')
-      .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')
-      .leftJoinAndSelect('strategyUpdatedEvents.pair', 'pair')
-      .leftJoinAndSelect('strategyUpdatedEvents.token0', 'token0')
-      .leftJoinAndSelect('strategyUpdatedEvents.token1', 'token1')
+      .createQueryBuilder('strategyDeletedEvents')
+      .leftJoinAndSelect('strategyDeletedEvents.block', 'block')
+      .leftJoinAndSelect('strategyDeletedEvents.pair', 'pair')
+      .leftJoinAndSelect('strategyDeletedEvents.token0', 'token0')
+      .leftJoinAndSelect('strategyDeletedEvents.token1', 'token1')
       .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
+      .andWhere('strategyDeletedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('strategyDeletedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', 'ASC')
       .getMany();
   }
@@ -47,9 +55,7 @@ export class StrategyDeletedEventService {
     const { event, rawEvent } = args;
 
     // parse id
-    event['strategy'] = {
-      id: BigNumber.from(rawEvent.returnValues['id']).toString(),
-    };
+    event['strategyId'] = BigNumber.from(rawEvent.returnValues['id']).toString();
 
     // parse orders
     for (let i = 0; i < 2; i++) {

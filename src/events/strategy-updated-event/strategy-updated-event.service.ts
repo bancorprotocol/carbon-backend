@@ -3,10 +3,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyUpdatedEvent } from './strategy-updated-event.entity';
 import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
-import { PairsDictionary } from 'src/pair/pair.service';
-import { TokensByAddress } from 'src/token/token.service';
+import { PairsDictionary } from '../../pair/pair.service';
+import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
-import { BlocksDictionary } from '../../block/block.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class StrategyUpdatedEventService {
@@ -27,7 +27,12 @@ export class StrategyUpdatedEventService {
       .getMany();
   }
 
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'strategy-updated-events',
       contractName: 'CarbonController',
@@ -36,13 +41,14 @@ export class StrategyUpdatedEventService {
       repository: this.repository,
       pairsDictionary,
       tokens,
+      deployment,
       customFns: [this.parseEvent],
       numberFields: ['reason'],
       tagTimestampFromBlock: true,
     });
   }
 
-  async get(startBlock: number, endBlock: number): Promise<StrategyUpdatedEvent[]> {
+  async get(startBlock: number, endBlock: number, deployment: Deployment): Promise<StrategyUpdatedEvent[]> {
     return this.repository
       .createQueryBuilder('strategyUpdatedEvents')
       .leftJoinAndSelect('strategyUpdatedEvents.block', 'block')
@@ -51,6 +57,8 @@ export class StrategyUpdatedEventService {
       .leftJoinAndSelect('strategyUpdatedEvents.token1', 'token1')
       .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
+      .andWhere('strategyUpdatedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('strategyUpdatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', 'ASC')
       .getMany();
   }
@@ -59,9 +67,7 @@ export class StrategyUpdatedEventService {
     const { event, rawEvent } = args;
 
     // parse id
-    event['strategy'] = {
-      id: BigNumber.from(rawEvent.returnValues['id']).toString(),
-    };
+    event['strategyId'] = BigNumber.from(rawEvent.returnValues['id']).toString();
 
     // parse orders
     for (let i = 0; i < 2; i++) {

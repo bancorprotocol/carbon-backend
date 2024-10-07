@@ -1,20 +1,32 @@
 import { CacheTTL } from '@nestjs/cache-manager';
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query, Param } from '@nestjs/common';
 import { HistoricalTradesDto } from './historical_trades.dto';
 import { TokensTradedEventService } from '../../events/tokens-traded-event/tokens-traded-event.service';
 import { PairService } from '../../pair/pair.service';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: 'cmc' })
+@Controller({ version: '1', path: ':exchangeId?/cmc' })
 export class CmcController {
-  constructor(private tokensTradedEventService: TokensTradedEventService, private pairService: PairService) {}
+  constructor(
+    private tokensTradedEventService: TokensTradedEventService,
+    private pairService: PairService,
+    private deploymentService: DeploymentService,
+  ) {}
+
+  private async getDeployment(exchangeId: ExchangeId): Promise<any> {
+    return this.deploymentService.getDeploymentByExchangeId(exchangeId);
+  }
 
   @Get('pairs')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
-  async pairs(): Promise<any> {
-    const pairs = await this.pairService.all();
-    const volume24h = await this.tokensTradedEventService.volume24hByPair();
-    const lastTrades = await this.tokensTradedEventService.lastTradesByPair();
+  @ApiExchangeIdParam()
+  async pairs(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const pairs = await this.pairService.all(deployment);
+    const volume24h = await this.tokensTradedEventService.volume24hByPair(deployment);
+    const lastTrades = await this.tokensTradedEventService.lastTradesByPair(deployment);
 
     return pairs.map((p) => {
       return {
@@ -33,8 +45,19 @@ export class CmcController {
   @Get('historical_trades')
   @CacheTTL(60 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
-  async historical_trades(@Query() params: HistoricalTradesDto): Promise<any> {
-    const trades = await this.tokensTradedEventService.get({ limit: params.limit, order: 'DESC' });
+  @ApiExchangeIdParam()
+  async historical_trades(
+    @ExchangeIdParam() exchangeId: ExchangeId,
+    @Query() params: HistoricalTradesDto,
+  ): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const trades = await this.tokensTradedEventService.get(
+      {
+        limit: params.limit,
+        order: 'DESC',
+      },
+      deployment,
+    );
 
     return trades.map((t) => {
       return {

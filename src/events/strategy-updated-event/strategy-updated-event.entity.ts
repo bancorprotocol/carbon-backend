@@ -12,20 +12,25 @@ import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
 import { Strategy } from '../../strategy/strategy.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-updated-events' })
-@Unique('strategy-updated-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class StrategyUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'enum', enum: BlockchainType })
   @Index()
-  @ManyToOne(() => Strategy, { eager: true })
-  strategy: Strategy;
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
+
+  @Index()
+  @Column()
+  strategyId: string;
 
   @ManyToOne(() => Pair, { eager: true })
   pair: Pair;

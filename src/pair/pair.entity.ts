@@ -1,4 +1,4 @@
-import { TokensTradedEvent } from 'src/events/tokens-traded-event/tokens-traded-event.entity';
+import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { Block } from '../block/block.entity';
 import { Token } from '../token/token.entity';
 import {
@@ -9,12 +9,22 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'pairs' })
 export class Pair {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
 
   @ManyToOne(() => Block, { eager: true })
   block: Block;

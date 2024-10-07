@@ -1,10 +1,15 @@
-import { Token } from 'src/token/token.entity';
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne } from 'typeorm';
+import { Token } from '../token/token.entity';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, ManyToOne, Index } from 'typeorm';
+import { BlockchainType } from '../deployment/deployment.service';
 
 @Entity({ name: 'quotes' })
 export class Quote {
   @PrimaryGeneratedColumn()
   id: number;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
 
   @Column()
   provider: string;

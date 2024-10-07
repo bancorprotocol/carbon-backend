@@ -12,19 +12,25 @@ import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
 import { Strategy } from '../../strategy/strategy.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'strategy-deleted-events' })
-@Unique('strategy-deleted-events-transactionIndex_transactionHash_logIndex', [
-  'transactionIndex',
-  'transactionHash',
-  'logIndex',
-])
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class StrategyDeletedEvent {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @ManyToOne(() => Strategy, { eager: true })
-  strategy: Strategy;
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
+
+  @Column()
+  @Index()
+  strategyId: string;
 
   @ManyToOne(() => Pair, { eager: true })
   pair: Pair;

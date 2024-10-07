@@ -6,6 +6,7 @@ import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.servic
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import Decimal from 'decimal.js';
+import { Deployment } from '../../deployment/deployment.service';
 
 export type TokensTradedEventQueryParams = {
   startBlock?: number;
@@ -30,7 +31,12 @@ export class TokensTradedEventService {
     private harvesterService: HarvesterService,
   ) {}
 
-  async update(endBlock: number, pairsDictionary: PairsDictionary, tokens: TokensByAddress): Promise<any[]> {
+  async update(
+    endBlock: number,
+    pairsDictionary: PairsDictionary,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'tokens-traded-events',
       contractName: 'CarbonController',
@@ -45,6 +51,7 @@ export class TokensTradedEventService {
       pairsDictionary,
       tokens,
       fetchCallerId: true,
+      deployment,
     });
   }
 
@@ -59,7 +66,7 @@ export class TokensTradedEventService {
     return event;
   }
 
-  async get(params: TokensTradedEventQueryParams = {}): Promise<TokensTradedEvent[]> {
+  async get(params: TokensTradedEventQueryParams = {}, deployment: Deployment): Promise<TokensTradedEvent[]> {
     const { startBlock, endBlock, startTime, endTime, limit, type, pairId, last24h, order } = params;
     const queryOrder = order === 'DESC' ? 'DESC' : 'ASC';
 
@@ -71,6 +78,8 @@ export class TokensTradedEventService {
       .leftJoinAndSelect('tokensTradedEvents.block', 'block')
       .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
       .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
+      .where('tokensTradedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('tokensTradedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', queryOrder);
 
     if (startBlock !== undefined) {
@@ -98,7 +107,7 @@ export class TokensTradedEventService {
     }
 
     if (last24h === true) {
-      queryBuilder.where(`tokensTradedEvents.timestamp >= NOW() - INTERVAL '24 hours'`);
+      queryBuilder.andWhere(`tokensTradedEvents.timestamp >= NOW() - INTERVAL '24 hours'`);
     }
 
     if (limit !== undefined) {
@@ -123,8 +132,8 @@ export class TokensTradedEventService {
     return trades;
   }
 
-  async volume24hByToken(): Promise<any> {
-    const trades = await this.get({ last24h: true, normalizeDecimals: true });
+  async volume24hByToken(deployment: Deployment): Promise<any> {
+    const trades = await this.get({ last24h: true, normalizeDecimals: true }, deployment);
 
     const result = {};
     trades.forEach((t) => {
@@ -143,8 +152,8 @@ export class TokensTradedEventService {
     return result;
   }
 
-  async volume24hByPair(): Promise<any> {
-    const trades = await this.get({ last24h: true, normalizeDecimals: true });
+  async volume24hByPair(deployment: Deployment): Promise<any> {
+    const trades = await this.get({ last24h: true, normalizeDecimals: true }, deployment);
 
     const result = {};
     trades.forEach((t) => {
@@ -167,7 +176,7 @@ export class TokensTradedEventService {
     return result;
   }
 
-  async lastTradesByPair(): Promise<any> {
+  async lastTradesByPair(deployment: Deployment): Promise<any> {
     const trades = await this.repository
       .createQueryBuilder('tokensTradedEvents')
       .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
@@ -176,6 +185,8 @@ export class TokensTradedEventService {
       .leftJoinAndSelect('tokensTradedEvents.block', 'block')
       .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
       .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
+      .where('tokensTradedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('tokensTradedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('pair.id', 'DESC')
       .addOrderBy('block.id', 'DESC')
       .distinctOn(['pair.id'])

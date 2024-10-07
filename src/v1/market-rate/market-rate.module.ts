@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MarketRateController } from './market-rate.controller';
-import { QuoteModule } from 'src/quote/quote.module';
+import { QuoteModule } from '../../quote/quote.module';
+import { DeploymentModule } from '../../deployment/deployment.module';
 
 @Module({
-  imports: [QuoteModule],
+  imports: [QuoteModule, DeploymentModule],
   controllers: [MarketRateController],
 })
 export class MarketRateModule {}

@@ -7,13 +7,29 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
-  PrimaryColumn,
+  PrimaryGeneratedColumn,
+  Index,
+  Unique,
 } from 'typeorm';
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'strategies' })
+@Unique(['blockchainType', 'exchangeId', 'strategyId'])
 export class Strategy {
-  @PrimaryColumn()
+  @PrimaryGeneratedColumn()
   id: string;
+
+  @Column({ type: 'enum', enum: BlockchainType })
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column({ type: 'enum', enum: ExchangeId })
+  @Index()
+  exchangeId: ExchangeId;
+
+  @Column()
+  @Index()
+  strategyId: string;
 
   @ManyToOne(() => Block, { eager: true })
   block: Block;

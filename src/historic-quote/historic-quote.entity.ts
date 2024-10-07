@@ -7,14 +7,21 @@ import {
   PrimaryColumn,
   Index,
 } from 'typeorm';
+import { BlockchainType } from '../deployment/deployment.service';
 
+@Index(['blockchainType', 'tokenAddress', 'timestamp']) // Composite index for gapfill query efficiency
 @Entity({ name: 'historic-quotes' })
-@Index(['tokenAddress', 'timestamp'], { unique: false })
+@Index('IDX_token_address_desc', { synchronize: false })
 export class HistoricQuote {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ type: 'enum', enum: BlockchainType, default: BlockchainType.Ethereum })
+  @Index()
+  blockchainType: BlockchainType;
+
   @PrimaryColumn('timestamp')
+  @Index()
   timestamp: Date;
 
   @Column()
@@ -24,7 +31,7 @@ export class HistoricQuote {
   @Column()
   provider: string;
 
-  @Column()
+  @Column() // Keep usd as text
   usd: string;
 
   @CreateDateColumn({

@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { BlockModule } from '../block/block.module';
-import { BlockchainConfigModule } from '../blockchain-config/blockchain-config.module';
 import { RedisModule } from '../redis/redis.module';
 import { UpdaterService } from './updater.service';
 import { HarvesterModule } from '../harvester/harvester.module';
@@ -21,11 +20,13 @@ import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
 import { AnalyticsModule } from '../v1/analytics/analytics.module';
 import { DexScreenerModule } from '../v1/dex-screener/dex-screener.module';
+import { VolumeModule } from '../volume/volume.module';
+import { TvlModule } from '../tvl/tvl.module';
+import { DeploymentModule } from '../deployment/deployment.module';
 
 @Module({
   imports: [
     BlockModule,
-    BlockchainConfigModule,
     RedisModule,
     HarvesterModule,
     LastProcessedBlockModule,
@@ -45,6 +46,9 @@ import { DexScreenerModule } from '../v1/dex-screener/dex-screener.module';
     VoucherTransferEventModule,
     AnalyticsModule,
     DexScreenerModule,
+    VolumeModule,
+    TvlModule,
+    DeploymentModule,
   ],
   providers: [UpdaterService],
 })
