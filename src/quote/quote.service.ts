@@ -7,7 +7,8 @@ import { CoinGeckoService } from './coingecko.service';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
-import { DeploymentService, Deployment } from '../deployment/deployment.service';
+import { DeploymentService, Deployment, BlockchainType } from '../deployment/deployment.service';
+import { CodexService } from '../codex/codex.service';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
@@ -27,6 +28,7 @@ export class QuoteService implements OnModuleInit {
     private configService: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
     private deploymentService: DeploymentService,
+    private codexService: CodexService,
   ) {
     this.intervalDuration = +this.configService.get('POLL_QUOTES_INTERVAL') || 60000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES') === '1';
@@ -64,9 +66,15 @@ export class QuoteService implements OnModuleInit {
     try {
       const tokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
       const addresses = tokens.map((t) => t.address);
-      let newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
-      const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
-      newPrices = { ...newPrices, ...gasTokenPrice };
+
+      let newPrices;
+      if (deployment.blockchainType === BlockchainType.Sei) {
+        newPrices = await this.codexService.getLatestPrices(addresses);
+      } else {
+        newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
+        const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
+        newPrices = { ...newPrices, ...gasTokenPrice };
+      }
 
       await this.updateQuotes(tokens, newPrices, deployment);
     } catch (error) {
@@ -110,7 +118,7 @@ export class QuoteService implements OnModuleInit {
 
       if (priceWithTimestamp) {
         const quote = existingQuotes.find((q) => q.token.id === token.id) || new Quote();
-        quote.provider = 'CoinGecko';
+        quote.provider = priceWithTimestamp.provider;
         quote.token = token;
         quote.blockchainType = deployment.blockchainType; // Set the blockchain type here
         quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);

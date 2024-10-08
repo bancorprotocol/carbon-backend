@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
-import { SecretManagerServiceClient } from '@google-cloud/secret-manager';
 import { LastProcessedBlockModule } from './last-processed-block/last-processed-block.module';
 import { BlockModule } from './block/block.module';
 import { RedisModule } from './redis/redis.module';
@@ -21,6 +20,8 @@ import { ActivityModule } from './activity/activity.module';
 import { VolumeModule } from './volume/volume.module';
 import { TvlModule } from './tvl/tvl.module';
 import { DeploymentModule } from './deployment/deployment.module';
+import { CodexService } from './codex/codex.service';
+import { CodexModule } from './codex/codex.module';
 
 @Module({
   imports: [
@@ -95,6 +96,7 @@ import { DeploymentModule } from './deployment/deployment.module';
     VolumeModule,
     TvlModule,
     DeploymentModule,
+    CodexModule,
   ],
 
   providers: [
@@ -102,6 +104,7 @@ import { DeploymentModule } from './deployment/deployment.module';
       provide: APP_INTERCEPTOR,
       useClass: CacheInterceptor,
     },
+    CodexService,
   ],
 })
 export class AppModule {}

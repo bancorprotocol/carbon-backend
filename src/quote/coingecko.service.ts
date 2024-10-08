@@ -37,6 +37,7 @@ export class CoinGeckoService {
       const responses = await Promise.all(requests);
       let result = {};
       responses.forEach((r) => {
+        r.data.provider = 'coingecko';
         result = { ...result, ...r.data };
       });
 
