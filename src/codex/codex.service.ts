@@ -56,7 +56,7 @@ export class CodexService {
 
   async fetchChartData(networkId: number, tokenAddress: string, from: number, to: number) {
     try {
-      const data = await this.fetchAllTokens(networkId);
+      const data = await this.fetchTokens(networkId);
 
       const networks = await this.sdk.queries.bars({
         symbol: `${tokenAddress}:${networkId}`,
@@ -72,7 +72,7 @@ export class CodexService {
     }
   }
 
-  private async fetchAllTokens(networkId: number) {
+  private async fetchTokens(networkId: number, addresses?: string[]) {
     const limit = 200;
     let offset = 0;
     let allTokens = [];
@@ -84,6 +84,7 @@ export class CodexService {
           filters: {
             network: [networkId],
           },
+          tokens: addresses || undefined, // Use addresses if provided, otherwise fetch all
           limit,
           offset,
         });
@@ -96,34 +97,7 @@ export class CodexService {
         throw error;
       }
     } while (fetched.length === limit);
-    return allTokens;
-  }
 
-  private async fetchTokens(networkId: number, addresses: string[]) {
-    const limit = 200;
-    let offset = 0;
-    let allTokens = [];
-    let fetched = [];
-
-    do {
-      try {
-        const result = await this.sdk.queries.filterTokens({
-          filters: {
-            network: [networkId],
-          },
-          tokens: addresses,
-          limit,
-          offset,
-        });
-
-        fetched = result.filterTokens.results;
-        allTokens = [...allTokens, ...fetched];
-        offset += limit;
-      } catch (error) {
-        console.error('Error fetching tokens:', error);
-        throw error;
-      }
-    } while (fetched.length === limit);
     return allTokens;
   }
 }
