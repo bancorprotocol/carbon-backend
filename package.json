@@ -27,6 +27,7 @@
     "migration:revert": "npm run build && typeorm-ts-node-commonjs migration:revert -d src/typeorm.config.ts"
   },
   "dependencies": {
+    "@codex-data/sdk": "^0.6.2",
     "@ethersproject/bignumber": "^5.7.0",
     "@google-cloud/secret-manager": "^5.3.0",
     "@nestjs/axios": "^3.0.0",

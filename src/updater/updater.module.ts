@@ -23,6 +23,7 @@ import { DexScreenerModule } from '../v1/dex-screener/dex-screener.module';
 import { VolumeModule } from '../volume/volume.module';
 import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
+import { CodexModule } from '../codex/codex.module';
 
 @Module({
   imports: [
@@ -49,6 +50,7 @@ import { DeploymentModule } from '../deployment/deployment.module';
     VolumeModule,
     TvlModule,
     DeploymentModule,
+    CodexModule,
   ],
   providers: [UpdaterService],
 })
