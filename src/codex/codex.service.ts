@@ -32,7 +32,7 @@ export class CodexService {
       const address = t.token.address.toLowerCase();
       result[address] = {
         address: t.token.address,
-        usd: t.priceUSD,
+        usd: Number(t.priceUSD),
         provider: 'codex',
         last_updated_at: moment().unix(),
       };
@@ -44,7 +44,7 @@ export class CodexService {
       if (seiToken) {
         result[targetAddress] = {
           address: targetAddress,
-          usd: seiToken.priceUSD,
+          usd: Number(seiToken.priceUSD),
           provider: 'codex',
           last_updated_at: moment().unix(),
         };
