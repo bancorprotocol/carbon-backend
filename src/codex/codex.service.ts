@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 
-const SEI_NETWORK_ID = 531;
+export const SEI_NETWORK_ID = 531;
 
 @Injectable()
 export class CodexService {
@@ -14,7 +14,7 @@ export class CodexService {
     this.sdk = new Codex(apiKey);
   }
 
-  async getLatestPrices(addresses: string[]): Promise<any> {
+  async getLatestPrices(networkId: number, addresses: string[]): Promise<any> {
     const targetAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const replacementAddress = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
 
@@ -27,7 +27,7 @@ export class CodexService {
     }
 
     const result = {};
-    const tokens = await this.fetchTokens(SEI_NETWORK_ID, addresses);
+    const tokens = await this.fetchTokens(networkId, addresses);
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();
       result[address] = {
@@ -54,22 +54,54 @@ export class CodexService {
     return result;
   }
 
-  async fetchChartData(networkId: number, tokenAddress: string, from: number, to: number) {
-    try {
-      const data = await this.fetchTokens(networkId);
+  async getHistoricalQuotes(networkId: number, tokenAddresses: string[], from: number, to: number) {
+    const limit = (await import('p-limit')).default;
+    const concurrencyLimit = limit(10);
 
-      const networks = await this.sdk.queries.bars({
-        symbol: `${tokenAddress}:${networkId}`,
-        from,
-        to,
-        resolution: '240',
+    // Helper function to retry a request indefinitely on failure
+    const fetchWithRetry = async (tokenAddress: string): Promise<any> => {
+      try {
+        const bars = await this.sdk.queries.bars({
+          symbol: `${tokenAddress}:${networkId}`,
+          from,
+          to,
+          resolution: '1D',
+          removeLeadingNullValues: true,
+        });
+        return { ...bars.getBars, address: tokenAddress };
+      } catch (error) {
+        console.error(`Error fetching data for ${tokenAddress}, retrying...`, error);
+        return fetchWithRetry(tokenAddress); // Recursive retry
+      }
+    };
+
+    try {
+      // Map token addresses to fetch requests with concurrency limit
+      const results = await Promise.all(
+        tokenAddresses.map((tokenAddress) => concurrencyLimit(() => fetchWithRetry(tokenAddress))),
+      );
+
+      const quotesByAddress = {};
+      results.forEach((result) => {
+        const { address, c, t } = result;
+
+        quotesByAddress[address] = t.map((timestamp: number, index: number) => {
+          const usd = c[index];
+          return { timestamp, usd };
+        });
       });
 
-      return data;
+      return quotesByAddress;
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Unexpected error:', error);
       throw error;
     }
+  }
+
+  async getAllTokenAddresses(networkId: number): Promise<string[]> {
+    const tokens = await this.fetchTokens(networkId);
+    const uniqueAddresses = Array.from(new Set(tokens.map((t) => t.token.address.toLowerCase())));
+    return uniqueAddresses;
   }
 
   private async fetchTokens(networkId: number, addresses?: string[]) {
