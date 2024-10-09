@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 
-const SEI_NETWORK_ID = 531;
+export const SEI_NETWORK_ID = 531;
 
 @Injectable()
 export class CodexService {
@@ -14,7 +14,7 @@ export class CodexService {
     this.sdk = new Codex(apiKey);
   }
 
-  async getLatestPrices(addresses: string[]): Promise<any> {
+  async getLatestPrices(networkId: number, addresses: string[]): Promise<any> {
     const targetAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const replacementAddress = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
 
@@ -27,7 +27,7 @@ export class CodexService {
     }
 
     const result = {};
-    const tokens = await this.fetchTokens(SEI_NETWORK_ID, addresses);
+    const tokens = await this.fetchTokens(networkId, addresses);
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();
       result[address] = {
@@ -54,22 +54,66 @@ export class CodexService {
     return result;
   }
 
-  async fetchChartData(networkId: number, tokenAddress: string, from: number, to: number) {
-    try {
-      const data = await this.fetchTokens(networkId);
+  async getHistoricalQuotes(networkId: number, tokenAddresses: string[], from: number, to: number) {
+    const limit = (await import('p-limit')).default;
+    const concurrencyLimit = limit(1);
+    const maxPoints = 1499;
+    const resolution = 240; // Resolution in minutes (adjustable here)
+    const resolutionSeconds = resolution * 60; // Convert resolution to seconds
+    const maxBatchDuration = maxPoints * resolutionSeconds; // Max batch duration in seconds
 
-      const networks = await this.sdk.queries.bars({
-        symbol: `${tokenAddress}:${networkId}`,
-        from,
-        to,
-        resolution: '240',
+    const fetchWithRetry = async (tokenAddress: string, batchFrom: number, batchTo: number): Promise<any> => {
+      try {
+        const bars = await this.sdk.queries.bars({
+          symbol: `${tokenAddress}:${networkId}`,
+          from: batchFrom,
+          to: batchTo,
+          resolution: `${resolution}`, // Use resolution variable
+          removeLeadingNullValues: true,
+        });
+        return { ...bars.getBars, address: tokenAddress };
+      } catch (error) {
+        console.error(`Error fetching data for ${tokenAddress}, retrying...`, error);
+        return fetchWithRetry(tokenAddress, batchFrom, batchTo);
+      }
+    };
+
+    const fetchAllBatches = async (tokenAddress: string): Promise<any> => {
+      const batchedResults = [];
+      for (let start = from; start < to; start += maxBatchDuration) {
+        const end = Math.min(start + maxBatchDuration, to);
+        batchedResults.push(await fetchWithRetry(tokenAddress, start, end));
+      }
+      return batchedResults.flatMap((result) => result);
+    };
+
+    try {
+      const results = await Promise.all(
+        tokenAddresses.map((tokenAddress) => concurrencyLimit(() => fetchAllBatches(tokenAddress))),
+      );
+
+      const quotesByAddress = {};
+      results.forEach((batchedResult, index) => {
+        const tokenAddress = tokenAddresses[index];
+        quotesByAddress[tokenAddress] = batchedResult.flatMap((result) =>
+          result.t.map((timestamp: number, i: number) => ({
+            timestamp,
+            usd: result.c[i],
+          })),
+        );
       });
 
-      return data;
+      return quotesByAddress;
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Unexpected error:', error);
       throw error;
     }
+  }
+
+  async getAllTokenAddresses(networkId: number): Promise<string[]> {
+    const tokens = await this.fetchTokens(networkId);
+    const uniqueAddresses = Array.from(new Set(tokens.map((t) => t.token.address.toLowerCase())));
+    return uniqueAddresses;
   }
 
   private async fetchTokens(networkId: number, addresses?: string[]) {

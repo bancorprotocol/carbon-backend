@@ -17,10 +17,8 @@ import { VoucherTransferEventService } from '../events/voucher-transfer-event/vo
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { ActivityService } from '../activity/activity.service';
-import { VolumeService } from '../volume/volume.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service'; // Import DeploymentService
-import { CodexService } from '../codex/codex.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -33,7 +31,6 @@ export class UpdaterService {
   constructor(
     private configService: ConfigService,
     private harvesterService: HarvesterService,
-    private lastProcessedBlockService: LastProcessedBlockService,
     private tokenService: TokenService,
     private pairService: PairService,
     private pairCreatedEventService: PairCreatedEventService,
@@ -47,10 +44,8 @@ export class UpdaterService {
     private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
     private dexScreenerService: DexScreenerService,
-    private volumeService: VolumeService,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
-    private codexService: CodexService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -70,8 +65,6 @@ export class UpdaterService {
   }
 
   async updateDeployment(deployment: Deployment): Promise<void> {
-    // await this.codexService.fetchChartData(1, '0x6b175474e89094c44da98b954eedeac495271d0f');
-
     const deploymentKey = `${deployment.blockchainType}:${deployment.exchangeId}`;
     if (this.isUpdating[deploymentKey]) return;
 
@@ -134,9 +127,6 @@ export class UpdaterService {
 
       await this.activityService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
-
-      // await this.volumeService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating volume for ${deployment.exchangeId}`);
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);

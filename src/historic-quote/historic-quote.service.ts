@@ -9,6 +9,7 @@ import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
+import { CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
 
 type Candlestick = {
   timestamp: number;
@@ -29,6 +30,7 @@ export class HistoricQuoteService implements OnModuleInit {
     private coinmarketcapService: CoinMarketCapService,
     private configService: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
+    private codexService: CodexService,
   ) {
     this.intervalDuration = +this.configService.get('POLL_HISTORIC_QUOTES_INTERVAL') || 300000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES') === '1';
@@ -47,28 +49,63 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      const latest = await this.getLatest();
-      const quotes = await this.coinmarketcapService.getLatestQuotes();
-      const newQuotes = [];
-      for (const q of quotes) {
-        const tokenAddress = q.tokenAddress;
-        const price = `${q.usd}`;
-
-        if (latest[tokenAddress] && latest[tokenAddress].usd === price) {
-          continue;
-        }
-        q.blockchainType = BlockchainType.Ethereum;
-        newQuotes.push(this.repository.create(q));
-      }
-
-      const batches = _.chunk(newQuotes, 1000);
-      await Promise.all(batches.map((batch) => this.repository.save(batch)));
+      await Promise.all([await this.updateCoinMarketCapQuotes(), await this.updateCodexQuotes()]);
     } catch (error) {
-      console.log(error);
+      console.error('Error updating historic quotes:', error);
+      this.isPolling = false;
     }
 
     this.isPolling = false;
     console.log('Historic quotes updated');
+  }
+
+  private async updateCoinMarketCapQuotes(): Promise<void> {
+    const latest = await this.getLatest(BlockchainType.Ethereum); // Pass the deployment to filter by blockchainType
+    const quotes = await this.coinmarketcapService.getLatestQuotes();
+    const newQuotes = [];
+
+    for (const q of quotes) {
+      const tokenAddress = q.tokenAddress;
+      const price = `${q.usd}`;
+
+      if (latest[tokenAddress] && latest[tokenAddress].usd === price) continue;
+
+      q.blockchainType = BlockchainType.Ethereum;
+      newQuotes.push(this.repository.create(q));
+    }
+
+    const batches = _.chunk(newQuotes, 1000);
+    await Promise.all(batches.map((batch) => this.repository.save(batch)));
+    console.log('CoinMarketCap quotes updated');
+  }
+
+  private async updateCodexQuotes(): Promise<void> {
+    const latest = await this.getLatest(BlockchainType.Sei); // Pass the deployment to filter by blockchainType
+    const networkId = SEI_NETWORK_ID;
+    const addresses = await this.codexService.getAllTokenAddresses(networkId);
+    const quotes = await this.codexService.getLatestPrices(networkId, addresses);
+    const newQuotes = [];
+
+    for (const address of Object.keys(quotes)) {
+      const quote = quotes[address];
+      const price = `${quote.usd}`;
+
+      if (latest[address] && latest[address].usd === price) continue;
+
+      newQuotes.push(
+        this.repository.create({
+          tokenAddress: address,
+          usd: quote.usd,
+          timestamp: moment.unix(quote.last_updated_at).utc().toISOString(),
+          provider: 'codex',
+          blockchainType: BlockchainType.Sei,
+        }),
+      );
+    }
+
+    const batches = _.chunk(newQuotes, 1000);
+    await Promise.all(batches.map((batch) => this.repository.save(batch)));
+    console.log('Codex quotes updated');
   }
 
   async seed(): Promise<void> {
@@ -107,8 +144,42 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
-  async getLatest(): Promise<{ [key: string]: HistoricQuote }> {
-    // Execute the provided SQL query directly
+  async seedSei(): Promise<void> {
+    const start = moment().subtract(1, 'year').unix();
+    const end = moment().unix();
+    let i = 0;
+
+    const networkId = SEI_NETWORK_ID; // Assuming SEI_NETWORK_ID is defined
+    const addresses = await this.codexService.getAllTokenAddresses(networkId);
+    const batchSize = 100;
+
+    for (let startIndex = 0; startIndex < addresses.length; startIndex += batchSize) {
+      const batchAddresses = addresses.slice(startIndex, startIndex + batchSize);
+
+      // Fetch historical quotes for the current batch of addresses
+      const quotesByAddress = await this.codexService.getHistoricalQuotes(networkId, batchAddresses, start, end);
+
+      for (const address of batchAddresses) {
+        const quotes = quotesByAddress[address];
+
+        const newQuotes = quotes.map((q: any) =>
+          this.repository.create({
+            tokenAddress: address,
+            usd: q.usd,
+            timestamp: moment.unix(q.timestamp).utc().toISOString(),
+            provider: 'codex',
+            blockchainType: BlockchainType.Sei,
+          }),
+        );
+
+        const batches = _.chunk(newQuotes, 1000);
+        await Promise.all(batches.map((batch) => this.repository.save(batch)));
+        console.log(`Sei history quote seeding, finished ${++i} of ${addresses.length}`, new Date());
+      }
+    }
+  }
+
+  async getLatest(blockchainType: BlockchainType): Promise<{ [key: string]: HistoricQuote }> {
     const latestQuotes = await this.repository.query(`
       SELECT 
           "tokenAddress",
@@ -116,6 +187,7 @@ export class HistoricQuoteService implements OnModuleInit {
           last(usd, "timestamp") AS usd,
           last("timestamp", "timestamp") AS timestamp
       FROM "historic-quotes"
+      WHERE "blockchainType" = '${blockchainType}'
       GROUP BY "tokenAddress", "blockchainType";
     `);
 
@@ -152,6 +224,7 @@ export class HistoricQuoteService implements OnModuleInit {
   }
 
   async getHistoryQuotesBuckets(
+    blockchainType: BlockchainType,
     _addresses: string[],
     start: number,
     end: number,
@@ -179,6 +252,7 @@ export class HistoricQuoteService implements OnModuleInit {
       WHERE
         timestamp >= '${startPaddedQ}' AND timestamp <= '${endQ}'
         and "tokenAddress" IN (${addressesString})
+        AND "blockchainType" = '${blockchainType}'
       GROUP BY
         "tokenAddress",  bucket
       ORDER BY
@@ -250,13 +324,27 @@ export class HistoricQuoteService implements OnModuleInit {
     return candlesByAddress;
   }
 
-  async getUsdBuckets(tokenA: string, tokenB: string, start: number, end: number): Promise<Candlestick[]> {
-    const data = await this.getHistoryQuotesBuckets([tokenA, tokenB], start, end, '1 hour');
+  async getUsdBuckets(
+    blockchainType: BlockchainType,
+    tokenA: string,
+    tokenB: string,
+    start: number,
+    end: number,
+  ): Promise<Candlestick[]> {
+    let _tokenA, _tokenB;
+    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
+    if (blockchainType === BlockchainType.Sei) {
+      _tokenA = tokenA.toLowerCase() === seiToken ? wrappedSeiToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === seiToken ? wrappedSeiToken : tokenB;
+    }
+
+    const data = await this.getHistoryQuotesBuckets(blockchainType, [_tokenA, _tokenB], start, end, '1 hour');
 
     const prices = [];
-    data[tokenA].forEach((_, i) => {
-      const base = data[tokenA][i];
-      const quote = data[tokenB][i];
+    data[_tokenA].forEach((_, i) => {
+      const base = data[_tokenA][i];
+      const quote = data[_tokenB][i];
       prices.push({
         timestamp: base.timestamp,
         usd: new Decimal(base.close).div(quote.close),

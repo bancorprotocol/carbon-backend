@@ -2,26 +2,18 @@ import { Controller, Get, Header, Query } from '@nestjs/common';
 import { MarketRateDto } from './market-rate.dto';
 import { QuoteService } from '../../quote/quote.service';
 import { CacheTTL } from '@nestjs/cache-manager';
-import { ConfigService } from '@nestjs/config';
-import { CoinGeckoService } from '../../quote/coingecko.service';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-import { CodexService } from '../../codex/codex.service';
+import { CodexService, SEI_NETWORK_ID } from '../../codex/codex.service';
 
 @Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
-  private blockchainType: BlockchainType;
-
   constructor(
-    private configService: ConfigService,
     private quoteService: QuoteService,
-    private coingeckoService: CoinGeckoService,
     private deploymentService: DeploymentService,
     private codexService: CodexService,
-  ) {
-    this.blockchainType = this.configService.get('BLOCKCHAIN_TYPE');
-  }
+  ) {}
 
   @Get('')
   @CacheTTL(1 * 1000)
@@ -34,7 +26,7 @@ export class MarketRateController {
     let data;
 
     if (deployment.blockchainType === BlockchainType.Sei) {
-      data = await this.codexService.getLatestPrices([address]);
+      data = await this.codexService.getLatestPrices(SEI_NETWORK_ID, [address]);
     } else {
       data = await this.quoteService.fetchLatestPrice(deployment, address, currencies);
     }
