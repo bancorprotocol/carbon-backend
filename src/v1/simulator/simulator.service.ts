@@ -21,8 +21,15 @@ export class SimulatorService {
 
   async generateSimulation(params: SimulatorDto, usdPrices: any, deployment: Deployment): Promise<any> {
     const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax } = params;
-    const baseToken = params['baseToken'].toLowerCase();
-    const quoteToken = params['quoteToken'].toLowerCase();
+    let baseToken = params['baseToken'].toLowerCase();
+    let quoteToken = params['quoteToken'].toLowerCase();
+
+    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
+    if (deployment.blockchainType === BlockchainType.Sei) {
+      baseToken = baseToken === seiToken ? wrappedSeiToken : baseToken;
+      quoteToken = quoteToken === seiToken ? wrappedSeiToken : quoteToken;
+    }
 
     // handle fees
     const defaultFee = (await this.tradingFeePpmUpdatedEventService.last(deployment)).newFeePPM;
