@@ -56,39 +56,51 @@ export class CodexService {
 
   async getHistoricalQuotes(networkId: number, tokenAddresses: string[], from: number, to: number) {
     const limit = (await import('p-limit')).default;
-    const concurrencyLimit = limit(10);
+    const concurrencyLimit = limit(1);
+    const maxPoints = 1499;
+    const resolution = 240; // Resolution in minutes (adjustable here)
+    const resolutionSeconds = resolution * 60; // Convert resolution to seconds
+    const maxBatchDuration = maxPoints * resolutionSeconds; // Max batch duration in seconds
 
-    // Helper function to retry a request indefinitely on failure
-    const fetchWithRetry = async (tokenAddress: string): Promise<any> => {
+    const fetchWithRetry = async (tokenAddress: string, batchFrom: number, batchTo: number): Promise<any> => {
       try {
         const bars = await this.sdk.queries.bars({
           symbol: `${tokenAddress}:${networkId}`,
-          from,
-          to,
-          resolution: '1D',
+          from: batchFrom,
+          to: batchTo,
+          resolution: `${resolution}`, // Use resolution variable
           removeLeadingNullValues: true,
         });
         return { ...bars.getBars, address: tokenAddress };
       } catch (error) {
         console.error(`Error fetching data for ${tokenAddress}, retrying...`, error);
-        return fetchWithRetry(tokenAddress); // Recursive retry
+        return fetchWithRetry(tokenAddress, batchFrom, batchTo);
       }
     };
 
+    const fetchAllBatches = async (tokenAddress: string): Promise<any> => {
+      const batchedResults = [];
+      for (let start = from; start < to; start += maxBatchDuration) {
+        const end = Math.min(start + maxBatchDuration, to);
+        batchedResults.push(await fetchWithRetry(tokenAddress, start, end));
+      }
+      return batchedResults.flatMap((result) => result);
+    };
+
     try {
-      // Map token addresses to fetch requests with concurrency limit
       const results = await Promise.all(
-        tokenAddresses.map((tokenAddress) => concurrencyLimit(() => fetchWithRetry(tokenAddress))),
+        tokenAddresses.map((tokenAddress) => concurrencyLimit(() => fetchAllBatches(tokenAddress))),
       );
 
       const quotesByAddress = {};
-      results.forEach((result) => {
-        const { address, c, t } = result;
-
-        quotesByAddress[address] = t.map((timestamp: number, index: number) => {
-          const usd = c[index];
-          return { timestamp, usd };
-        });
+      results.forEach((batchedResult, index) => {
+        const tokenAddress = tokenAddresses[index];
+        quotesByAddress[tokenAddress] = batchedResult.flatMap((result) =>
+          result.t.map((timestamp: number, i: number) => ({
+            timestamp,
+            usd: result.c[i],
+          })),
+        );
       });
 
       return quotesByAddress;

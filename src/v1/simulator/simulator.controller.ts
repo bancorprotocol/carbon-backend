@@ -5,7 +5,7 @@ import { SimulatorService } from './simulator.service';
 import moment from 'moment';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
-import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId?/simulator' })
@@ -21,6 +21,8 @@ export class SimulatorController {
   @Header('Cache-Control', 'public, max-age=60') // Set Cache-Control header
   @ApiExchangeIdParam()
   async simulator(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: SimulatorDto) {
+    const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
+
     if (!isValidStart(params.start)) {
       throw new BadRequestException({
         message: ['start must be within the last 12 months'],
@@ -41,13 +43,13 @@ export class SimulatorController {
     params.quoteToken = params.quoteToken.toLowerCase();
 
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
+      deployment.blockchainType,
       params.baseToken,
       params.quoteToken,
       params.start,
       params.end,
     );
 
-    const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const data = await this.simulatorService.generateSimulation(params, usdPrices, deployment);
 
     return {

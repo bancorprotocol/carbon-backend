@@ -224,6 +224,7 @@ export class HistoricQuoteService implements OnModuleInit {
   }
 
   async getHistoryQuotesBuckets(
+    blockchainType: BlockchainType,
     _addresses: string[],
     start: number,
     end: number,
@@ -251,6 +252,7 @@ export class HistoricQuoteService implements OnModuleInit {
       WHERE
         timestamp >= '${startPaddedQ}' AND timestamp <= '${endQ}'
         and "tokenAddress" IN (${addressesString})
+        AND "blockchainType" = '${blockchainType}'
       GROUP BY
         "tokenAddress",  bucket
       ORDER BY
@@ -322,13 +324,27 @@ export class HistoricQuoteService implements OnModuleInit {
     return candlesByAddress;
   }
 
-  async getUsdBuckets(tokenA: string, tokenB: string, start: number, end: number): Promise<Candlestick[]> {
-    const data = await this.getHistoryQuotesBuckets([tokenA, tokenB], start, end, '1 hour');
+  async getUsdBuckets(
+    blockchainType: BlockchainType,
+    tokenA: string,
+    tokenB: string,
+    start: number,
+    end: number,
+  ): Promise<Candlestick[]> {
+    let _tokenA, _tokenB;
+    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
+    if (blockchainType === BlockchainType.Sei) {
+      _tokenA = tokenA.toLowerCase() === seiToken ? wrappedSeiToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === seiToken ? wrappedSeiToken : tokenB;
+    }
+
+    const data = await this.getHistoryQuotesBuckets(blockchainType, [_tokenA, _tokenB], start, end, '1 hour');
 
     const prices = [];
-    data[tokenA].forEach((_, i) => {
-      const base = data[tokenA][i];
-      const quote = data[tokenB][i];
+    data[_tokenA].forEach((_, i) => {
+      const base = data[_tokenA][i];
+      const quote = data[_tokenB][i];
       prices.push({
         timestamp: base.timestamp,
         usd: new Decimal(base.close).div(quote.close),

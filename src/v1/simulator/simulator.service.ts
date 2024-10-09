@@ -36,7 +36,12 @@ export class SimulatorService {
 
     // handle prices
     const tokens = [baseToken, quoteToken];
-    const prices = await this.historicQuoteService.getHistoryQuotesBuckets(tokens, start, end);
+    const prices = await this.historicQuoteService.getHistoryQuotesBuckets(
+      deployment.blockchainType,
+      tokens,
+      start,
+      end,
+    );
     const pricesBaseToken = prices[baseToken];
     const pricesQuoteToken = prices[quoteToken];
 
