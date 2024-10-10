@@ -331,7 +331,8 @@ export class HistoricQuoteService implements OnModuleInit {
     start: number,
     end: number,
   ): Promise<Candlestick[]> {
-    let _tokenA, _tokenB;
+    let _tokenA = tokenA;
+    let _tokenB = tokenB;
     const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
     if (blockchainType === BlockchainType.Sei) {
