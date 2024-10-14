@@ -336,11 +336,15 @@ export class VolumeService {
           symbol: volumeEntry.targetSymbol,
           volumeUsd: new Decimal(0),
           feesUsd: new Decimal(0),
+          volume: new Decimal(0),
+          fees: new Decimal(0),
         };
       }
 
       acc[groupKey].volumeUsd = acc[groupKey].volumeUsd.add(volumeEntry.volumeUsd);
       acc[groupKey].feesUsd = acc[groupKey].feesUsd.add(volumeEntry.feesUsd);
+      acc[groupKey].volume = acc[groupKey].volume.add(volumeEntry.volume);
+      acc[groupKey].fees = acc[groupKey].fees.add(volumeEntry.fees);
 
       return acc;
     }, {});
@@ -351,6 +355,8 @@ export class VolumeService {
       symbol: group.symbol,
       volumeUsd: group.volumeUsd.toNumber(),
       feesUsd: group.feesUsd.toNumber(),
+      volume: group.volume.toNumber(),
+      fees: group.fees.toNumber(),
     }));
   }
 

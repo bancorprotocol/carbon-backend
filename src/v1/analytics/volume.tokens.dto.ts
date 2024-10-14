@@ -49,7 +49,7 @@ export class VolumeTokensDto {
   @IsString({ each: true })
   @ApiProperty({
     type: String,
-    description: 'Array of addresses or comma-separated list of addresses to filter TVL',
+    description: 'Array of addresses or comma-separated list of addresses to filter',
   })
   addresses: string[]; // Updated to be an array of strings
 }
