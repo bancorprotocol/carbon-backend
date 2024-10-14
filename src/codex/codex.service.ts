@@ -4,6 +4,7 @@ import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 
 export const SEI_NETWORK_ID = 531;
+export const CELO_NETWORK_ID = 42220;
 
 @Injectable()
 export class CodexService {
