@@ -9,7 +9,7 @@ import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
-import { CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
+import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
 
 type Candlestick = {
   timestamp: number;
@@ -49,7 +49,11 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      await Promise.all([await this.updateCoinMarketCapQuotes(), await this.updateCodexQuotes()]);
+      await Promise.all([
+        await this.updateCoinMarketCapQuotes(),
+        await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
+        await this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID),
+      ]);
     } catch (error) {
       console.error('Error updating historic quotes:', error);
       this.isPolling = false;
@@ -79,9 +83,8 @@ export class HistoricQuoteService implements OnModuleInit {
     console.log('CoinMarketCap quotes updated');
   }
 
-  private async updateCodexQuotes(): Promise<void> {
-    const latest = await this.getLatest(BlockchainType.Sei); // Pass the deployment to filter by blockchainType
-    const networkId = SEI_NETWORK_ID;
+  private async updateCodexQuotes(blockchainType: BlockchainType, networkId: number): Promise<void> {
+    const latest = await this.getLatest(blockchainType); // Pass the deployment to filter by blockchainType
     const addresses = await this.codexService.getAllTokenAddresses(networkId);
     const quotes = await this.codexService.getLatestPrices(networkId, addresses);
     const newQuotes = [];
@@ -98,7 +101,7 @@ export class HistoricQuoteService implements OnModuleInit {
           usd: quote.usd,
           timestamp: moment.unix(quote.last_updated_at).utc().toISOString(),
           provider: 'codex',
-          blockchainType: BlockchainType.Sei,
+          blockchainType: blockchainType,
         }),
       );
     }
@@ -144,12 +147,11 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
-  async seedSei(): Promise<void> {
+  async seedCodex(blockchainType: BlockchainType, networkId: number): Promise<void> {
     const start = moment().subtract(1, 'year').unix();
     const end = moment().unix();
     let i = 0;
 
-    const networkId = SEI_NETWORK_ID; // Assuming SEI_NETWORK_ID is defined
     const addresses = await this.codexService.getAllTokenAddresses(networkId);
     const batchSize = 100;
 
@@ -162,15 +164,19 @@ export class HistoricQuoteService implements OnModuleInit {
       for (const address of batchAddresses) {
         const quotes = quotesByAddress[address];
 
-        const newQuotes = quotes.map((q: any) =>
-          this.repository.create({
-            tokenAddress: address,
-            usd: q.usd,
-            timestamp: moment.unix(q.timestamp).utc().toISOString(),
-            provider: 'codex',
-            blockchainType: BlockchainType.Sei,
-          }),
-        );
+        const newQuotes = [];
+        quotes.forEach((q: any) => {
+          if (q.usd && q.timestamp) {
+            const quote = this.repository.create({
+              tokenAddress: address,
+              usd: q.usd,
+              timestamp: moment.unix(q.timestamp).utc().toISOString(),
+              provider: 'codex',
+              blockchainType: blockchainType,
+            });
+            newQuotes.push(quote);
+          }
+        });
 
         const batches = _.chunk(newQuotes, 1000);
         await Promise.all(batches.map((batch) => this.repository.save(batch)));
@@ -333,11 +339,17 @@ export class HistoricQuoteService implements OnModuleInit {
   ): Promise<Candlestick[]> {
     let _tokenA = tokenA;
     let _tokenB = tokenB;
-    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const nativeToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
     const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
     if (blockchainType === BlockchainType.Sei) {
-      _tokenA = tokenA.toLowerCase() === seiToken ? wrappedSeiToken : tokenA;
-      _tokenB = tokenB.toLowerCase() === seiToken ? wrappedSeiToken : tokenB;
+      _tokenA = tokenA.toLowerCase() === nativeToken ? wrappedSeiToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === nativeToken ? wrappedSeiToken : tokenB;
+    }
+    const celoToken = '0x471ece3750da237f93b8e339c536989b8978a438';
+    if (blockchainType === BlockchainType.Celo) {
+      _tokenA = tokenA.toLowerCase() === nativeToken ? celoToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === nativeToken ? celoToken : tokenB;
     }
 
     const data = await this.getHistoryQuotesBuckets(blockchainType, [_tokenA, _tokenB], start, end, '1 hour');

@@ -8,7 +8,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
 import { DeploymentService, Deployment, BlockchainType } from '../deployment/deployment.service';
-import { CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
+import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
@@ -70,6 +70,8 @@ export class QuoteService implements OnModuleInit {
       let newPrices;
       if (deployment.blockchainType === BlockchainType.Sei) {
         newPrices = await this.codexService.getLatestPrices(SEI_NETWORK_ID, addresses);
+      } else if (deployment.blockchainType === BlockchainType.Celo) {
+        newPrices = await this.codexService.getLatestPrices(CELO_NETWORK_ID, addresses);
       } else {
         newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
         const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
