@@ -9,7 +9,7 @@ import { toTimestamp } from '../../utilities';
 import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
-import { BlockchainType, Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import { BlockchainType, Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class SimulatorService {
@@ -23,12 +23,17 @@ export class SimulatorService {
     const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax } = params;
     let baseToken = params['baseToken'].toLowerCase();
     let quoteToken = params['quoteToken'].toLowerCase();
+    const nativeToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 
-    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
     const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
     if (deployment.blockchainType === BlockchainType.Sei) {
-      baseToken = baseToken === seiToken ? wrappedSeiToken : baseToken;
-      quoteToken = quoteToken === seiToken ? wrappedSeiToken : quoteToken;
+      baseToken = baseToken === nativeToken ? wrappedSeiToken : baseToken;
+      quoteToken = quoteToken === nativeToken ? wrappedSeiToken : quoteToken;
+    }
+    const celoToken = '0x471ece3750da237f93b8e339c536989b8978a438';
+    if (deployment.blockchainType === BlockchainType.Celo) {
+      baseToken = baseToken === nativeToken ? celoToken : baseToken;
+      quoteToken = quoteToken === nativeToken ? celoToken : quoteToken;
     }
 
     // handle fees

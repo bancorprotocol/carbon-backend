@@ -339,11 +339,17 @@ export class HistoricQuoteService implements OnModuleInit {
   ): Promise<Candlestick[]> {
     let _tokenA = tokenA;
     let _tokenB = tokenB;
-    const seiToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+    const nativeToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+
     const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
     if (blockchainType === BlockchainType.Sei) {
-      _tokenA = tokenA.toLowerCase() === seiToken ? wrappedSeiToken : tokenA;
-      _tokenB = tokenB.toLowerCase() === seiToken ? wrappedSeiToken : tokenB;
+      _tokenA = tokenA.toLowerCase() === nativeToken ? wrappedSeiToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === nativeToken ? wrappedSeiToken : tokenB;
+    }
+    const celoToken = '0x471ece3750da237f93b8e339c536989b8978a438';
+    if (blockchainType === BlockchainType.Celo) {
+      _tokenA = tokenA.toLowerCase() === nativeToken ? celoToken : tokenA;
+      _tokenB = tokenB.toLowerCase() === nativeToken ? celoToken : tokenB;
     }
 
     const data = await this.getHistoryQuotesBuckets(blockchainType, [_tokenA, _tokenB], start, end, '1 hour');
