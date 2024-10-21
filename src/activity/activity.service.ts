@@ -22,6 +22,15 @@ export class ActivityService {
       (await this.lastProcessedBlockService.get(`${deployment.blockchainType}-${deployment.exchangeId}-activities`)) ||
       1;
 
+    // perform cleanup
+    await this.activityRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"blockNumber" >= :startBlock', { startBlock })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+      .execute();
+
     // Query to get the activity data
     const query = `
 -- Find the most recent event FROM each strategy to determine who needs updating
