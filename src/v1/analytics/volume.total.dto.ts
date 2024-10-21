@@ -1,6 +1,7 @@
 import { IsOptional, IsNumber, Min, Max, IsString, IsArray } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { formatEthereumAddress } from '../../isAddress.validator';
 
 export class VolumeTotalDto {
   @IsOptional()
@@ -41,4 +42,12 @@ export class VolumeTotalDto {
     default: 10000,
   })
   limit?: number;
+
+  @IsOptional()
+  @Transform((value) => formatEthereumAddress(value))
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Wallet or contract address. Filters results by this address.',
+  })
+  ownerId?: string;
 }
