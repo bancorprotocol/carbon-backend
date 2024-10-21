@@ -92,6 +92,7 @@ steps:
         '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest,CARBON_BACKEND_SQL_CERTIFICATION=CARBON_BACKEND_SQL_CERTIFICATION:latest,DATABASE_URL=CM_DATABASE_URL:latest,COINMARKETCAP_API_KEY=COINMARKETCAP_API_KEY:latest,CODEX_API_KEY=CODEX_API_KEY:latest',
         '--region=europe-west2',
         '--project=bancor-api',
+        '--port=3000',
       ]
     waitFor: ['run_migrations']
     id: 'deploy_harvester'
@@ -115,6 +116,7 @@ steps:
         '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest,CARBON_BACKEND_SQL_CERTIFICATION=CARBON_BACKEND_SQL_CERTIFICATION:latest,DATABASE_URL=CM_DATABASE_URL:latest,COINMARKETCAP_API_KEY=COINMARKETCAP_API_KEY:latest,CODEX_API_KEY=CODEX_API_KEY:latest',
         '--region=europe-west2',
         '--project=bancor-api',
+        '--port=3000',
       ]
     waitFor: ['deploy_harvester']
     id: 'deploy_endpoint'
