@@ -79,7 +79,7 @@ steps:
       [
         'run',
         'deploy',
-        'carbon-multi-harvester',
+        'carbon-multi-harvester-2',
         '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
         '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
         '--set-env-vars=SHOULD_HARVEST=1',
@@ -123,7 +123,7 @@ steps:
 
   # Update the traffic
   - name: 'gcr.io/cloud-builders/gcloud'
-    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester', '--to-latest', '--region', 'europe-west2']
+    args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester-2', '--to-latest', '--region', 'europe-west2']
     waitFor: ['deploy_endpoint']
     id: 'update_traffic'
 
