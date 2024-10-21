@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
+import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
@@ -15,42 +16,40 @@ export class CodexService {
     this.sdk = new Codex(apiKey);
   }
 
-  async getLatestPrices(networkId: number, addresses: string[]): Promise<any> {
-    const targetAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-    const replacementAddress = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
+  async getLatestPrices(deployment: Deployment, networkId: number, addresses: string[]): Promise<any> {
+    const originalAddresses = [...addresses]; // Keep a copy of the original addresses to return correct keys
+    let nativeTokenAliasUsed = false;
 
-    // Check if the targetAddress is present
-    const containsTargetAddress = addresses.some((address) => address.toLowerCase() === targetAddress);
-
-    // Replace only if targetAddress is present
-    if (containsTargetAddress) {
-      addresses = addresses.map((address) => (address.toLowerCase() === targetAddress ? replacementAddress : address));
+    // Replace only if targetAddress (NATIVE_TOKEN) is present in addresses
+    if (deployment.nativeTokenAlias) {
+      addresses = addresses.map((address) => {
+        if (address.toLowerCase() === NATIVE_TOKEN.toLowerCase()) {
+          nativeTokenAliasUsed = true;
+          return deployment.nativeTokenAlias;
+        }
+        return address;
+      });
     }
 
     const result = {};
     const tokens = await this.fetchTokens(networkId, addresses);
+
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();
-      result[address] = {
-        address: t.token.address,
-        usd: Number(t.priceUSD),
-        provider: 'codex',
-        last_updated_at: moment().unix(),
-      };
-    });
+      const originalAddress = originalAddresses.find(
+        (addr) =>
+          addr.toLowerCase() === address || (nativeTokenAliasUsed && addr.toLowerCase() === NATIVE_TOKEN.toLowerCase()),
+      );
 
-    // Only add the custom entry for targetAddress if it was present in the original addresses
-    if (containsTargetAddress) {
-      const seiToken = tokens.find((t) => t.token.address.toLowerCase() === replacementAddress);
-      if (seiToken) {
-        result[targetAddress] = {
-          address: targetAddress,
-          usd: Number(seiToken.priceUSD),
+      if (originalAddress) {
+        result[originalAddress.toLowerCase()] = {
+          address: originalAddress.toLowerCase(),
+          usd: Number(t.priceUSD),
           provider: 'codex',
           last_updated_at: moment().unix(),
         };
       }
-    }
+    });
 
     return result;
   }

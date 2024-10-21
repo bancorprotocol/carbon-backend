@@ -69,9 +69,9 @@ export class QuoteService implements OnModuleInit {
 
       let newPrices;
       if (deployment.blockchainType === BlockchainType.Sei) {
-        newPrices = await this.codexService.getLatestPrices(SEI_NETWORK_ID, addresses);
+        newPrices = await this.codexService.getLatestPrices(deployment, SEI_NETWORK_ID, addresses);
       } else if (deployment.blockchainType === BlockchainType.Celo) {
-        newPrices = await this.codexService.getLatestPrices(CELO_NETWORK_ID, addresses);
+        newPrices = await this.codexService.getLatestPrices(deployment, CELO_NETWORK_ID, addresses);
       } else {
         newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
         const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);

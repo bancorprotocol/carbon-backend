@@ -8,7 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
-import { BlockchainType, Deployment } from '../deployment/deployment.service';
+import { BlockchainType, Deployment, DeploymentService, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
 
 type Candlestick = {
@@ -31,6 +31,7 @@ export class HistoricQuoteService implements OnModuleInit {
     private configService: ConfigService,
     private schedulerRegistry: SchedulerRegistry,
     private codexService: CodexService,
+    private deploymentService: DeploymentService,
   ) {
     this.intervalDuration = +this.configService.get('POLL_HISTORIC_QUOTES_INTERVAL') || 300000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES') === '1';
@@ -84,9 +85,10 @@ export class HistoricQuoteService implements OnModuleInit {
   }
 
   private async updateCodexQuotes(blockchainType: BlockchainType, networkId: number): Promise<void> {
-    const latest = await this.getLatest(blockchainType); // Pass the deployment to filter by blockchainType
+    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
+    const latest = await this.getLatest(blockchainType);
     const addresses = await this.codexService.getAllTokenAddresses(networkId);
-    const quotes = await this.codexService.getLatestPrices(networkId, addresses);
+    const quotes = await this.codexService.getLatestPrices(deployment, networkId, addresses);
     const newQuotes = [];
 
     for (const address of Object.keys(quotes)) {
@@ -102,6 +104,19 @@ export class HistoricQuoteService implements OnModuleInit {
           timestamp: moment.unix(quote.last_updated_at).utc().toISOString(),
           provider: 'codex',
           blockchainType: blockchainType,
+        }),
+      );
+    }
+
+    if (deployment.nativeTokenAlias) {
+      const quote = quotes[deployment.nativeTokenAlias];
+      newQuotes.push(
+        this.repository.create({
+          tokenAddress: NATIVE_TOKEN.toLowerCase(),
+          usd: quote.usd,
+          timestamp: moment.unix(quote.last_updated_at).utc().toISOString(),
+          provider: 'codex',
+          blockchainType: deployment.blockchainType,
         }),
       );
     }
@@ -155,16 +170,20 @@ export class HistoricQuoteService implements OnModuleInit {
     const addresses = await this.codexService.getAllTokenAddresses(networkId);
     const batchSize = 100;
 
+    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
+    const nativeTokenAlias = deployment.nativeTokenAlias ? deployment.nativeTokenAlias : null;
+
     for (let startIndex = 0; startIndex < addresses.length; startIndex += batchSize) {
       const batchAddresses = addresses.slice(startIndex, startIndex + batchSize);
 
       // Fetch historical quotes for the current batch of addresses
       const quotesByAddress = await this.codexService.getHistoricalQuotes(networkId, batchAddresses, start, end);
 
+      const newQuotes = [];
+
       for (const address of batchAddresses) {
         const quotes = quotesByAddress[address];
 
-        const newQuotes = [];
         quotes.forEach((q: any) => {
           if (q.usd && q.timestamp) {
             const quote = this.repository.create({
@@ -178,10 +197,26 @@ export class HistoricQuoteService implements OnModuleInit {
           }
         });
 
-        const batches = _.chunk(newQuotes, 1000);
-        await Promise.all(batches.map((batch) => this.repository.save(batch)));
-        console.log(`Sei history quote seeding, finished ${++i} of ${addresses.length}`, new Date());
+        // If this is the native token alias, also create an entry for the native token
+        if (nativeTokenAlias && address.toLowerCase() === nativeTokenAlias.toLowerCase()) {
+          quotes.forEach((q: any) => {
+            if (q.usd && q.timestamp) {
+              const nativeTokenQuote = this.repository.create({
+                tokenAddress: NATIVE_TOKEN.toLowerCase(),
+                usd: q.usd,
+                timestamp: moment.unix(q.timestamp).utc().toISOString(),
+                provider: 'codex',
+                blockchainType: blockchainType,
+              });
+              newQuotes.push(nativeTokenQuote);
+            }
+          });
+        }
       }
+
+      const batches = _.chunk(newQuotes, 1000);
+      await Promise.all(batches.map((batch) => this.repository.save(batch)));
+      console.log(`History quote seeding, finished ${++i} of ${addresses.length}`, new Date());
     }
   }
 
@@ -337,27 +372,12 @@ export class HistoricQuoteService implements OnModuleInit {
     start: number,
     end: number,
   ): Promise<Candlestick[]> {
-    let _tokenA = tokenA;
-    let _tokenB = tokenB;
-    const nativeToken = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
-
-    const wrappedSeiToken = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
-    if (blockchainType === BlockchainType.Sei) {
-      _tokenA = tokenA.toLowerCase() === nativeToken ? wrappedSeiToken : tokenA;
-      _tokenB = tokenB.toLowerCase() === nativeToken ? wrappedSeiToken : tokenB;
-    }
-    const celoToken = '0x471ece3750da237f93b8e339c536989b8978a438';
-    if (blockchainType === BlockchainType.Celo) {
-      _tokenA = tokenA.toLowerCase() === nativeToken ? celoToken : tokenA;
-      _tokenB = tokenB.toLowerCase() === nativeToken ? celoToken : tokenB;
-    }
-
-    const data = await this.getHistoryQuotesBuckets(blockchainType, [_tokenA, _tokenB], start, end, '1 hour');
+    const data = await this.getHistoryQuotesBuckets(blockchainType, [tokenA, tokenB], start, end, '1 hour');
 
     const prices = [];
-    data[_tokenA].forEach((_, i) => {
-      const base = data[_tokenA][i];
-      const quote = data[_tokenB][i];
+    data[tokenA].forEach((_, i) => {
+      const base = data[tokenA][i];
+      const quote = data[tokenB][i];
       prices.push({
         timestamp: base.timestamp,
         usd: new Decimal(base.close).div(quote.close),
