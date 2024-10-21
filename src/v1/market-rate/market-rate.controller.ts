@@ -26,9 +26,9 @@ export class MarketRateController {
     let data;
 
     if (deployment.blockchainType === BlockchainType.Sei) {
-      data = await this.codexService.getLatestPrices(SEI_NETWORK_ID, [address]);
+      data = await this.codexService.getLatestPrices(deployment, SEI_NETWORK_ID, [address]);
     } else if (deployment.blockchainType === BlockchainType.Celo) {
-      data = await this.codexService.getLatestPrices(CELO_NETWORK_ID, [address]);
+      data = await this.codexService.getLatestPrices(deployment, CELO_NETWORK_ID, [address]);
     } else {
       data = await this.quoteService.fetchLatestPrice(deployment, address, currencies);
     }
