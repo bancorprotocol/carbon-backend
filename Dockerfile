@@ -1,5 +1,5 @@
 # Use the official lightweight Node.js image, always updated to the latest version.
-FROM node:current-alpine
+FROM node:22-alpine3.19
 
 # Set environment variables
 ENV NODE_ENV=production
