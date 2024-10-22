@@ -45,11 +45,19 @@ export class VolumeTokensDto {
 
   @IsArray()
   @Transform(({ value }) => value.split(',').map((addr: string) => addr.trim()))
-  @IsAddress() // Updated to support array validation
+  @IsAddress()
   @IsString({ each: true })
   @ApiProperty({
     type: String,
     description: 'Array of addresses or comma-separated list of addresses to filter TVL',
   })
-  addresses: string[]; // Updated to be an array of strings
+  addresses: string[];
+
+  @IsOptional()
+  @Transform((value) => formatEthereumAddress(value))
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Wallet or contract address. Filters results by this address.',
+  })
+  ownerId?: string;
 }

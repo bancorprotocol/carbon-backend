@@ -96,6 +96,11 @@ export class VolumeService {
       tokenIds = Object.values(tokens).map((t) => t.id);
     }
 
+    let ownerFilter = '';
+    if (params.ownerId) {
+      ownerFilter = `AND tte."trader" = '${params.ownerId}'`;
+    }
+
     const result = await this.dataSource.query(`
       WITH gapfilled_traded_events AS (
         SELECT
@@ -125,6 +130,7 @@ export class VolumeService {
           tte."blockchainType" = '${deployment.blockchainType}'
           AND tte."exchangeId" = '${deployment.exchangeId}'
           AND tte."targetTokenId" IN (${tokenIds.join(', ')})
+          ${ownerFilter}
         GROUP BY
           "timestam",
           "feeTokenId",
@@ -201,6 +207,11 @@ export class VolumeService {
   ): Promise<VolumeByPairResult[]> {
     const pairIds = this.getPairIds(params, pairs);
 
+    let ownerFilter = '';
+    if (params.ownerId) {
+      ownerFilter = `AND tte."trader" = '${params.ownerId}'`;
+    }
+
     const result = await this.dataSource.query(`
       WITH gapfilled_traded_events AS (
         SELECT
@@ -231,6 +242,7 @@ export class VolumeService {
           tte."blockchainType" = '${deployment.blockchainType}'
           AND tte."exchangeId" = '${deployment.exchangeId}'
           AND tte."pairId" IN (${pairIds.join(', ')})
+          ${ownerFilter}
         GROUP BY
           "timestam",
           "feeTokenId",

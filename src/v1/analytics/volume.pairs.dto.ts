@@ -74,4 +74,12 @@ export class VolumePairsDto {
     description: 'Comma-separated list of token pairs in the format address1_address2, address3_address4',
   })
   pairs: VolumePair[]; // Internally processed as an array of TokenPair objects
+
+  @IsOptional()
+  @Transform((value) => formatEthereumAddress(value))
+  @ApiPropertyOptional({
+    type: String,
+    description: 'Wallet or contract address. Filters results by this address.',
+  })
+  ownerId?: string;
 }
