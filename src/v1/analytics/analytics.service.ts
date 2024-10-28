@@ -7,6 +7,7 @@ import { Cache } from 'cache-manager';
 import { Deployment } from '../../deployment/deployment.service';
 
 const ANALYTICS_GENERIC_METRICS_KEY = 'carbon:generic-metrics';
+const ANALYTICS_TRADES_COUNT_KEY = 'carbon:generic-metrics';
 
 @Injectable()
 export class AnalyticsService {
@@ -21,12 +22,31 @@ export class AnalyticsService {
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_GENERIC_METRICS_KEY}`,
       generic,
     );
+
+    const tradeCounts = await this.getTradesCount(deployment);
+    this.cacheManager.set(
+      `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRADES_COUNT_KEY}`,
+      tradeCounts,
+    );
   }
 
   async getCachedGenericMetrics(deployment: Deployment): Promise<any> {
     return this.cacheManager.get(
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_GENERIC_METRICS_KEY}`,
     );
+  }
+
+  async getCachedTradesCount(deployment: Deployment): Promise<any> {
+    const cache: any = await this.cacheManager.get(
+      `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRADES_COUNT_KEY}`,
+    );
+
+    return cache.map((trade) => {
+      return {
+        strategyId: trade.id,
+        tradeCount: parseInt(trade.trade_count),
+      };
+    });
   }
 
   private async getGenericMetrics(deployment: Deployment): Promise<any> {
@@ -114,6 +134,19 @@ WITH filtered_strategies AS (
 SELECT sl.current_liquidity::NUMERIC, sc.strategies_created::INTEGER, pc.pairs_created::INTEGER, ut.unique_traders::INTEGER, ap.active_pairs::INTEGER, nt.number_trades::INTEGER, fv.volume::NUMERIC, fv.fees::NUMERIC, lub.last_block::INTEGER, lub.last_timestamp 
 FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders ut, active_pairs ap, number_trades nt, fee_volume fv, latest_updated_block lub;
     
+    `;
+
+    const result = await this.strategy.query(query);
+    return result;
+  }
+
+  private async getTradesCount(deployment: Deployment): Promise<any> {
+    const query = `
+      SELECT "strategyId" as id, count(*) as trade_count
+      FROM "strategy-updated-events" s
+      where reason = 1
+      AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+      group by "strategyId"
     `;
 
     const result = await this.strategy.query(query);
