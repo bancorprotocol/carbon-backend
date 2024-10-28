@@ -7,7 +7,7 @@ import { Cache } from 'cache-manager';
 import { Deployment } from '../../deployment/deployment.service';
 
 const ANALYTICS_GENERIC_METRICS_KEY = 'carbon:generic-metrics';
-const ANALYTICS_TRADES_COUNT_KEY = 'carbon:generic-metrics';
+const ANALYTICS_TRADES_COUNT_KEY = 'carbon:trades-count';
 
 @Injectable()
 export class AnalyticsService {
