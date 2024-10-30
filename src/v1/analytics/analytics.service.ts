@@ -18,13 +18,13 @@ export class AnalyticsService {
 
   async update(deployment: Deployment): Promise<void> {
     const generic = await this.getGenericMetrics(deployment);
-    this.cacheManager.set(
+    await this.cacheManager.set(
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_GENERIC_METRICS_KEY}`,
       generic,
     );
 
     const tradeCounts = await this.getTradesCount(deployment);
-    this.cacheManager.set(
+    await this.cacheManager.set(
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRADES_COUNT_KEY}`,
       tradeCounts,
     );
