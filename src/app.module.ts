@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { CacheInterceptor, CacheModule } from '@nestjs/cache-manager';
+import { CacheModule } from '@nestjs/cache-manager';
 import { LastProcessedBlockModule } from './last-processed-block/last-processed-block.module';
 import { BlockModule } from './block/block.module';
 import { RedisModule } from './redis/redis.module';
@@ -22,6 +22,7 @@ import { TvlModule } from './tvl/tvl.module';
 import { DeploymentModule } from './deployment/deployment.module';
 import { CodexService } from './codex/codex.service';
 import { CodexModule } from './codex/codex.module';
+import { SubdomainCacheInterceptor } from './cache.interceptor';
 
 @Module({
   imports: [
@@ -66,16 +67,19 @@ import { CodexModule } from './codex/codex.module';
       imports: [ConfigModule],
       isGlobal: true,
       useFactory: async (configService: ConfigService) => {
-        if (process.env.NODE_ENV === 'development') {
+        if (process.env.NODE_ENV === 'production') {
           return {
-            ttl: 0, // Set TTL to 0 to effectively disable caching
+            store: await redisStore({
+              url: configService.get('REDIS_URL'),
+            }),
+            ttl: 3000,
           };
         }
         return {
           store: await redisStore({
             url: configService.get('REDIS_URL'),
           }),
-          ttl: 300,
+          ttl: 0,
         };
       },
       inject: [ConfigService],
@@ -102,7 +106,7 @@ import { CodexModule } from './codex/codex.module';
   providers: [
     {
       provide: APP_INTERCEPTOR,
-      useClass: CacheInterceptor,
+      useClass: SubdomainCacheInterceptor, // Use custom interceptor
     },
     CodexService,
   ],
