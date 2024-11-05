@@ -1205,10 +1205,10 @@ ORDER BY
       const pairs = params.pairs.split(',').map((pair) => pair.split('_'));
       queryBuilder.andWhere(
         new Brackets((qb) => {
-          pairs.forEach((pair) => {
+          pairs.forEach((pair, index) => {
             qb.orWhere(
-              '(LOWER(activity.quoteBuyTokenAddress) = :pair0 AND LOWER(activity.baseSellTokenAddress) = :pair1)',
-              { pair0: pair[0].toLowerCase(), pair1: pair[1].toLowerCase() },
+              `(LOWER(activity.quoteBuyTokenAddress) = :pair${index}0 AND LOWER(activity.baseSellTokenAddress) = :pair${index}1)`,
+              { [`pair${index}0`]: pair[0].toLowerCase(), [`pair${index}1`]: pair[1].toLowerCase() },
             );
           });
         }),
