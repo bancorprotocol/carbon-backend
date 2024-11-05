@@ -101,4 +101,13 @@ export class AnalyticsController {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     return this.analyticsService.getCachedTradesCount(deployment);
   }
+
+  @Get('trending')
+  @CacheTTL(1 * 60 * 1000)
+  @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
+  async trending(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+    const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
+    return this.analyticsService.getCachedTrending(deployment);
+  }
 }

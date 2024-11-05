@@ -5,9 +5,11 @@ import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { Deployment } from '../../deployment/deployment.service';
+import { convertKeysToCamelCase } from '../../utilities';
 
 const ANALYTICS_GENERIC_METRICS_KEY = 'carbon:generic-metrics';
 const ANALYTICS_TRADES_COUNT_KEY = 'carbon:trades-count';
+const ANALYTICS_TRENDING = 'carbon:trending';
 
 @Injectable()
 export class AnalyticsService {
@@ -28,6 +30,12 @@ export class AnalyticsService {
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRADES_COUNT_KEY}`,
       tradeCounts,
     );
+
+    const trending = await this.getTrending(deployment);
+    await this.cacheManager.set(
+      `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRENDING}`,
+      trending,
+    );
   }
 
   async getCachedGenericMetrics(deployment: Deployment): Promise<any> {
@@ -47,6 +55,14 @@ export class AnalyticsService {
         tradeCount: parseInt(trade.trade_count),
       };
     });
+  }
+
+  async getCachedTrending(deployment: Deployment): Promise<any> {
+    const cache: any = await this.cacheManager.get(
+      `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_TRENDING}`,
+    );
+
+    return cache;
   }
 
   private async getGenericMetrics(deployment: Deployment): Promise<any> {
@@ -152,5 +168,73 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
 
     const result = await this.strategy.query(query);
     return result;
+  }
+
+  private async getTrending(deployment: Deployment): Promise<any> {
+    const totalTradeCountQuery = this.strategy.query(`
+      SELECT count(*)::INT as trade_count
+      FROM "tokens-traded-events"
+      WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+    `);
+
+    const tradeCountQuery = this.strategy.query(`
+      WITH strategy_trade_24hcounts as (
+          SELECT s."strategyId" as id, COUNT(s.*)::INT as strategy_trades_24h
+          FROM  "strategy-updated-events" s
+          WHERE s."timestamp" >= NOW() - INTERVAL '24 hours'
+          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          GROUP BY 1   
+      ),
+      strategy_trade_counts as (
+          SELECT s."strategyId" as id, COUNT(s.*)::INT as strategy_trades
+          FROM  "strategy-updated-events" s
+          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          GROUP BY 1   
+      )
+      SELECT stc.id, stc.strategy_trades, COALESCE(sc24.strategy_trades_24h,0) as strategy_trades_24h, t0.address as token0, t1.address as token1, 
+      t0.symbol as symbol0, t1.symbol as symbol1, 
+      t0.symbol || '/' || t1.symbol as pair_symbol,
+      t0.address || '/' || t1.address as pair_addresses
+      FROM strategy_trade_counts stc
+      LEFT JOIN "strategy-created-events" s ON s."strategyId" = stc.id
+      LEFT JOIN tokens t0 on t0.id = s."token0Id"
+      LEFT JOIN tokens t1 on t1.id = s."token1Id"
+      LEFT JOIN strategy_trade_24hcounts sc24 on sc24.id = stc.id
+      ORDER BY 2 DESC      
+    `);
+
+    const pairCountQuery = this.strategy.query(`
+      WITH pair_trade_24hcounts as (
+          SELECT s."pairId" as pair_id, COUNT(s.*)::INT as pair_trades_24h
+          FROM  "strategy-updated-events" s
+          WHERE s."timestamp" >= NOW() - INTERVAL '24 hours'
+          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          GROUP BY 1   
+      ),
+      pair_counts as (
+          SELECT s."pairId" as pair_id, COUNT(s.*)::INT as pair_trades
+          FROM  "strategy-updated-events" s
+          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          GROUP BY 1
+      )
+      SELECT p.pair_id, p.pair_trades, COALESCE(pc24.pair_trades_24h,0) as pair_trades_24h, 
+      pc.token0, pc.token1, t0.symbol as symbol0, t1.symbol as symbol1, 
+      t0.symbol || '/' || t1.symbol as pair_symbol,
+      pc.token0 || '/' || pc.token1 as pair_addresses
+      FROM pair_counts p
+      LEFT JOIN "pair-created-events" pc ON pc."id" = p.pair_id  
+      LEFT JOIN tokens t0 on t0.address = pc."token0"
+      LEFT JOIN tokens t1 on t1.address = pc."token1"
+      LEFT JOIN pair_trade_24hcounts pc24 on pc24.pair_id = p.pair_id
+      ORDER BY 2 DESC
+    `);
+
+    const [totalTradeCount, tradeCount, pairCount] = await Promise.all([
+      totalTradeCountQuery,
+      tradeCountQuery,
+      pairCountQuery,
+    ]);
+
+    return convertKeysToCamelCase({ totalTradeCount: totalTradeCount[0].trade_count, tradeCount, pairCount });
   }
 }
