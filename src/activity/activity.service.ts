@@ -1202,7 +1202,7 @@ ORDER BY
     }
 
     if (params.pairs) {
-      const pairs = params.pairs.split(',').map((pair) => pair.split('_').sort());
+      const pairs = params.pairs.split(',').map((pair) => pair.split('_'));
       queryBuilder.andWhere(
         new Brackets((qb) => {
           pairs.forEach((pair) => {
