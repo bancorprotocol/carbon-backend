@@ -98,6 +98,7 @@ WITH filtered_strategies AS (
 ), latest_updated_block AS (
     SELECT MIN("last_processed_block"."block") AS last_block, MIN("updatedAt") AS last_timestamp 
     FROM last_processed_block
+    WHERE "param" LIKE '%${deployment.blockchainType}-${deployment.exchangeId}%'
 ), tokens_traded_with_token_info AS (
     SELECT tte."timestamp" AS timestamp, tte."transactionHash" AS transactionHash, tte."blockId" AS blockId, tte."trader" AS trader, tte."byTargetAmount" AS byTargetAmount, tte."sourceTokenId" AS sourceTokenId, tte."targetTokenId" AS targetTokenId, tte."sourceAmount" AS sourceAmount, tte."targetAmount" AS targetAmount, tte."tradingFeeAmount" AS tradingFeeAmount, ts."address" AS sourceAddress, ts."symbol" AS sourceSymbol, ts."decimals" AS sourceDecimals, tt."address" AS targetAddress, tt."symbol" AS targetSymbol, tt."decimals" AS targetDecimals 
     FROM "tokens-traded-events" tte 
