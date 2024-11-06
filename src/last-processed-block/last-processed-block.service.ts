@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { LastProcessedBlock } from './last-processed-block.entity';
+import { Deployment } from '../deployment/deployment.service';
 
 @Injectable()
 export class LastProcessedBlockService {
@@ -55,5 +56,15 @@ export class LastProcessedBlockService {
     );
 
     return Math.min(...values);
+  }
+
+  async getState(deployment: Deployment): Promise<any> {
+    const state = await this.lastProcessedBlock.query(`
+      SELECT MIN("last_processed_block"."block") AS "lastBlock", MIN("updatedAt") AS timestamp 
+      FROM last_processed_block
+      WHERE "param" LIKE '%${deployment.blockchainType}-${deployment.exchangeId}%'
+    `);
+
+    return state[0];
   }
 }

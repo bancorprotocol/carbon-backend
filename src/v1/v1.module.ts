@@ -8,6 +8,7 @@ import { SimulatorModule } from './simulator/simulator.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { DexScreenerModule } from './dex-screener/dex-screener.module';
 import { ActivityModule } from './activity/activity.module';
+import { StateModule } from './state/state.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { ActivityModule } from './activity/activity.module';
     AnalyticsModule,
     DexScreenerModule,
     ActivityModule,
+    StateModule,
   ],
   controllers: [V1Controller],
 })
