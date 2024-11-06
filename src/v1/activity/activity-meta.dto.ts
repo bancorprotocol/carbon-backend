@@ -42,7 +42,12 @@ export class ActivityMetaDto {
   )
   @IsArray()
   @ArrayNotEmpty()
-  @IsIn(validActions, { each: true })
+  @IsIn(validActions, {
+    each: true,
+    message: `each value in actions must be one of the following values: ${validActions.join(
+      ', ',
+    )}. alternatively, remove the param to receive all data`,
+  })
   @ApiPropertyOptional({
     type: [String],
     description: 'List of comma-separated actions',
