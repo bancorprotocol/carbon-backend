@@ -16,6 +16,9 @@ export class ActivityController {
   }
 
   private formatAction(action: string): string {
+    if (action.includes('edit_deposit_withdraw')) return 'editDepositWithdraw';
+    if (action.includes('edit_deposit')) return 'editDeposit';
+    if (action.includes('edit_withdraw')) return 'editWithdraw';
     if (action.includes('sell')) return 'sell';
     if (action.includes('buy')) return 'buy';
     if (action.includes('create')) return 'create';
@@ -25,6 +28,7 @@ export class ActivityController {
     if (action.includes('edit')) return 'edit';
     if (action.includes('delete')) return 'delete';
     if (action.includes('pause')) return 'pause';
+
     return '';
   }
 
