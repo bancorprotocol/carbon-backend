@@ -1184,7 +1184,7 @@ ORDER BY
       queryBuilder.andWhere(
         new Brackets((qb) => {
           actionsArray.forEach((action, index) => {
-            qb.orWhere(`activity.action = :action${index}`, { [`action${index}`]: `${action}` });
+            qb.orWhere(`activity.action LIKE :action${index}`, { [`action${index}`]: `%${action}%` });
           });
         }),
       );
