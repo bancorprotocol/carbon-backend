@@ -110,7 +110,7 @@ export class ActivityController {
   @ApiExchangeIdParam()
   async activity(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityDto): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
-    const _params = { ...params, limit: params.limit || 10000, deployment };
+    const _params = { ...params, limit: params.limit || 100, deployment };
     const data = await this.activityService.getFilteredActivities(_params, deployment);
     return data.map((d) => this.mapData(d));
   }
