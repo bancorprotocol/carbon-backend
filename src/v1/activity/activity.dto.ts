@@ -3,20 +3,7 @@ import { formatEthereumAddress } from '../../isAddress.validator';
 import { Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 
-export const validActions = [
-  'sell',
-  'buy',
-  'create',
-  'deposit',
-  'withdraw',
-  'transfer',
-  'edit',
-  'delete',
-  'pause',
-  'edit_deposit',
-  'edit_withdraw',
-  'edit_deposit_withdraw',
-];
+export const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
 
 export class ActivityDto {
   @IsOptional()
