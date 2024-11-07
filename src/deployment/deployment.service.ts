@@ -33,6 +33,7 @@ export interface Deployment {
   multicallAddress: string;
   gasToken: GasToken;
   startBlock: number;
+  networkId: number;
   nativeTokenAlias?: string;
 }
 
@@ -59,6 +60,7 @@ export class DeploymentService {
           symbol: 'ETH',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        networkId: 1,
       },
       {
         exchangeId: ExchangeId.OGSei,
@@ -74,6 +76,7 @@ export class DeploymentService {
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
         nativeTokenAlias: '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7',
+        networkId: 531,
       },
       {
         exchangeId: ExchangeId.OGCelo,
@@ -89,6 +92,7 @@ export class DeploymentService {
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
         nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
+        networkId: 42220,
       },
       // {
       //   exchangeId: ExchangeId.OGBlast,
@@ -103,6 +107,7 @@ export class DeploymentService {
       //     symbol: 'BLAST',
       //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
       //   },
+      //   networkId: 81457,
       // },
     ];
   }

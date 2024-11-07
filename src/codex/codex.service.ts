@@ -4,9 +4,6 @@ import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 
-export const SEI_NETWORK_ID = 531;
-export const CELO_NETWORK_ID = 42220;
-
 @Injectable()
 export class CodexService {
   private sdk: Codex;
@@ -16,7 +13,7 @@ export class CodexService {
     this.sdk = new Codex(apiKey);
   }
 
-  async getLatestPrices(deployment: Deployment, networkId: number, addresses: string[]): Promise<any> {
+  async getLatestPrices(deployment: Deployment, addresses: string[]): Promise<any> {
     const originalAddresses = [...addresses]; // Keep a copy of the original addresses to return correct keys
     let nativeTokenAliasUsed = false;
 
@@ -32,7 +29,7 @@ export class CodexService {
     }
 
     const result = {};
-    const tokens = await this.fetchTokens(networkId, addresses);
+    const tokens = await this.fetchTokens(deployment.networkId, addresses);
 
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();

@@ -70,6 +70,7 @@ export class CoinGeckoService {
       const result = {
         [gasToken.address.toLowerCase()]: {
           last_updated_at: response.data[blockchainType]['last_updated_at'],
+          provider: 'coingecko',
         },
       };
       convert.forEach((c) => {

@@ -9,7 +9,7 @@ import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
 import { BlockchainType, Deployment, DeploymentService, NATIVE_TOKEN } from '../deployment/deployment.service';
-import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
+import { CodexService } from '../codex/codex.service';
 
 type Candlestick = {
   timestamp: number;
@@ -50,11 +50,15 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      await Promise.all([
-        await this.updateCoinMarketCapQuotes(),
-        await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
-        await this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID),
-      ]);
+      const deployments = this.deploymentService.getDeployments();
+      const promises = deployments.map((deployment) => {
+        if (deployment.blockchainType === BlockchainType.Ethereum) {
+          return this.updateCoinMarketCapQuotes();
+        } else {
+          return this.updateCodexQuotes(deployment);
+        }
+      });
+      await Promise.all(promises);
     } catch (error) {
       console.error('Error updating historic quotes:', error);
       this.isPolling = false;
@@ -84,11 +88,10 @@ export class HistoricQuoteService implements OnModuleInit {
     console.log('CoinMarketCap quotes updated');
   }
 
-  private async updateCodexQuotes(blockchainType: BlockchainType, networkId: number): Promise<void> {
-    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
-    const latest = await this.getLatest(blockchainType);
-    const addresses = await this.codexService.getAllTokenAddresses(networkId);
-    const quotes = await this.codexService.getLatestPrices(deployment, networkId, addresses);
+  private async updateCodexQuotes(deployment: Deployment): Promise<void> {
+    const latest = await this.getLatest(deployment.blockchainType);
+    const addresses = await this.codexService.getAllTokenAddresses(deployment.networkId);
+    const quotes = await this.codexService.getLatestPrices(deployment, addresses);
     const newQuotes = [];
 
     for (const address of Object.keys(quotes)) {
@@ -103,7 +106,7 @@ export class HistoricQuoteService implements OnModuleInit {
           usd: quote.usd,
           timestamp: moment.unix(quote.last_updated_at).utc().toISOString(),
           provider: 'codex',
-          blockchainType: blockchainType,
+          blockchainType: deployment.blockchainType,
         }),
       );
     }
