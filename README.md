@@ -9,7 +9,9 @@ Before setting up Carbon Backend, ensure you have the following prerequisites:
 - **[TimescaleDB](https://docs.timescale.com/self-hosted/latest/install)**: Ensure TimescaleDB is properly installed and running.
 - **[Redis](https://redis.io/docs/install/install-stack)**: Ensure Redis is properly installed and running.
 - **[CoinGecko](https://www.coingecko.com/en/api)**: Obtain an API key from CoinGecko.
+  - This repo is set up to use Coingecko's PRO API, if you have a free plan you will need to adjust the coingecko api url and authentication header.
 - **[CoinMarketCap](https://www.coingecko.com/en/api)**: Obtain an API key from CoinMarketCap.
+- **[Codex](https://www.codex.io/)**: Obtain an API key from Codex.
 - **Python 3 (Optional)**: Required for the simulator.
 
 ## Installation
@@ -65,6 +67,12 @@ To run Carbon Backend:
 ```bash
 npm start
 ```
+
+## First run
+
+On the first run, the application will sync each network to current state. This will heavily consume the RPC API urls, if you're using a free plan from Alchemy or another provider, you might be rate limited and the sync process will take some time.
+
+If you're facing network issues when syncing the chain state, try reducing the parameters `harvestEventsBatchSize` and `harvestConcurrency` for each network in the deployment config on `deployment.service.ts`. This will slow down the sync, but will be lighter on your network. 
 
 ## API Documentation
 
