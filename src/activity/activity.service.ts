@@ -26,7 +26,7 @@ export class ActivityService {
     await this.activityRepository
       .createQueryBuilder()
       .delete()
-      .where('"blockNumber" >= :startBlock', { startBlock })
+      .where('"blockNumber" > :startBlock', { startBlock })
       .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();

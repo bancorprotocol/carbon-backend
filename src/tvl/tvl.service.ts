@@ -37,7 +37,7 @@ export class TvlService {
     await this.tvlRepository
       .createQueryBuilder()
       .delete()
-      .where('evt_block_number >= :startBlock', { startBlock })
+      .where('evt_block_number > :startBlock', { startBlock })
       .andWhere('blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
