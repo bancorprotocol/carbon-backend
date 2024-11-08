@@ -200,6 +200,13 @@ export class HarvesterService {
       await this.preClear(args.repository, lastProcessedBlock, deployment);
     }
 
+    // when this argument is true, we'll need to send a request to the RPC to get the transaction object for each event
+    // this request is sent in parallel for all events in a batch
+    // as this can be quite heavy on some networks, uncomment snippet below to reduce batch size if needed
+    // if (args.fetchCallerId) {
+    //   deployment.harvestEventsBatchSize = 1000;
+    // }
+
     for (
       let rangeStart = lastProcessedBlock + 1;
       rangeStart <= args.endBlock;
