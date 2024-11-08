@@ -50,11 +50,17 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      await Promise.all([
-        await this.updateCoinMarketCapQuotes(),
-        await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
-        await this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID),
-      ]);
+      const deployments = this.deploymentService.getDeployments();
+      const promises = deployments.map((deployment) => {
+        if (deployment.blockchainType === BlockchainType.Ethereum) {
+          return this.updateCoinMarketCapQuotes();
+        } else if (deployment.blockchainType === BlockchainType.Sei) {
+          return this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID);
+        } else if (deployment.blockchainType === BlockchainType.Celo) {
+          return this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID);
+        }
+      });
+      await Promise.all(promises);
     } catch (error) {
       console.error('Error updating historic quotes:', error);
       this.isPolling = false;
