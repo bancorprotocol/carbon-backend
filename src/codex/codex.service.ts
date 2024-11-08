@@ -10,7 +10,9 @@ export class CodexService {
 
   constructor(private configService: ConfigService) {
     const apiKey = this.configService.get<string>('CODEX_API_KEY');
-    this.sdk = new Codex(apiKey);
+    if (apiKey) {
+      this.sdk = new Codex(apiKey);
+    }
   }
 
   async getLatestPrices(deployment: Deployment, addresses: string[]): Promise<any> {

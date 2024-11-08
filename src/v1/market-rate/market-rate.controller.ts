@@ -5,7 +5,7 @@ import { CacheTTL } from '@nestjs/cache-manager';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../../codex/codex.service';
+import { CodexService } from '../../codex/codex.service';
 
 @Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
@@ -25,10 +25,8 @@ export class MarketRateController {
     const currencies = convert.split(',');
     let data;
 
-    if (deployment.blockchainType === BlockchainType.Sei) {
-      data = await this.codexService.getLatestPrices(deployment, SEI_NETWORK_ID, [address]);
-    } else if (deployment.blockchainType === BlockchainType.Celo) {
-      data = await this.codexService.getLatestPrices(deployment, CELO_NETWORK_ID, [address]);
+    if (deployment.blockchainType !== BlockchainType.Ethereum) {
+      data = await this.codexService.getLatestPrices(deployment, [address]);
     } else {
       data = await this.quoteService.fetchLatestPrice(deployment, address, currencies);
     }
