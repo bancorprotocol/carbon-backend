@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
-import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
+import { Deployment, NATIVE_TOKEN, DeploymentService, BlockchainType } from '../deployment/deployment.service';
 
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
@@ -11,9 +11,17 @@ export const CELO_NETWORK_ID = 42220;
 export class CodexService {
   private sdk: Codex;
 
-  constructor(private configService: ConfigService) {
+  constructor(private configService: ConfigService, private deploymentService: DeploymentService) {
     const apiKey = this.configService.get<string>('CODEX_API_KEY');
-    this.sdk = new Codex(apiKey);
+    if (apiKey) {
+      this.sdk = new Codex(apiKey);
+    } else {
+      const deployments = deploymentService.getDeployments();
+      const nonEthereumDeployments = deployments.find((d) => d.blockchainType !== BlockchainType.Ethereum);
+      if (nonEthereumDeployments) {
+        throw new Error('CODEX_API_KEY required as there is a non-Ethereum deployment');
+      }
+    }
   }
 
   async getLatestPrices(deployment: Deployment, networkId: number, addresses: string[]): Promise<any> {
