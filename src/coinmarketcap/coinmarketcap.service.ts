@@ -5,7 +5,7 @@ import axios, { AxiosResponse } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { toTimestamp } from '../utilities';
 import moment from 'moment';
-import { NATIVE_TOKEN } from 'src/deployment/deployment.service';
+import { NATIVE_TOKEN } from '../deployment/deployment.service';
 
 export interface PriceObject {
   timestamp: number;
