@@ -31,23 +31,23 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService): Promise<any> => {
-        let ssl: any;
         const dbSync = configService.get('DB_SYNC') === '1' ? true : false;
-        if (process.env.NODE_ENV === 'production') {
-          ssl = {
-            ca: configService.get('CARBON_BACKEND_SQL_CERTIFICATION'),
-            ciphers: [
-              'ECDHE-RSA-AES128-SHA256',
-              'DHE-RSA-AES128-SHA256',
-              'AES128-GCM-SHA256',
-              '!RC4', // RC4 be gone
-              'HIGH',
-              '!MD5',
-              '!aNULL',
-            ].join(':'),
-            honorCipherOrder: true,
-          };
-        }
+        const ssl =
+          configService.get('DATABASE_SSL_ENABLED') && configService.get('DATABASE_SSL_ENABLED') === '1'
+            ? {
+                ca: configService.get('CARBON_BACKEND_SQL_CERTIFICATION'),
+                ciphers: [
+                  'ECDHE-RSA-AES128-SHA256',
+                  'DHE-RSA-AES128-SHA256',
+                  'AES128-GCM-SHA256',
+                  '!RC4',
+                  'HIGH',
+                  '!MD5',
+                  '!aNULL',
+                ].join(':'),
+                honorCipherOrder: true,
+              }
+            : null;
 
         return {
           type: 'postgres',

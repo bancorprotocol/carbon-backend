@@ -4,14 +4,14 @@ import * as dotenv from 'dotenv';
 dotenv.config();
 
 const ssl =
-  process.env.NODE_ENV === 'production'
+  process.env.DATABASE_SSL_ENABLED && process.env.DATABASE_SSL_ENABLED === '1'
     ? {
         ca: process.env.CARBON_BACKEND_SQL_CERTIFICATION,
         ciphers: [
           'ECDHE-RSA-AES128-SHA256',
           'DHE-RSA-AES128-SHA256',
           'AES128-GCM-SHA256',
-          '!RC4', // RC4 be gone
+          '!RC4',
           'HIGH',
           '!MD5',
           '!aNULL',
