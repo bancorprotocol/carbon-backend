@@ -34,13 +34,13 @@ export class LastProcessedBlockService {
     return lastProcessed ? lastProcessed.block : null;
   }
   async getOrInit(param: string, initTo?: number): Promise<number> {
-    const _initTo = initTo || this.configService.get('START_BLOCK') - 1;
+    const _initTo = initTo || 1; // defaults to 1 if not provided, startBlock should be provided in the deployment config
     const lastProcessed = await this.lastProcessedBlock.findOneBy({ param });
     return lastProcessed ? lastProcessed.block : _initTo;
   }
 
   async firstUnprocessedBlockNumber(): Promise<number> {
-    const startBlock = parseInt(this.configService.get('START_BLOCK'));
+    const startBlock = 1;
     const entities = [
       'blocks',
       'pair-created-events',
