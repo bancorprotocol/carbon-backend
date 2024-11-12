@@ -74,8 +74,6 @@ On the first run, the application will sync each network to current state. This 
 
 If you're facing network issues when syncing the chain state, try reducing the parameters `harvestEventsBatchSize` and `harvestConcurrency` for each network in the deployment config on `deployment.service.ts`. This will slow down the sync, but will be lighter on your network. 
 
-During the sync, some events require fetching the `callerId` separately (address of transaction sender). When this happens, the application will send in parallel a request for each event in a batch of size `harvestEventsBatchSize`. This could be heavy on some internet connections and some RPC providers, throwing errors like `ECONNRESET` and `ETIMEDOUT`, and this can block the sync job as it might always error in the same batch (becomes stuck). To go around this, there is a convenient environment flag `CALLER_ID_BATCH_SIZE` which allows overwriting the batch size for these particular events, to avoid running into these errors. (Recommended value for slow connections: 1000, try decreasing it if stills errors)
-
 ## API Documentation
 
 Access the API documentation by navigating to [http://localhost:3000](http://localhost:3000) in your browser.

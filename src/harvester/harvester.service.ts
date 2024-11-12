@@ -200,13 +200,6 @@ export class HarvesterService {
       await this.preClear(args.repository, lastProcessedBlock, deployment);
     }
 
-    if (args.fetchCallerId) {
-      const batchSize = this.configService.get('CALLER_ID_BATCH_SIZE');
-      if (batchSize && batchSize > 0) {
-        deployment.harvestEventsBatchSize = batchSize;
-      }
-    }
-
     for (
       let rangeStart = lastProcessedBlock + 1;
       rangeStart <= args.endBlock;
