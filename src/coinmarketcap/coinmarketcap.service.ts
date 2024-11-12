@@ -5,6 +5,7 @@ import axios, { AxiosResponse } from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { toTimestamp } from '../utilities';
 import moment from 'moment';
+import { NATIVE_TOKEN } from '../deployment/deployment.service';
 
 export interface PriceObject {
   timestamp: number;
@@ -19,7 +20,7 @@ const ETH_ID = 1027;
 export class CoinMarketCapService {
   private ethAddress;
   constructor(private readonly configService: ConfigService) {
-    this.ethAddress = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+    this.ethAddress = NATIVE_TOKEN;
   }
 
   private getApiKey(): string {
