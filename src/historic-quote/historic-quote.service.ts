@@ -17,6 +17,19 @@ type Candlestick = {
   close: string;
   high: string;
   low: string;
+  provider: string;
+};
+
+type PriceProvider = 'coinmarketcap' | 'codex';
+
+interface ProviderConfig {
+  name: PriceProvider;
+  enabled: boolean;
+  priority: number;
+}
+
+type BlockchainProviderConfig = {
+  [key in BlockchainType]: ProviderConfig[];
 };
 
 @Injectable()
@@ -24,6 +37,15 @@ export class HistoricQuoteService implements OnModuleInit {
   private isPolling = false;
   private readonly intervalDuration: number;
   private shouldPollQuotes: boolean;
+  private priceProviders: BlockchainProviderConfig = {
+    [BlockchainType.Ethereum]: [
+      { name: 'coinmarketcap', enabled: true, priority: 1 },
+      { name: 'codex', enabled: true, priority: 2 },
+    ],
+    [BlockchainType.Sei]: [{ name: 'codex', enabled: true, priority: 1 }],
+    [BlockchainType.Celo]: [{ name: 'codex', enabled: true, priority: 1 }],
+    [BlockchainType.Blast]: [{ name: 'codex', enabled: true, priority: 1 }],
+  };
 
   constructor(
     @InjectRepository(HistoricQuote) private repository: Repository<HistoricQuote>,
@@ -266,7 +288,7 @@ export class HistoricQuoteService implements OnModuleInit {
 
   async getHistoryQuotesBuckets(
     blockchainType: BlockchainType,
-    _addresses: string[],
+    addresses: string[],
     start: number,
     end: number,
     bucket = '1 day',
@@ -276,28 +298,59 @@ export class HistoricQuoteService implements OnModuleInit {
     const startPaddedQ = moment.unix(start).utc().startOf('day').subtract('1', 'day').toISOString();
     let endQ: any = moment.unix(end).utc().endOf('day');
     endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
-    const addresses = _addresses.map((a) => a.toLowerCase());
 
-    const addressesString = addresses.map((a) => `'${a}'`).join(', ');
+    const enabledProviders = this.priceProviders[blockchainType]
+      .filter((p) => p.enabled)
+      .sort((a, b) => a.priority - b.priority)
+      .map((p) => p.name);
 
     const query = `
+      WITH TokenProviders AS (
+        SELECT 
+          "tokenAddress",
+          provider,
+          CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END as has_data,
+          ROW_NUMBER() OVER (
+            PARTITION BY "tokenAddress"
+            ORDER BY 
+              CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END DESC,
+              array_position(ARRAY[${enabledProviders.map((p) => `'${p}'`).join(',')}]::text[], provider)
+          ) as provider_rank
+        FROM "historic-quotes"
+        WHERE
+          timestamp >= '${startPaddedQ}'
+          AND timestamp <= '${endQ}'
+          AND "tokenAddress" IN (${addresses.map((a) => `'${a.toLowerCase()}'`).join(',')})
+          AND "blockchainType" = '${blockchainType}'
+          AND provider = ANY(ARRAY[${enabledProviders.map((p) => `'${p}'`).join(',')}]::text[])
+        GROUP BY "tokenAddress", provider
+      ),
+      BestProviderQuotes AS (
+        SELECT hq.*
+        FROM "historic-quotes" hq
+        JOIN TokenProviders tp ON 
+          hq."tokenAddress" = tp."tokenAddress" 
+          AND hq.provider = tp.provider
+          AND tp.provider_rank = 1
+        WHERE
+          hq.timestamp >= '${startPaddedQ}'
+          AND hq.timestamp <= '${endQ}'
+          AND hq."blockchainType" = '${blockchainType}'
+      )
       SELECT
-        "tokenAddress",
+        bpq."tokenAddress",
         time_bucket_gapfill('${bucket}', timestamp) AS bucket,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
         locf(max(usd::numeric)) as high,
-        locf(min(usd::numeric)) as low
-      FROM
-        "historic-quotes"
-      WHERE
-        timestamp >= '${startPaddedQ}' AND timestamp <= '${endQ}'
-        and "tokenAddress" IN (${addressesString})
-        AND "blockchainType" = '${blockchainType}'
-      GROUP BY
-        "tokenAddress",  bucket
-      ORDER BY
-        "tokenAddress",  bucket;`;
+        locf(min(usd::numeric)) as low,
+        sp.provider as selected_provider
+      FROM BestProviderQuotes bpq
+      JOIN TokenProviders sp ON 
+        bpq."tokenAddress" = sp."tokenAddress" 
+        AND sp.provider_rank = 1
+      GROUP BY bpq."tokenAddress", bucket, sp.provider
+      ORDER BY bpq."tokenAddress", bucket;`;
 
     const result = await this.repository.query(query);
 
@@ -314,6 +367,7 @@ export class HistoricQuoteService implements OnModuleInit {
           close: row.close,
           high: row.high,
           low: row.low,
+          provider: row.selected_provider,
         };
 
         if (!candlesByAddress[tokenAddress]) {
@@ -324,43 +378,19 @@ export class HistoricQuoteService implements OnModuleInit {
       }
     });
 
-    if (!candlesByAddress[addresses[0]]) {
+    // Check if tokens exist at all in candlesByAddress
+    const nonExistentTokens = addresses.filter((address) => !candlesByAddress[address]);
+    if (nonExistentTokens.length > 0) {
       throw new BadRequestException({
-        message: ['The provided Base token is currently not supported in this API'],
+        message: [
+          `No price data available for token${nonExistentTokens.length > 1 ? 's' : ''}: ${nonExistentTokens.join(
+            ', ',
+          )}`,
+        ],
         error: 'Bad Request',
         statusCode: 400,
       });
     }
-
-    if (!candlesByAddress[addresses[1]]) {
-      throw new BadRequestException({
-        message: ['The provided Quote token is currently not supported in this API'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    let maxNonNullOpenIndex = -1;
-
-    Object.values(candlesByAddress).forEach((candles: Candlestick[]) => {
-      const firstNonNullOpenIndex = this.findFirstNonNullOpenIndex(candles);
-      if (firstNonNullOpenIndex > maxNonNullOpenIndex) {
-        maxNonNullOpenIndex = firstNonNullOpenIndex;
-      }
-    });
-
-    if (maxNonNullOpenIndex === -1) {
-      throw new BadRequestException({
-        message: ['No data available for the specified token addresses. Try a more recent date range'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
-    // Filter out candlesticks before the maxNonNullOpenIndex
-    Object.keys(candlesByAddress).forEach((address) => {
-      candlesByAddress[address] = candlesByAddress[address].slice(maxNonNullOpenIndex);
-    });
 
     return candlesByAddress;
   }
@@ -381,6 +411,7 @@ export class HistoricQuoteService implements OnModuleInit {
       prices.push({
         timestamp: base.timestamp,
         usd: new Decimal(base.close).div(quote.close),
+        provider: base.provider === quote.provider ? base.provider : `${base.provider}/${quote.provider}`,
       });
     });
 
@@ -402,6 +433,7 @@ export class HistoricQuoteService implements OnModuleInit {
           high: price.usd !== null ? new Decimal(price.usd) : null,
           low: price.usd !== null ? new Decimal(price.usd) : null,
           close: price.usd !== null ? new Decimal(price.usd) : null,
+          provider: price.provider,
         };
       } else if (day !== currentDay) {
         if (dailyData !== null) {
@@ -411,6 +443,7 @@ export class HistoricQuoteService implements OnModuleInit {
             high: dailyData.high,
             low: dailyData.low,
             close: dailyData.close,
+            provider: dailyData.provider,
           });
         }
 
@@ -420,6 +453,7 @@ export class HistoricQuoteService implements OnModuleInit {
           high: price.usd !== null ? new Decimal(price.usd) : null,
           low: price.usd !== null ? new Decimal(price.usd) : null,
           close: price.usd !== null ? new Decimal(price.usd) : null,
+          provider: price.provider,
         };
       } else {
         if (price.usd !== null) {
@@ -441,6 +475,7 @@ export class HistoricQuoteService implements OnModuleInit {
         high: dailyData.high,
         low: dailyData.low,
         close: dailyData.close,
+        provider: dailyData.provider,
       });
     }
 
@@ -461,17 +496,39 @@ export class HistoricQuoteService implements OnModuleInit {
     const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
 
     const query = `
-      WITH gapfilled_quotes as (
-      SELECT
-        time_bucket_gapfill('1 day', timestamp, '${paddedStart}', '${paddedEnd}') AS day,
-        "tokenAddress" AS address,
-        locf(avg("usd"::numeric)) AS usd  
-      FROM "historic-quotes"
-      WHERE
-        "blockchainType" = '${deployment.blockchainType}'
-        AND "tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
-      GROUP BY "tokenAddress", day
-     ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
+      WITH TokenProviders AS (
+        SELECT 
+          "tokenAddress",
+          provider,
+          COUNT(*) as data_points,
+          ROW_NUMBER() OVER (
+            PARTITION BY "tokenAddress"
+            ORDER BY COUNT(*) DESC
+          ) as provider_rank
+        FROM "historic-quotes"
+        WHERE
+          timestamp >= '${paddedStart}'
+          AND timestamp <= '${paddedEnd}'
+          AND "tokenAddress" IN (${addresses.map((a) => `'${a.toLowerCase()}'`).join(',')})
+          AND "blockchainType" = '${deployment.blockchainType}'
+        GROUP BY "tokenAddress", provider
+      ),
+      gapfilled_quotes as (
+        SELECT
+          time_bucket_gapfill('1 day', hq.timestamp, '${paddedStart}', '${paddedEnd}') AS day,
+          hq."tokenAddress" AS address,
+          locf(avg(hq."usd"::numeric)) AS usd,
+          tp.provider
+        FROM "historic-quotes" hq
+        JOIN TokenProviders tp ON 
+          hq."tokenAddress" = tp."tokenAddress" 
+          AND hq.provider = tp.provider
+          AND tp.provider_rank = 1
+        WHERE
+          hq."blockchainType" = '${deployment.blockchainType}'
+          AND hq."tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
+        GROUP BY hq."tokenAddress", day, tp.provider
+      ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
     `;
 
     const result = await this.repository.query(query);
@@ -480,6 +537,7 @@ export class HistoricQuoteService implements OnModuleInit {
       day: moment.utc(row.day).unix(),
       address: row.address.toLowerCase(),
       usd: parseFloat(row.usd),
+      provider: row.provider,
     }));
   }
 }
