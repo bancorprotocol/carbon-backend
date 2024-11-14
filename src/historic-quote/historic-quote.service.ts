@@ -407,6 +407,12 @@ export class HistoricQuoteService implements OnModuleInit {
     data[tokenA].forEach((_, i) => {
       const base = data[tokenA][i];
       const quote = data[tokenB][i];
+
+      // Skip if either close price is null
+      if (base.close === null || quote.close === null) {
+        return;
+      }
+
       prices.push({
         timestamp: base.timestamp,
         usd: new Decimal(base.close).div(quote.close),
@@ -479,15 +485,6 @@ export class HistoricQuoteService implements OnModuleInit {
     }
 
     return candlesticks;
-  }
-
-  private findFirstNonNullOpenIndex(candles: Candlestick[]): number {
-    for (let i = 0; i < candles.length; i++) {
-      if (candles[i].open !== null) {
-        return i;
-      }
-    }
-    return -1; // If no non-null open value found
   }
 
   async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
