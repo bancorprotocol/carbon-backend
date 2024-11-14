@@ -44,10 +44,7 @@ export class MarketRateController {
       try {
         switch (provider.name) {
           case 'codex':
-            const networkId = this.getNetworkId(deployment.blockchainType);
-            if (networkId) {
-              data = await this.codexService.getLatestPrices(deployment, networkId, [address]);
-            }
+            data = await this.codexService.getLatestPrices(deployment, [address]);
             break;
           case 'coingecko':
             data = await this.coinGeckoService.fetchLatestPrice(deployment, address, currencies);
@@ -85,18 +82,5 @@ export class MarketRateController {
     });
 
     return result;
-  }
-
-  private getNetworkId(blockchainType: BlockchainType): number | null {
-    switch (blockchainType) {
-      case BlockchainType.Sei:
-        return SEI_NETWORK_ID;
-      case BlockchainType.Celo:
-        return CELO_NETWORK_ID;
-      case BlockchainType.Ethereum:
-        return ETHEREUM_NETWORK_ID;
-      default:
-        return null;
-    }
   }
 }

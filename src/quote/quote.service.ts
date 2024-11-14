@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Quote } from './quote.entity';
@@ -8,10 +8,19 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { Token } from '../token/token.entity';
 import { ConfigService } from '@nestjs/config';
 import { DeploymentService, Deployment, BlockchainType } from '../deployment/deployment.service';
-import { CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
+import { CELO_NETWORK_ID, CodexService, ETHEREUM_NETWORK_ID, SEI_NETWORK_ID } from '../codex/codex.service';
 
 export interface QuotesByAddress {
   [address: string]: Quote;
+}
+
+interface PriceProvider {
+  name: string;
+  enabled: boolean;
+}
+
+interface BlockchainProviderConfig {
+  [key: string]: PriceProvider[];
 }
 
 @Injectable()
@@ -19,7 +28,17 @@ export class QuoteService implements OnModuleInit {
   private isPolling = false;
   private readonly logger = new Logger(QuoteService.name);
   private readonly intervalDuration: number;
+  private readonly SKIP_TIMEOUT = 24 * 60 * 60; // 24 hours in seconds
   private shouldPollQuotes: boolean;
+  private readonly priceProviders: BlockchainProviderConfig = {
+    [BlockchainType.Ethereum]: [
+      { name: 'coingecko', enabled: true },
+      { name: 'codex', enabled: true },
+    ],
+    [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Blast]: [{ name: 'codex', enabled: true }],
+  };
 
   constructor(
     @InjectRepository(Quote) private quoteRepository: Repository<Quote>,
@@ -29,6 +48,7 @@ export class QuoteService implements OnModuleInit {
     private schedulerRegistry: SchedulerRegistry,
     private deploymentService: DeploymentService,
     private codexService: CodexService,
+    @Inject('REDIS') private redis: any,
   ) {
     this.intervalDuration = +this.configService.get('POLL_QUOTES_INTERVAL') || 60000;
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_QUOTES') === '1';
@@ -69,9 +89,9 @@ export class QuoteService implements OnModuleInit {
 
       let newPrices;
       if (deployment.blockchainType === BlockchainType.Sei) {
-        newPrices = await this.codexService.getLatestPrices(deployment, SEI_NETWORK_ID, addresses);
+        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       } else if (deployment.blockchainType === BlockchainType.Celo) {
-        newPrices = await this.codexService.getLatestPrices(deployment, CELO_NETWORK_ID, addresses);
+        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       } else {
         newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
         const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
@@ -116,5 +136,94 @@ export class QuoteService implements OnModuleInit {
     }
 
     await this.quoteRepository.save(quoteEntities);
+  }
+
+  async getLatestPrice(deployment: Deployment, address: string, currencies: string[]): Promise<any> {
+    const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
+
+    let data = null;
+    let usedProvider = null;
+
+    for (const provider of enabledProviders) {
+      const shouldSkip = await this.shouldSkipProvider(deployment.blockchainType, address, provider.name);
+      if (shouldSkip) {
+        this.logger.log(`Skipping ${provider.name} due to previous failure for ${address}`);
+        continue;
+      }
+
+      try {
+        data = await this.fetchPriceFromProvider(provider.name, deployment, address, currencies);
+
+        if (
+          data &&
+          Object.keys(data).length > 0 &&
+          data[address.toLowerCase()] &&
+          Object.keys(data[address.toLowerCase()]).some((key) => key !== 'provider' && key !== 'last_updated_at')
+        ) {
+          usedProvider = provider.name;
+          break;
+        }
+      } catch (error) {
+        this.logger.error(`Error fetching price from ${provider.name}:`, error);
+        await this.setProviderSkipFlag(deployment.blockchainType, address, provider.name);
+      }
+      data = null;
+    }
+
+    if (!data || Object.keys(data).length === 0) {
+      throw new Error(`No price data available for token: ${address}`);
+    }
+
+    const result = {
+      data: {},
+      provider: usedProvider,
+    };
+
+    currencies.forEach((c) => {
+      if (data[address.toLowerCase()] && data[address.toLowerCase()][c.toLowerCase()]) {
+        result.data[c.toUpperCase()] = data[address.toLowerCase()][c.toLowerCase()];
+      }
+    });
+
+    return result;
+  }
+
+  private async fetchPriceFromProvider(
+    provider: string,
+    deployment: Deployment,
+    address: string,
+    currencies: string[],
+  ): Promise<any> {
+    switch (provider) {
+      case 'codex':
+        return this.codexService.getLatestPrices(deployment, [address]);
+      case 'coingecko':
+        return this.coingeckoService.fetchLatestPrice(deployment, address, currencies);
+      default:
+        return null;
+    }
+  }
+
+  private getNetworkId(blockchainType: BlockchainType): number | null {
+    switch (blockchainType) {
+      case BlockchainType.Sei:
+        return SEI_NETWORK_ID;
+      case BlockchainType.Celo:
+        return CELO_NETWORK_ID;
+      case BlockchainType.Ethereum:
+        return ETHEREUM_NETWORK_ID;
+      default:
+        return null;
+    }
+  }
+
+  private async shouldSkipProvider(blockchainType: string, address: string, provider: string): Promise<boolean> {
+    const key = `skip:${blockchainType}:${address}:${provider}`;
+    return (await this.redis.get(key)) === '1';
+  }
+
+  private async setProviderSkipFlag(blockchainType: string, address: string, provider: string): Promise<void> {
+    const key = `skip:${blockchainType}:${address}:${provider}`;
+    await this.redis.setex(key, this.SKIP_TIMEOUT, '1');
   }
 }

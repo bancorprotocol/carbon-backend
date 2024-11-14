@@ -109,7 +109,7 @@ export class HistoricQuoteService implements OnModuleInit {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const latest = await this.getLatest(blockchainType);
     const addresses = await this.codexService.getAllTokenAddresses(networkId);
-    const quotes = await this.codexService.getLatestPrices(deployment, networkId, addresses);
+    const quotes = await this.codexService.getLatestPrices(deployment, addresses);
     const newQuotes = [];
 
     for (const address of Object.keys(quotes)) {
