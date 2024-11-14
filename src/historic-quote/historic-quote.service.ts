@@ -20,14 +20,14 @@ type Candlestick = {
   provider: string;
 };
 
-type PriceProvider = 'coinmarketcap' | 'codex';
+type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko';
 
 interface ProviderConfig {
   name: PriceProvider;
   enabled: boolean;
 }
 
-type BlockchainProviderConfig = {
+export type BlockchainProviderConfig = {
   [key in BlockchainType]: ProviderConfig[];
 };
 

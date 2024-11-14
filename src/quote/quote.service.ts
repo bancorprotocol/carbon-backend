@@ -97,20 +97,6 @@ export class QuoteService implements OnModuleInit {
     return tokensByAddress;
   }
 
-  async fetchLatestPrice(deployment: Deployment, address: string, convert = ['usd']): Promise<any> {
-    try {
-      let price;
-      if (address.toLowerCase() === deployment.gasToken.address.toLowerCase()) {
-        price = await this.coingeckoService.getLatestGasTokenPrice(deployment, convert);
-      } else {
-        price = await this.coingeckoService.getLatestPrices([address], deployment, convert);
-      }
-      return price;
-    } catch (error) {
-      this.logger.error(`Error fetching price: ${error.message}`);
-    }
-  }
-
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>, deployment: Deployment): Promise<void> {
     const existingQuotes = await this.quoteRepository.find();
     const quoteEntities: Quote[] = [];
