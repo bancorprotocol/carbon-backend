@@ -25,7 +25,6 @@ type PriceProvider = 'coinmarketcap' | 'codex';
 interface ProviderConfig {
   name: PriceProvider;
   enabled: boolean;
-  priority: number;
 }
 
 type BlockchainProviderConfig = {
@@ -39,12 +38,12 @@ export class HistoricQuoteService implements OnModuleInit {
   private shouldPollQuotes: boolean;
   private priceProviders: BlockchainProviderConfig = {
     [BlockchainType.Ethereum]: [
-      { name: 'coinmarketcap', enabled: true, priority: 1 },
-      { name: 'codex', enabled: true, priority: 2 },
+      { name: 'coinmarketcap', enabled: true },
+      { name: 'codex', enabled: true },
     ],
-    [BlockchainType.Sei]: [{ name: 'codex', enabled: true, priority: 1 }],
-    [BlockchainType.Celo]: [{ name: 'codex', enabled: true, priority: 1 }],
-    [BlockchainType.Blast]: [{ name: 'codex', enabled: true, priority: 1 }],
+    [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Blast]: [{ name: 'codex', enabled: true }],
   };
 
   constructor(
@@ -301,8 +300,8 @@ export class HistoricQuoteService implements OnModuleInit {
 
     const enabledProviders = this.priceProviders[blockchainType]
       .filter((p) => p.enabled)
-      .sort((a, b) => a.priority - b.priority)
-      .map((p) => p.name);
+      .map((p) => `'${p.name}'`)
+      .join(',');
 
     const query = `
       WITH TokenProviders AS (
@@ -314,7 +313,7 @@ export class HistoricQuoteService implements OnModuleInit {
             PARTITION BY "tokenAddress"
             ORDER BY 
               CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END DESC,
-              array_position(ARRAY[${enabledProviders.map((p) => `'${p}'`).join(',')}]::text[], provider)
+              array_position(ARRAY[${enabledProviders}]::text[], provider)
           ) as provider_rank
         FROM "historic-quotes"
         WHERE
@@ -322,7 +321,7 @@ export class HistoricQuoteService implements OnModuleInit {
           AND timestamp <= '${endQ}'
           AND "tokenAddress" IN (${addresses.map((a) => `'${a.toLowerCase()}'`).join(',')})
           AND "blockchainType" = '${blockchainType}'
-          AND provider = ANY(ARRAY[${enabledProviders.map((p) => `'${p}'`).join(',')}]::text[])
+          AND provider = ANY(ARRAY[${enabledProviders}]::text[])
         GROUP BY "tokenAddress", provider
       ),
       BestProviderQuotes AS (
