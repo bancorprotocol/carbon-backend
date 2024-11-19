@@ -199,6 +199,31 @@ To switch Carbon Backend's network for different deployments, follow these steps
        }
        ```
 
+## Entity Relationship Diagram (ERD)
+
+Carbon Backend provides a command to automatically generate an Entity Relationship Diagram (ERD) from your TypeORM entities. This helps visualize the database structure and relationships between entities.
+
+To generate the ERD:
+
+```bash
+npm run generate-erd
+```
+
+This command:
+
+1. Scans all TypeORM entity files
+2. Generates a Mermaid diagram definition
+3. Creates two files:
+   - `erd.mmd`: The Mermaid diagram definition file
+   - `erd.svg`: The rendered diagram in SVG format
+
+The diagram includes:
+
+- All entities with their properties
+- Property types
+- Primary key indicators
+- Relationships between entities (one-to-one, one-to-many, many-to-many)
+
 ## License
 
 Carbon Backend is licensed under the [MIT License](LICENSE).

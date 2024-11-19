@@ -135,3 +135,7 @@ src/.DS_Store
 
 # typechain
 /src/abis/types
+
+# ERD
+erd.mmd
+erd.svg
