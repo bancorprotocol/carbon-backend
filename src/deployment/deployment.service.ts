@@ -46,20 +46,20 @@ export class DeploymentService {
 
   private initializeDeployments(): Deployment[] {
     return [
-      {
-        exchangeId: ExchangeId.OGEthereum,
-        blockchainType: BlockchainType.Ethereum,
-        rpcEndpoint: this.configService.get('ETHEREUM_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 2000000,
-        harvestConcurrency: 10,
-        multicallAddress: '0x5Eb3fa2DFECdDe21C950813C665E9364fa609bD2',
-        startBlock: 17087000,
-        gasToken: {
-          name: 'Ethereum',
-          symbol: 'ETH',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-      },
+      // {
+      //   exchangeId: ExchangeId.OGEthereum,
+      //   blockchainType: BlockchainType.Ethereum,
+      //   rpcEndpoint: this.configService.get('ETHEREUM_RPC_ENDPOINT'),
+      //   harvestEventsBatchSize: 2000000,
+      //   harvestConcurrency: 10,
+      //   multicallAddress: '0x5Eb3fa2DFECdDe21C950813C665E9364fa609bD2',
+      //   startBlock: 17087000,
+      //   gasToken: {
+      //     name: 'Ethereum',
+      //     symbol: 'ETH',
+      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      //   },
+      // },
       {
         exchangeId: ExchangeId.OGSei,
         blockchainType: BlockchainType.Sei,
