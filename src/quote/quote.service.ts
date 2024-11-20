@@ -155,12 +155,11 @@ export class QuoteService implements OnModuleInit {
       try {
         data = await this.fetchPriceFromProvider(provider.name, deployment, address, currencies);
 
-        if (
-          data &&
-          Object.keys(data).length > 0 &&
-          data[addressLower] &&
-          Object.keys(data[addressLower]).some((key) => key !== 'provider' && key !== 'last_updated_at')
-        ) {
+        const hasValidPriceData = Object.keys(data[addressLower]).some(
+          (key) => key !== 'provider' && key !== 'last_updated_at',
+        );
+
+        if (data && Object.keys(data).length > 0 && data[addressLower] && hasValidPriceData) {
           usedProvider = provider.name;
           break;
         }
