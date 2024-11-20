@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import Web3 from 'web3';
 import * as _ from 'lodash';
+import axios from 'axios';
+
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { Repository } from 'typeorm';
 import { PairsDictionary } from '../pair/pair.service';
@@ -15,6 +17,8 @@ import { TokensByAddress } from '../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { ConfigService } from '@nestjs/config';
+import { HttpProvider } from 'web3-providers-http';
+// import { HttpProvider } from 'web3-providers';
 
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
@@ -94,8 +98,20 @@ export interface CustomFnArgs {
   tokens?: TokensByAddress;
 }
 
+const createWeb3Instance = (rpcEndpoint: string) => {
+  const provider = new HttpProvider(rpcEndpoint, {
+    providerOptions: {
+      headers: [['x-api-key', 'fb11d0c7-d387-49ce-92a5-c9a2b3c496a3']],
+    },
+  });
+
+  return new Web3(provider);
+};
+
 @Injectable()
 export class HarvesterService {
+  private logger = new Logger(HarvesterService.name);
+
   constructor(
     private lastProcessedBlockService: LastProcessedBlockService,
     private blockService: BlockService,
@@ -147,6 +163,7 @@ export class HarvesterService {
               fromBlock: startBlock,
               toBlock: endBlock,
             });
+            await waitFor(5000);
             if (_events.length > 0) {
               _events.forEach((e) => events.push(e));
             }
@@ -160,7 +177,7 @@ export class HarvesterService {
   }
 
   getContract(contractName: string, version?: number, address?: string, deployment?: Deployment): any {
-    const web3 = new Web3(deployment.rpcEndpoint); // Use rpcEndpoint from deployment
+    const web3 = createWeb3Instance(deployment.rpcEndpoint);
     let contract;
     if (contractName === ContractNames.ERC20) {
       contract = new web3.eth.Contract(ERC20, address);
@@ -337,7 +354,7 @@ export class HarvesterService {
   }
 
   async latestBlock(deployment: Deployment): Promise<number> {
-    const web3 = new Web3(deployment.rpcEndpoint);
+    const web3 = createWeb3Instance(deployment.rpcEndpoint);
     const blockNumber = (await web3.eth.getBlockNumber()).toString();
     return parseInt(blockNumber);
   }
@@ -393,7 +410,7 @@ export class HarvesterService {
     return data.map((r) => parseInt(r));
   }
   async withMulticallEthereum(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<any> {
-    const web3 = new Web3(deployment.rpcEndpoint);
+    const web3 = createWeb3Instance(deployment.rpcEndpoint);
 
     const multicall: any = new web3.eth.Contract(MulticallAbiEthereum, deployment.multicallAddress); // Use multicallAddress from deployment
     let data = [];
@@ -414,7 +431,7 @@ export class HarvesterService {
   }
 
   async withMulticallSei(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<any> {
-    const web3 = new Web3(deployment.rpcEndpoint);
+    const web3 = createWeb3Instance(deployment.rpcEndpoint);
 
     const multicall: any = new web3.eth.Contract(multicallAbiSei, deployment.multicallAddress); // Use multicallAddress from deployment
     let data = [];
@@ -436,3 +453,5 @@ export class HarvesterService {
 }
 
 const camelToSnakeCase = (str) => str.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+
+const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

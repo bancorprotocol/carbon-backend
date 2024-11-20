@@ -59,12 +59,22 @@ export class CodexService {
   }
 
   async getHistoricalQuotes(networkId: number, tokenAddresses: string[], from: number, to: number) {
+    const MAX_TIME_RANGE = 10000 * 240 * 60; // 10k points * 240 minutes * 60 seconds
+
+    // Adjust 'from' if time range exceeds limit
+    const adjustedFrom = Math.max(from, to - MAX_TIME_RANGE);
+    if (adjustedFrom > from) {
+      console.warn(
+        `Time range exceeded maximum of ${MAX_TIME_RANGE} seconds. Adjusting start time from ${from} to ${adjustedFrom}`,
+      );
+    }
+
     const limit = (await import('p-limit')).default;
     const concurrencyLimit = limit(1);
     const maxPoints = 1499;
-    const resolution = 240; // Resolution in minutes (adjustable here)
-    const resolutionSeconds = resolution * 60; // Convert resolution to seconds
-    const maxBatchDuration = maxPoints * resolutionSeconds; // Max batch duration in seconds
+    const resolution = 240;
+    const resolutionSeconds = resolution * 60;
+    const maxBatchDuration = maxPoints * resolutionSeconds;
 
     const fetchWithRetry = async (tokenAddress: string, batchFrom: number, batchTo: number): Promise<any> => {
       try {
@@ -84,7 +94,7 @@ export class CodexService {
 
     const fetchAllBatches = async (tokenAddress: string): Promise<any> => {
       const batchedResults = [];
-      for (let start = from; start < to; start += maxBatchDuration) {
+      for (let start = adjustedFrom; start < to; start += maxBatchDuration) {
         const end = Math.min(start + maxBatchDuration, to);
         batchedResults.push(await fetchWithRetry(tokenAddress, start, end));
       }
@@ -121,18 +131,40 @@ export class CodexService {
   }
 
   private async fetchTokens(networkId: number, addresses?: string[]) {
+    // If addresses are provided, use them directly without pagination
+    if (addresses && addresses.length > 0) {
+      try {
+        const result = await this.sdk.queries.filterTokens({
+          filters: {
+            network: [networkId],
+          },
+          tokens: addresses,
+          limit: addresses.length,
+          offset: 0,
+        });
+        return result.filterTokens.results;
+      } catch (error) {
+        console.error('Error fetching specific tokens:', error);
+        throw error;
+      }
+    }
+
+    // For fetching all tokens, use pagination with a max limit
     const limit = 200;
     let offset = 0;
     let allTokens = [];
     let fetched = [];
+    const MAX_TOKENS = 10000;
 
     do {
       try {
         const result = await this.sdk.queries.filterTokens({
           filters: {
             network: [networkId],
+            priceUSD: {
+              gt: 0,
+            },
           },
-          tokens: addresses || undefined, // Use addresses if provided, otherwise fetch all
           limit,
           offset,
         });
@@ -140,12 +172,19 @@ export class CodexService {
         fetched = result.filterTokens.results;
         allTokens = [...allTokens, ...fetched];
         offset += limit;
+
+        // Break if we hit the maximum token limit
+        // if (allTokens.length >= MAX_TOKENS) {
+        //   console.warn(`Reached maximum token limit of ${MAX_TOKENS}. Some tokens may be omitted.`);
+        //   break;
+        // }
       } catch (error) {
         console.error('Error fetching tokens:', error);
         throw error;
       }
     } while (fetched.length === limit);
 
+    console.log('allTokens', allTokens.length);
     return allTokens;
   }
 

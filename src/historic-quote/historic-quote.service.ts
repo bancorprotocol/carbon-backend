@@ -71,6 +71,8 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
+      await this.seedCodex(BlockchainType.Ethereum, 1);
+
       await Promise.all([
         await this.updateCoinMarketCapQuotes(),
         await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
