@@ -140,6 +140,7 @@ export class QuoteService implements OnModuleInit {
 
   async getLatestPrice(deployment: Deployment, address: string, currencies: string[]): Promise<any> {
     const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
+    const addressLower = address.toLowerCase();
 
     let data = null;
     let usedProvider = null;
@@ -157,8 +158,8 @@ export class QuoteService implements OnModuleInit {
         if (
           data &&
           Object.keys(data).length > 0 &&
-          data[address.toLowerCase()] &&
-          Object.keys(data[address.toLowerCase()]).some((key) => key !== 'provider' && key !== 'last_updated_at')
+          data[addressLower] &&
+          Object.keys(data[addressLower]).some((key) => key !== 'provider' && key !== 'last_updated_at')
         ) {
           usedProvider = provider.name;
           break;
@@ -180,8 +181,8 @@ export class QuoteService implements OnModuleInit {
     };
 
     currencies.forEach((c) => {
-      if (data[address.toLowerCase()] && data[address.toLowerCase()][c.toLowerCase()]) {
-        result.data[c.toUpperCase()] = data[address.toLowerCase()][c.toLowerCase()];
+      if (data[addressLower] && data[addressLower][c.toLowerCase()]) {
+        result.data[c.toUpperCase()] = data[addressLower][c.toLowerCase()];
       }
     });
 
