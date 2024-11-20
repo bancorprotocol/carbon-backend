@@ -205,19 +205,6 @@ export class QuoteService implements OnModuleInit {
     }
   }
 
-  private getNetworkId(blockchainType: BlockchainType): number | null {
-    switch (blockchainType) {
-      case BlockchainType.Sei:
-        return SEI_NETWORK_ID;
-      case BlockchainType.Celo:
-        return CELO_NETWORK_ID;
-      case BlockchainType.Ethereum:
-        return ETHEREUM_NETWORK_ID;
-      default:
-        return null;
-    }
-  }
-
   private async shouldSkipProvider(blockchainType: string, address: string, provider: string): Promise<boolean> {
     const key = `skip:${blockchainType}:${address}:${provider}`;
     return (await this.redis.get(key)) === '1';
