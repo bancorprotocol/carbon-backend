@@ -6,6 +6,7 @@ import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
+export const ETHEREUM_NETWORK_ID = 1;
 
 @Injectable()
 export class CodexService {
@@ -16,8 +17,11 @@ export class CodexService {
     this.sdk = new Codex(apiKey);
   }
 
-  async getLatestPrices(deployment: Deployment, networkId: number, addresses: string[]): Promise<any> {
-    const originalAddresses = [...addresses]; // Keep a copy of the original addresses to return correct keys
+  async getLatestPrices(deployment: Deployment, addresses: string[]): Promise<any> {
+    const networkId = this.getNetworkId(deployment.blockchainType);
+    if (!networkId) return null;
+
+    const originalAddresses = [...addresses];
     let nativeTokenAliasUsed = false;
 
     // Replace only if targetAddress (NATIVE_TOKEN) is present in addresses
@@ -143,5 +147,18 @@ export class CodexService {
     } while (fetched.length === limit);
 
     return allTokens;
+  }
+
+  private getNetworkId(blockchainType: string): number {
+    switch (blockchainType) {
+      case 'sei':
+        return SEI_NETWORK_ID;
+      case 'celo':
+        return CELO_NETWORK_ID;
+      case 'ethereum':
+        return ETHEREUM_NETWORK_ID;
+      default:
+        return null;
+    }
   }
 }

@@ -52,6 +52,7 @@ export class HistoricQuoteController {
         high: p.high.toString(),
         open: p.open.toString(),
         close: p.close.toString(),
+        provider: p.provider,
       });
     });
 

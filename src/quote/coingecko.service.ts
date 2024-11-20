@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { ConfigService } from '@nestjs/config';
 import { Deployment } from '../deployment/deployment.service';
 
 @Injectable()
 export class CoinGeckoService {
+  private readonly logger = new Logger(CoinGeckoService.name);
   constructor(private configService: ConfigService) {}
 
   private readonly baseURL = 'https://pro-api.coingecko.com/api/v3';
@@ -47,6 +48,20 @@ export class CoinGeckoService {
       return result;
     } catch (error) {
       throw new Error(`Failed to fetch latest token prices: ${error.message}`);
+    }
+  }
+
+  async fetchLatestPrice(deployment: Deployment, address: string, convert = ['usd']): Promise<any> {
+    try {
+      let price;
+      if (address.toLowerCase() === deployment.gasToken.address.toLowerCase()) {
+        price = await this.getLatestGasTokenPrice(deployment, convert);
+      } else {
+        price = await this.getLatestPrices([address], deployment, convert);
+      }
+      return price;
+    } catch (error) {
+      this.logger.error(`Error fetching price: ${error.message}`);
     }
   }
 
