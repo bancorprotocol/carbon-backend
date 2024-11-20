@@ -1,11 +1,15 @@
 import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 
-dotenv.config();
+// Only load .env in development
+if (process.env.NODE_ENV !== 'production') {
+  dotenv.config();
+}
 
 const ssl =
-  process.env.DATABASE_SSL_ENABLED && process.env.DATABASE_SSL_ENABLED === '1'
+  process.env.DATABASE_SSL_ENABLED === '1'
     ? {
+        require: true,
         ca: process.env.CARBON_BACKEND_SQL_CERTIFICATION,
         ciphers: [
           'ECDHE-RSA-AES128-SHA256',
