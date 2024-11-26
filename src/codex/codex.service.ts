@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
-import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
+import { BlockchainType, Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { RankingDirection, TokenRankingAttribute } from '@codex-data/sdk/dist/resources/graphql';
 
 export const SEI_NETWORK_ID = 531;
@@ -238,11 +238,11 @@ export class CodexService {
 
   private getNetworkId(blockchainType: string): number {
     switch (blockchainType) {
-      case 'sei':
+      case BlockchainType.Sei:
         return SEI_NETWORK_ID;
-      case 'celo':
+      case BlockchainType.Celo:
         return CELO_NETWORK_ID;
-      case 'ethereum':
+      case BlockchainType.Ethereum:
         return ETHEREUM_NETWORK_ID;
       default:
         return null;

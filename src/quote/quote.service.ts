@@ -140,6 +140,7 @@ export class QuoteService implements OnModuleInit {
 
   async getLatestPrice(deployment: Deployment, address: string, currencies: string[]): Promise<any> {
     const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
+    const addressLower = address.toLowerCase();
 
     let data = null;
     let usedProvider = null;
@@ -154,12 +155,11 @@ export class QuoteService implements OnModuleInit {
       try {
         data = await this.fetchPriceFromProvider(provider.name, deployment, address, currencies);
 
-        if (
-          data &&
-          Object.keys(data).length > 0 &&
-          data[address.toLowerCase()] &&
-          Object.keys(data[address.toLowerCase()]).some((key) => key !== 'provider' && key !== 'last_updated_at')
-        ) {
+        const hasValidPriceData = Object.keys(data[addressLower]).some(
+          (key) => key !== 'provider' && key !== 'last_updated_at',
+        );
+
+        if (data && Object.keys(data).length > 0 && data[addressLower] && hasValidPriceData) {
           usedProvider = provider.name;
           break;
         }
@@ -180,8 +180,8 @@ export class QuoteService implements OnModuleInit {
     };
 
     currencies.forEach((c) => {
-      if (data[address.toLowerCase()] && data[address.toLowerCase()][c.toLowerCase()]) {
-        result.data[c.toUpperCase()] = data[address.toLowerCase()][c.toLowerCase()];
+      if (data[addressLower] && data[addressLower][c.toLowerCase()]) {
+        result.data[c.toUpperCase()] = data[addressLower][c.toLowerCase()];
       }
     });
 
@@ -199,19 +199,6 @@ export class QuoteService implements OnModuleInit {
         return this.codexService.getLatestPrices(deployment, [address]);
       case 'coingecko':
         return this.coingeckoService.fetchLatestPrice(deployment, address, currencies);
-      default:
-        return null;
-    }
-  }
-
-  private getNetworkId(blockchainType: BlockchainType): number | null {
-    switch (blockchainType) {
-      case BlockchainType.Sei:
-        return SEI_NETWORK_ID;
-      case BlockchainType.Celo:
-        return CELO_NETWORK_ID;
-      case BlockchainType.Ethereum:
-        return ETHEREUM_NETWORK_ID;
       default:
         return null;
     }

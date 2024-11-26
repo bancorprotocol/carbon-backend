@@ -68,6 +68,7 @@ steps:
           -e DATABASE_URL="$$DATABASE_URL" \
           -e CARBON_BACKEND_SQL_CERTIFICATION="$$CARBON_BACKEND_SQL_CERTIFICATION" \
           -e NODE_ENV=production \
+          -e DATABASE_SSL_ENABLED=1 \
           europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
           npm run migration:run
     waitFor: ['fetch_secrets']

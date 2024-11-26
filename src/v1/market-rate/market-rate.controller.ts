@@ -51,12 +51,12 @@ export class MarketRateController {
             break;
         }
 
-        if (
-          data &&
-          Object.keys(data).length > 0 &&
-          data[address.toLowerCase()] &&
-          Object.keys(data[address.toLowerCase()]).some((key) => key !== 'provider' && key !== 'last_updated_at')
-        ) {
+        const addressLower = address.toLowerCase();
+        const hasValidPriceData = Object.keys(data[addressLower]).some(
+          (key) => key !== 'provider' && key !== 'last_updated_at',
+        );
+
+        if (data && Object.keys(data).length > 0 && data[addressLower] && hasValidPriceData) {
           usedProvider = provider.name;
           break;
         }
