@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 import { Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
+import { RankingDirection, TokenRankingAttribute } from '@codex-data/sdk/dist/resources/graphql';
 
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
@@ -10,6 +11,7 @@ export const ETHEREUM_NETWORK_ID = 1;
 
 @Injectable()
 export class CodexService {
+  private logger = new Logger(CodexService.name);
   private sdk: Codex;
 
   constructor(private configService: ConfigService) {
@@ -133,59 +135,105 @@ export class CodexService {
   private async fetchTokens(networkId: number, addresses?: string[]) {
     // If addresses are provided, use them directly without pagination
     if (addresses && addresses.length > 0) {
+      const result = await this.retryRequest(
+        async () =>
+          this.sdk.queries.filterTokens({
+            filters: {
+              network: [networkId],
+            },
+            tokens: addresses,
+            limit: addresses.length,
+            offset: 0,
+          }),
+        'fetchTokens.specificAddresses',
+      );
+      return result.filterTokens.results;
+    }
+
+    const limit = 200;
+    const allTokens = new Set<string>();
+    const now = Math.floor(Date.now() / 1000);
+    let daysPerChunk = 30; // Start with one year
+    const monthsToGoBack = 12 * 5; // 5 years
+    const oneDayInSeconds = 24 * 60 * 60;
+
+    let currentTime = now - monthsToGoBack * 30 * oneDayInSeconds;
+
+    while (currentTime < now && daysPerChunk >= 1) {
       try {
-        const result = await this.sdk.queries.filterTokens({
-          filters: {
-            network: [networkId],
-          },
-          tokens: addresses,
-          limit: addresses.length,
-          offset: 0,
-        });
-        return result.filterTokens.results;
+        const chunkSize = daysPerChunk * oneDayInSeconds;
+        const endTime = Math.min(currentTime + chunkSize, now);
+
+        this.logger.log(
+          `Processing period ${new Date(currentTime * 1000).toLocaleDateString()} to ${new Date(
+            endTime * 1000,
+          ).toLocaleDateString()} (${daysPerChunk} days per chunk)`,
+        );
+
+        let offset = 0;
+        let fetched = [];
+
+        do {
+          const result = await this.retryRequest(
+            async () =>
+              this.sdk.queries.filterTokens({
+                filters: {
+                  network: [networkId],
+                  priceUSD: { gt: 0 },
+                  createdAt: { gte: currentTime, lt: endTime },
+                },
+                rankings: {
+                  attribute: TokenRankingAttribute.CreatedAt,
+                  direction: RankingDirection.Asc,
+                },
+                limit,
+                offset,
+              }),
+            `fetchTokens.chunk.offset${offset}`,
+          );
+
+          fetched = result.filterTokens.results;
+          fetched.forEach((token) => {
+            allTokens.add(token.token.address.toLowerCase());
+          });
+
+          this.logger.debug(
+            `Fetched ${fetched.length} tokens, offset: ${offset}, total unique tokens: ${allTokens.size}`,
+          );
+
+          offset += limit;
+          if (offset >= 9800) throw new Error('Offset limit reached');
+        } while (fetched.length === limit);
+
+        currentTime = endTime; // Move to next chunk only on success
+        this.logger.log(`Successfully processed chunk. Moving to next period.`);
       } catch (error) {
-        console.error('Error fetching specific tokens:', error);
+        if (error.message === 'Offset limit reached') {
+          this.logger.warn(
+            `Offset limit reached at ${new Date(
+              currentTime * 1000,
+            ).toLocaleDateString()} with ${daysPerChunk} days per chunk. Halving chunk size...`,
+          );
+          daysPerChunk = Math.floor(daysPerChunk / 2);
+          continue; // Retry same time period with smaller chunk
+        }
         throw error;
       }
     }
 
-    // For fetching all tokens, use pagination with a max limit
-    const limit = 200;
-    let offset = 0;
-    let allTokens = [];
-    let fetched = [];
-    const MAX_TOKENS = 10000;
+    this.logger.log(`Finished processing all periods. Total unique tokens found: ${allTokens.size}`);
+    return Array.from(allTokens.values());
+  }
 
-    do {
+  private async retryRequest<T>(operation: () => Promise<T>, context: string): Promise<T> {
+    while (true) {
       try {
-        const result = await this.sdk.queries.filterTokens({
-          filters: {
-            network: [networkId],
-            priceUSD: {
-              gt: 0,
-            },
-          },
-          limit,
-          offset,
-        });
-
-        fetched = result.filterTokens.results;
-        allTokens = [...allTokens, ...fetched];
-        offset += limit;
-
-        // Break if we hit the maximum token limit
-        // if (allTokens.length >= MAX_TOKENS) {
-        //   console.warn(`Reached maximum token limit of ${MAX_TOKENS}. Some tokens may be omitted.`);
-        //   break;
-        // }
+        return await operation();
       } catch (error) {
-        console.error('Error fetching tokens:', error);
-        throw error;
+        console.error(`Error in ${context}, retrying...`, error);
+        await new Promise((resolve) => setTimeout(resolve, 1000));
       }
-    } while (fetched.length === limit);
-
-    console.log('allTokens', allTokens.length);
-    return allTokens;
+    }
   }
 
   private getNetworkId(blockchainType: string): number {
