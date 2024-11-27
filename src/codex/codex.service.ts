@@ -13,6 +13,50 @@ export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
 export const ETHEREUM_NETWORK_ID = 1;
 
+import { TypedDocumentNode } from '@graphql-typed-document-node/core';
+import { gql } from 'graphql-request';
+
+// Define the types for the query results and variables
+interface FilterTokensResult {
+  filterTokens: {
+    results: {
+      token: {
+        address: string;
+        createdAt: number;
+      };
+    }[];
+  };
+}
+
+interface FilterTokensVariables {
+  filters: {
+    network: number[];
+    createdAt: {
+      gte: number;
+      lt: number;
+    };
+  };
+  rankings: {
+    attribute: TokenRankingAttribute;
+    direction: RankingDirection;
+  }[];
+  limit: number;
+  offset: number;
+}
+
+// Create a typed query using TypedDocumentNode
+const FILTER_TOKENS_QUERY_TYPED: TypedDocumentNode<FilterTokensResult, FilterTokensVariables> = gql`
+  query FilterTokens($filters: TokenFilters, $rankings: [TokenRanking], $limit: Int!, $offset: Int!) {
+    filterTokens(filters: $filters, rankings: $rankings, limit: $limit, offset: $offset) {
+      results {
+        token {
+          address
+          createdAt
+        }
+      }
+    }
+  }
+` as unknown as TypedDocumentNode<FilterTokensResult, FilterTokensVariables>;
 @Injectable()
 export class CodexService {
   private logger = new Logger(CodexService.name);
@@ -40,7 +84,7 @@ export class CodexService {
   private async storeTokenBatch(tokens: any[], networkId: number, blockchainType: BlockchainType): Promise<void> {
     const entities = tokens.map((token) => {
       const codexToken = new CodexToken();
-      codexToken.address = token.token.address.toLowerCase();
+      codexToken.address = token.address.toLowerCase();
       codexToken.networkId = networkId;
       codexToken.blockchainType = blockchainType;
       codexToken.timestamp = new Date(token.createdAt * 1000);
@@ -90,22 +134,27 @@ export class CodexService {
         do {
           const result = await this.retryRequest(
             async () =>
-              this.sdk.queries.filterTokens({
+              this.sdk.query(FILTER_TOKENS_QUERY_TYPED, {
                 filters: {
                   network: [networkId],
                   createdAt: { gte: currentTime, lt: endTime },
                 },
-                rankings: {
-                  attribute: TokenRankingAttribute.CreatedAt,
-                  direction: RankingDirection.Asc,
-                },
+                rankings: [
+                  {
+                    attribute: TokenRankingAttribute.CreatedAt,
+                    direction: RankingDirection.Asc,
+                  },
+                ],
                 limit,
                 offset,
               }),
             `fetchTokens.chunk.offset${offset}`,
           );
 
-          fetched = result.filterTokens.results;
+          fetched = result.filterTokens.results.map((token) => ({
+            address: token.token.address.toLowerCase(),
+            createdAt: token.token.createdAt,
+          }));
 
           await this.storeTokenBatch(fetched, networkId, blockchainType);
 
