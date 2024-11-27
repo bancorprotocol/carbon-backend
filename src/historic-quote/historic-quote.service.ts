@@ -71,12 +71,12 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
-      await this.seedCodex(BlockchainType.Ethereum, 1);
+      // await this.seedCodex(BlockchainType.Ethereum, 1);
 
       await Promise.all([
         await this.updateCoinMarketCapQuotes(),
-        await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
-        await this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID),
+        await this.updateCodexQuotes(BlockchainType.Sei),
+        await this.updateCodexQuotes(BlockchainType.Celo),
       ]);
     } catch (error) {
       console.error('Error updating historic quotes:', error);
@@ -107,10 +107,10 @@ export class HistoricQuoteService implements OnModuleInit {
     console.log('CoinMarketCap quotes updated');
   }
 
-  private async updateCodexQuotes(blockchainType: BlockchainType, networkId: number): Promise<void> {
+  private async updateCodexQuotes(blockchainType: BlockchainType): Promise<void> {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const latest = await this.getLatest(blockchainType);
-    const addresses = await this.codexService.getAllTokenAddresses(networkId);
+    const addresses = await this.codexService.getAllTokenAddresses(blockchainType);
     const quotes = await this.codexService.getLatestPrices(deployment, addresses);
     const newQuotes = [];
 
@@ -185,63 +185,63 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
-  async seedCodex(blockchainType: BlockchainType, networkId: number): Promise<void> {
-    const start = moment().subtract(1, 'year').unix();
-    const end = moment().unix();
-    let i = 0;
+  // async seedCodex(blockchainType: BlockchainType, networkId: number): Promise<void> {
+  //   const start = moment().subtract(1, 'year').unix();
+  //   const end = moment().unix();
+  //   let i = 0;
 
-    const addresses = await this.codexService.getAllTokenAddresses(networkId);
-    const batchSize = 100;
+  //   const addresses = await this.codexService.getAllTokenAddresses(networkId, blockchainType);
+  //   const batchSize = 100;
 
-    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
-    const nativeTokenAlias = deployment.nativeTokenAlias ? deployment.nativeTokenAlias : null;
+  //   const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
+  //   const nativeTokenAlias = deployment.nativeTokenAlias ? deployment.nativeTokenAlias : null;
 
-    for (let startIndex = 0; startIndex < addresses.length; startIndex += batchSize) {
-      const batchAddresses = addresses.slice(startIndex, startIndex + batchSize);
+  //   for (let startIndex = 0; startIndex < addresses.length; startIndex += batchSize) {
+  //     const batchAddresses = addresses.slice(startIndex, startIndex + batchSize);
 
-      // Fetch historical quotes for the current batch of addresses
-      const quotesByAddress = await this.codexService.getHistoricalQuotes(networkId, batchAddresses, start, end);
+  //     // Fetch historical quotes for the current batch of addresses
+  //     const quotesByAddress = await this.codexService.getHistoricalQuotes(networkId, batchAddresses, start, end);
 
-      const newQuotes = [];
+  //     const newQuotes = [];
 
-      for (const address of batchAddresses) {
-        const quotes = quotesByAddress[address];
+  //     for (const address of batchAddresses) {
+  //       const quotes = quotesByAddress[address];
 
-        quotes.forEach((q: any) => {
-          if (q.usd && q.timestamp) {
-            const quote = this.repository.create({
-              tokenAddress: address,
-              usd: q.usd,
-              timestamp: moment.unix(q.timestamp).utc().toISOString(),
-              provider: 'codex',
-              blockchainType: blockchainType,
-            });
-            newQuotes.push(quote);
-          }
-        });
+  //       quotes.forEach((q: any) => {
+  //         if (q.usd && q.timestamp) {
+  //           const quote = this.repository.create({
+  //             tokenAddress: address,
+  //             usd: q.usd,
+  //             timestamp: moment.unix(q.timestamp).utc().toISOString(),
+  //             provider: 'codex',
+  //             blockchainType: blockchainType,
+  //           });
+  //           newQuotes.push(quote);
+  //         }
+  //       });
 
-        // If this is the native token alias, also create an entry for the native token
-        if (nativeTokenAlias && address.toLowerCase() === nativeTokenAlias.toLowerCase()) {
-          quotes.forEach((q: any) => {
-            if (q.usd && q.timestamp) {
-              const nativeTokenQuote = this.repository.create({
-                tokenAddress: NATIVE_TOKEN.toLowerCase(),
-                usd: q.usd,
-                timestamp: moment.unix(q.timestamp).utc().toISOString(),
-                provider: 'codex',
-                blockchainType: blockchainType,
-              });
-              newQuotes.push(nativeTokenQuote);
-            }
-          });
-        }
-      }
+  //       // If this is the native token alias, also create an entry for the native token
+  //       if (nativeTokenAlias && address.toLowerCase() === nativeTokenAlias.toLowerCase()) {
+  //         quotes.forEach((q: any) => {
+  //           if (q.usd && q.timestamp) {
+  //             const nativeTokenQuote = this.repository.create({
+  //               tokenAddress: NATIVE_TOKEN.toLowerCase(),
+  //               usd: q.usd,
+  //               timestamp: moment.unix(q.timestamp).utc().toISOString(),
+  //               provider: 'codex',
+  //               blockchainType: blockchainType,
+  //             });
+  //             newQuotes.push(nativeTokenQuote);
+  //           }
+  //         });
+  //       }
+  //     }
 
-      const batches = _.chunk(newQuotes, 1000);
-      await Promise.all(batches.map((batch) => this.repository.save(batch)));
-      console.log(`History quote seeding, finished ${++i} of ${addresses.length}`, new Date());
-    }
-  }
+  //     const batches = _.chunk(newQuotes, 1000);
+  //     await Promise.all(batches.map((batch) => this.repository.save(batch)));
+  //     console.log(`History quote seeding, finished ${++i} of ${addresses.length}`, new Date());
+  //   }
+  // }
 
   async getLatest(blockchainType: BlockchainType): Promise<{ [key: string]: HistoricQuote }> {
     const latestQuotes = await this.repository.query(`

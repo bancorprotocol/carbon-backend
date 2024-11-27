@@ -20,8 +20,6 @@ import { ActivityModule } from './activity/activity.module';
 import { VolumeModule } from './volume/volume.module';
 import { TvlModule } from './tvl/tvl.module';
 import { DeploymentModule } from './deployment/deployment.module';
-import { CodexService } from './codex/codex.service';
-import { CodexModule } from './codex/codex.module';
 import { SubdomainCacheInterceptor } from './cache.interceptor';
 
 @Module({
@@ -100,7 +98,6 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
     VolumeModule,
     TvlModule,
     DeploymentModule,
-    CodexModule,
   ],
 
   providers: [
@@ -108,7 +105,6 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
       provide: APP_INTERCEPTOR,
       useClass: SubdomainCacheInterceptor, // Use custom interceptor
     },
-    CodexService,
   ],
 })
 export class AppModule {}

@@ -4,6 +4,10 @@ import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 import { BlockchainType, Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { RankingDirection, TokenRankingAttribute } from '@codex-data/sdk/dist/resources/graphql';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { CodexToken } from './codex-token.entity';
+import _ from 'lodash';
 
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
@@ -14,9 +18,229 @@ export class CodexService {
   private logger = new Logger(CodexService.name);
   private sdk: Codex;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private configService: ConfigService,
+    @InjectRepository(CodexToken)
+    private codexTokenRepository: Repository<CodexToken>,
+  ) {
     const apiKey = this.configService.get<string>('CODEX_API_KEY');
     this.sdk = new Codex(apiKey);
+  }
+
+  private async getLastStoredDate(networkId: number): Promise<Date | null> {
+    const lastEntry = await this.codexTokenRepository
+      .createQueryBuilder('token')
+      .where('token.networkId = :networkId', { networkId })
+      .orderBy('token.timestamp', 'DESC')
+      .getOne();
+
+    return lastEntry?.timestamp || null;
+  }
+
+  private async storeTokenBatch(tokens: any[], networkId: number, blockchainType: BlockchainType): Promise<void> {
+    const entities = tokens.map((token) => {
+      const codexToken = new CodexToken();
+      codexToken.address = token.token.address.toLowerCase();
+      codexToken.networkId = networkId;
+      codexToken.blockchainType = blockchainType;
+      codexToken.timestamp = new Date(token.createdAt * 1000);
+      codexToken.createdAt = new Date();
+      return codexToken;
+    });
+
+    const batches = _.chunk(entities, 1000);
+    for (const batch of batches) {
+      await this.codexTokenRepository
+        .createQueryBuilder()
+        .insert()
+        .into(CodexToken)
+        .values(batch)
+        .onConflict('("address", "networkId", "timestamp") DO NOTHING')
+        .execute();
+    }
+  }
+
+  private async fetchAndStoreTokens(networkId: number, blockchainType: BlockchainType): Promise<void> {
+    const lastStoredDate = await this.getLastStoredDate(networkId);
+    const startTime = lastStoredDate
+      ? Math.floor(moment(lastStoredDate).subtract(1, 'day').valueOf() / 1000)
+      : Math.floor(Date.now() / 1000) - 12 * 5 * 30 * 24 * 60 * 60; // 5 years ago
+
+    const limit = 200;
+    const now = Math.floor(Date.now() / 1000);
+    let daysPerChunk = 3;
+    const oneDayInSeconds = 24 * 60 * 60;
+
+    let currentTime = startTime;
+
+    while (currentTime < now && daysPerChunk >= 1) {
+      try {
+        const chunkSize = daysPerChunk * oneDayInSeconds;
+        const endTime = Math.min(currentTime + chunkSize, now);
+
+        this.logger.log(
+          `Processing period ${new Date(currentTime * 1000).toLocaleDateString()} to ${new Date(
+            endTime * 1000,
+          ).toLocaleDateString()} (${daysPerChunk} days per chunk)`,
+        );
+
+        let offset = 0;
+        let fetched = [];
+
+        do {
+          const result = await this.retryRequest(
+            async () =>
+              this.sdk.queries.filterTokens({
+                filters: {
+                  network: [networkId],
+                  createdAt: { gte: currentTime, lt: endTime },
+                },
+                rankings: {
+                  attribute: TokenRankingAttribute.CreatedAt,
+                  direction: RankingDirection.Asc,
+                },
+                limit,
+                offset,
+              }),
+            `fetchTokens.chunk.offset${offset}`,
+          );
+
+          fetched = result.filterTokens.results;
+
+          await this.storeTokenBatch(fetched, networkId, blockchainType);
+
+          offset += limit;
+          if (offset >= 9800) throw new Error('Offset limit reached');
+        } while (fetched.length === limit);
+
+        currentTime = endTime;
+        this.logger.log(`Successfully processed chunk. Moving to next period.`);
+      } catch (error) {
+        if (error.message === 'Offset limit reached') {
+          this.logger.warn(
+            `Offset limit reached at ${new Date(
+              currentTime * 1000,
+            ).toLocaleDateString()} with ${daysPerChunk} days per chunk. Halving chunk size...`,
+          );
+          daysPerChunk = Math.floor(daysPerChunk / 2);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    this.logger.log(`Finished processing all periods.`);
+  }
+
+  async getAllTokenAddresses(blockchainType: BlockchainType): Promise<string[]> {
+    const networkId = this.getNetworkId(blockchainType);
+    const tokens = await this.codexTokenRepository
+      .createQueryBuilder('token')
+      .select('token.address')
+      .where('token.networkId = :networkId', { networkId })
+      .getMany();
+
+    const uniqueAddresses = Array.from(new Set(tokens.map((t) => t.address.toLowerCase())));
+    return uniqueAddresses;
+  }
+
+  async updateTokens(blockchainType: BlockchainType): Promise<void> {
+    this.logger.log(`Updating Codex tokens for ${blockchainType}`);
+    const networkId = this.getNetworkId(blockchainType);
+    await this.fetchAndStoreTokens(networkId, blockchainType);
+  }
+
+  private async fetchTokens(networkId: number, addresses?: string[]) {
+    // If addresses are provided, use them directly without pagination
+    if (addresses && addresses.length > 0) {
+      const result = await this.retryRequest(
+        async () =>
+          this.sdk.queries.filterTokens({
+            filters: {
+              network: [networkId],
+            },
+            tokens: addresses,
+            limit: addresses.length,
+            offset: 0,
+          }),
+        'fetchTokens.specificAddresses',
+      );
+      return result.filterTokens.results;
+    }
+
+    const limit = 200;
+    const allTokens = new Set<string>();
+    const now = Math.floor(Date.now() / 1000);
+    let daysPerChunk = 30; // Start with one year
+    const monthsToGoBack = 12 * 5; // 5 years
+    const oneDayInSeconds = 24 * 60 * 60;
+
+    let currentTime = now - monthsToGoBack * 30 * oneDayInSeconds;
+
+    while (currentTime < now && daysPerChunk >= 1) {
+      try {
+        const chunkSize = daysPerChunk * oneDayInSeconds;
+        const endTime = Math.min(currentTime + chunkSize, now);
+
+        this.logger.log(
+          `Processing period ${new Date(currentTime * 1000).toLocaleDateString()} to ${new Date(
+            endTime * 1000,
+          ).toLocaleDateString()} (${daysPerChunk} days per chunk)`,
+        );
+
+        let offset = 0;
+        let fetched = [];
+
+        do {
+          const result = await this.retryRequest(
+            async () =>
+              this.sdk.queries.filterTokens({
+                filters: {
+                  network: [networkId],
+                  priceUSD: { gt: 0 },
+                  createdAt: { gte: currentTime, lt: endTime },
+                },
+                rankings: {
+                  attribute: TokenRankingAttribute.CreatedAt,
+                  direction: RankingDirection.Asc,
+                },
+                limit,
+                offset,
+              }),
+            `fetchTokens.chunk.offset${offset}`,
+          );
+
+          fetched = result.filterTokens.results;
+          fetched.forEach((token) => {
+            allTokens.add(token.token.address.toLowerCase());
+          });
+
+          this.logger.debug(
+            `Fetched ${fetched.length} tokens, offset: ${offset}, total unique tokens: ${allTokens.size}`,
+          );
+
+          offset += limit;
+          if (offset >= 9800) throw new Error('Offset limit reached');
+        } while (fetched.length === limit);
+
+        currentTime = endTime; // Move to next chunk only on success
+        this.logger.log(`Successfully processed chunk. Moving to next period.`);
+      } catch (error) {
+        if (error.message === 'Offset limit reached') {
+          this.logger.warn(
+            `Offset limit reached at ${new Date(
+              currentTime * 1000,
+            ).toLocaleDateString()} with ${daysPerChunk} days per chunk. Halving chunk size...`,
+          );
+          daysPerChunk = Math.floor(daysPerChunk / 2);
+          continue; // Retry same time period with smaller chunk
+        }
+        throw error;
+      }
+    }
+
+    this.logger.log(`Finished processing all periods. Total unique tokens found: ${allTokens.size}`);
+    return Array.from(allTokens.values());
   }
 
   async getLatestPrices(deployment: Deployment, addresses: string[]): Promise<any> {
@@ -124,105 +348,6 @@ export class CodexService {
       console.error('Unexpected error:', error);
       throw error;
     }
-  }
-
-  async getAllTokenAddresses(networkId: number): Promise<string[]> {
-    const tokens = await this.fetchTokens(networkId);
-    const uniqueAddresses = Array.from(new Set(tokens.map((t) => t.token.address.toLowerCase())));
-    return uniqueAddresses;
-  }
-
-  private async fetchTokens(networkId: number, addresses?: string[]) {
-    // If addresses are provided, use them directly without pagination
-    if (addresses && addresses.length > 0) {
-      const result = await this.retryRequest(
-        async () =>
-          this.sdk.queries.filterTokens({
-            filters: {
-              network: [networkId],
-            },
-            tokens: addresses,
-            limit: addresses.length,
-            offset: 0,
-          }),
-        'fetchTokens.specificAddresses',
-      );
-      return result.filterTokens.results;
-    }
-
-    const limit = 200;
-    const allTokens = new Set<string>();
-    const now = Math.floor(Date.now() / 1000);
-    let daysPerChunk = 30; // Start with one year
-    const monthsToGoBack = 12 * 5; // 5 years
-    const oneDayInSeconds = 24 * 60 * 60;
-
-    let currentTime = now - monthsToGoBack * 30 * oneDayInSeconds;
-
-    while (currentTime < now && daysPerChunk >= 1) {
-      try {
-        const chunkSize = daysPerChunk * oneDayInSeconds;
-        const endTime = Math.min(currentTime + chunkSize, now);
-
-        this.logger.log(
-          `Processing period ${new Date(currentTime * 1000).toLocaleDateString()} to ${new Date(
-            endTime * 1000,
-          ).toLocaleDateString()} (${daysPerChunk} days per chunk)`,
-        );
-
-        let offset = 0;
-        let fetched = [];
-
-        do {
-          const result = await this.retryRequest(
-            async () =>
-              this.sdk.queries.filterTokens({
-                filters: {
-                  network: [networkId],
-                  priceUSD: { gt: 0 },
-                  createdAt: { gte: currentTime, lt: endTime },
-                },
-                rankings: {
-                  attribute: TokenRankingAttribute.CreatedAt,
-                  direction: RankingDirection.Asc,
-                },
-                limit,
-                offset,
-              }),
-            `fetchTokens.chunk.offset${offset}`,
-          );
-
-          fetched = result.filterTokens.results;
-          fetched.forEach((token) => {
-            allTokens.add(token.token.address.toLowerCase());
-          });
-
-          this.logger.debug(
-            `Fetched ${fetched.length} tokens, offset: ${offset}, total unique tokens: ${allTokens.size}`,
-          );
-
-          offset += limit;
-          if (offset >= 9800) throw new Error('Offset limit reached');
-        } while (fetched.length === limit);
-
-        currentTime = endTime; // Move to next chunk only on success
-        this.logger.log(`Successfully processed chunk. Moving to next period.`);
-      } catch (error) {
-        if (error.message === 'Offset limit reached') {
-          this.logger.warn(
-            `Offset limit reached at ${new Date(
-              currentTime * 1000,
-            ).toLocaleDateString()} with ${daysPerChunk} days per chunk. Halving chunk size...`,
-          );
-          daysPerChunk = Math.floor(daysPerChunk / 2);
-          continue; // Retry same time period with smaller chunk
-        }
-        throw error;
-      }
-    }
-
-    this.logger.log(`Finished processing all periods. Total unique tokens found: ${allTokens.size}`);
-    return Array.from(allTokens.values());
   }
 
   private async retryRequest<T>(operation: () => Promise<T>, context: string): Promise<T> {

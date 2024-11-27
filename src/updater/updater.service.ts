@@ -18,6 +18,7 @@ import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { ActivityService } from '../activity/activity.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service'; // Import DeploymentService
+import { CodexService } from '../codex/codex.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -46,6 +47,7 @@ export class UpdaterService {
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
     @Inject('REDIS') private redis: any,
+    private readonly codexService: CodexService,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
     if (shouldHarvest === '1') {
@@ -86,6 +88,9 @@ export class UpdaterService {
           endBlock = (await this.harvesterService.latestBlock(deployment)) - 12;
         }
       }
+
+      // Update Codex tokens
+      await this.codexService.updateTokens(deployment.blockchainType);
 
       // handle PairCreated events
       await this.pairCreatedEventService.update(endBlock, deployment);

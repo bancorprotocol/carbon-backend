@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { CodexService } from './codex.service';
-import { ConfigModule } from '@nestjs/config';
+import { CodexToken } from './codex-token.entity';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [TypeOrmModule.forFeature([CodexToken])],
   providers: [CodexService],
   exports: [CodexService],
 })
