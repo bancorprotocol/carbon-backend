@@ -163,7 +163,7 @@ export class HarvesterService {
               fromBlock: startBlock,
               toBlock: endBlock,
             });
-            await waitFor(5000);
+            await waitFor(2000);
             if (_events.length > 0) {
               _events.forEach((e) => events.push(e));
             }

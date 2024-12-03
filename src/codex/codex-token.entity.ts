@@ -1,7 +1,7 @@
 import { Column, Entity, Index, PrimaryGeneratedColumn, Unique } from 'typeorm';
 import { BlockchainType } from '../deployment/deployment.service';
 
-@Entity('codexTokens')
+@Entity('codex-tokens')
 @Unique(['address', 'networkId', 'timestamp'])
 export class CodexToken {
   @PrimaryGeneratedColumn()
