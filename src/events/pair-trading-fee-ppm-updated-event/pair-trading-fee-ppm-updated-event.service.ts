@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { PairTradingFeePpmUpdatedEvent } from './pair-trading-fee-ppm-updated-event.entity';
-import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
+import { ContractsNames, CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import { Deployment } from '../../deployment/deployment.service';
@@ -27,7 +27,7 @@ export class PairTradingFeePpmUpdatedEventService {
   ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'pair-trading-fee-ppm-updated-events',
-      contractName: 'CarbonController',
+      contractName: ContractsNames.CarbonController,
       eventName: 'PairTradingFeePPMUpdated',
       endBlock,
       repository: this.repository,

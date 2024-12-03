@@ -7,6 +7,11 @@ import { PairsDictionary } from '../pair/pair.service';
 import { BlockService, BlocksDictionary } from '../block/block.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
+import { ProxyAdmin } from '../abis/ProxyAdmin.abi';
+import { CarbonController } from '../abis/CarbonController.abi';
+import { CarbonPOL } from '../abis/CarbonPOL.abi';
+import { CarbonVortex } from '../abis/CarbonVortex.abi';
+import { CarbonVoucher } from '../abis/CarbonVoucher.abi';
 import moment from 'moment';
 import { MulticallAbiEthereum } from '../abis/multicall.abi';
 import { multicallAbiSei } from '../abis/multicall.abi';
@@ -18,6 +23,24 @@ import { ConfigService } from '@nestjs/config';
 
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
+};
+
+export enum ContractsNames {
+  ERC20 = 'ERC20',
+  ProxyAdmin = 'ProxyAdmin',
+  CarbonController = 'CarbonController',
+  CarbonPOL = 'CarbonPOL',
+  CarbonVortex = 'CarbonVortex',
+  CarbonVoucher = 'CarbonVoucher',
+}
+
+const Contracts = {
+  [ContractsNames.ERC20]: ERC20,
+  [ContractsNames.ProxyAdmin]: ProxyAdmin,
+  [ContractsNames.CarbonController]: CarbonController,
+  [ContractsNames.CarbonPOL]: CarbonPOL,
+  [ContractsNames.CarbonVortex]: CarbonVortex,
+  [ContractsNames.CarbonVoucher]: CarbonVoucher,
 };
 
 export interface ConstantField {
@@ -32,7 +55,7 @@ interface SourceMapItem {
 export interface ProcessEventsArgs {
   entity: string;
   contractAddress?: string;
-  contractName?: string;
+  contractName?: ContractsNames;
   eventName: string;
   endBlock: number;
   repository: Repository<unknown>;
@@ -103,7 +126,7 @@ export class HarvesterService {
   ) {}
 
   async fetchEventsFromBlockchain(
-    contractName: string,
+    contractName: ContractsNames,
     eventName: string,
     fromBlock: number,
     toBlock: number,
@@ -159,35 +182,17 @@ export class HarvesterService {
     return events;
   }
 
-  getContract(contractName: string, version?: number, address?: string, deployment?: Deployment): any {
-    const web3 = new Web3(deployment.rpcEndpoint); // Use rpcEndpoint from deployment
-    let contract;
-    if (contractName === ContractNames.ERC20) {
-      contract = new web3.eth.Contract(ERC20, address);
-    } else {
-      const contractsEnv = deployment.exchangeId;
-      let path = `../contracts/${contractsEnv}/${contractName}`;
-      if (version) path += `V${version}`;
-      path += '.json';
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const contractJson = require(path);
+  getContract(contractName: ContractsNames, version?: number, address?: string, deployment?: Deployment): any {
+    const web3 = new Web3(deployment.rpcEndpoint);
 
-      let _address;
-      if (address) {
-        _address = address;
-      } else {
-        let configName = camelToSnakeCase(contractName).toUpperCase();
-        if (configName[0] === '_') configName = configName.substring(1);
-        const configValue = process.env[configName];
-        if (configValue) {
-          _address = configValue;
-        } else {
-          _address = contractJson.address;
-        }
-      }
-      contract = new web3.eth.Contract(contractJson.abi, _address);
+    // Determine contract address
+    const contractAddress = address || deployment?.contracts[contractName]?.address;
+    if (!contractAddress) {
+      throw new Error(`Contract ${contractName} address not found in deployment configuration`);
     }
-    return contract;
+
+    // Create and return contract instance
+    return new web3.eth.Contract(Contracts[contractName], contractAddress);
   }
 
   async processEvents(args: ProcessEventsArgs): Promise<any[]> {

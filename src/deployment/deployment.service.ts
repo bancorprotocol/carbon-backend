@@ -34,12 +34,16 @@ export interface Deployment {
   gasToken: GasToken;
   startBlock: number;
   nativeTokenAlias?: string;
+  contracts: {
+    [contractName: string]: {
+      address: string;
+    };
+  };
 }
 
 @Injectable()
 export class DeploymentService {
   private deployments: Deployment[];
-
   constructor(private configService: ConfigService) {
     this.deployments = this.initializeDeployments();
   }
@@ -59,6 +63,23 @@ export class DeploymentService {
           symbol: 'ETH',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        contracts: {
+          CarbonController: {
+            address: '0xC537e898CD774e2dCBa3B14Ea6f34C93d5eA45e1',
+          },
+          CarbonVortex: {
+            address: '0xba7d1581Db6248DC9177466a328BF457703c8f84',
+          },
+          CarbonPOL: {
+            address: '0xD06146D292F9651C1D7cf54A3162791DFc2bEf46',
+          },
+          ProxyAdmin: {
+            address: '0x45d2e25C04F43A06f6C3e21e4f39B860D05a7aC8',
+          },
+          CarbonVoucher: {
+            address: '0x3660F04B79751e31128f6378eAC70807e38f554E',
+          },
+        },
       },
       {
         exchangeId: ExchangeId.OGSei,
@@ -74,6 +95,17 @@ export class DeploymentService {
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
         nativeTokenAlias: '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7',
+        contracts: {
+          CarbonController: {
+            address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
+          },
+          ProxyAdmin: {
+            address: '0x45d2e25C04F43A06f6C3e21e4f39B860D05a7aC8',
+          },
+          CarbonVoucher: {
+            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+          },
+        },
       },
       {
         exchangeId: ExchangeId.OGCelo,
@@ -89,21 +121,43 @@ export class DeploymentService {
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
         nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
+        contracts: {
+          CarbonController: {
+            address: '0x6619871118D144c1c28eC3b23036FC1f0829ed3a',
+          },
+          ProxyAdmin: {
+            address: '0x0f54099D787e26c90c487625B4dE819eC5A9BDAA',
+          },
+          CarbonVoucher: {
+            address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
+          },
+        },
       },
-      // {
-      //   exchangeId: ExchangeId.OGBlast,
-      //   blockchainType: BlockchainType.Blast,
-      //   rpcEndpoint: this.configService.get('BLAST_RPC_ENDPOINT'),
-      //   harvestEventsBatchSize: 1000,
-      //   harvestConcurrency: 5,
-      //   multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-      //   startBlock: 6257000,
-      //   gasToken: {
-      //     name: 'Blast',
-      //     symbol: 'BLAST',
-      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-      //   },
-      // },
+      {
+        exchangeId: ExchangeId.OGBlast,
+        blockchainType: BlockchainType.Blast,
+        rpcEndpoint: this.configService.get('BLAST_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 5,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 6257000,
+        gasToken: {
+          name: 'Blast',
+          symbol: 'BLAST',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        contracts: {
+          CarbonController: {
+            address: '0xfBF49e30Ed1b610E24148c23D32eD5f3F2fC5Dba',
+          },
+          CarbonVoucher: {
+            address: '0xfA76DcA90d334C8fD3Ae479f9B4c32a31A37eDB1',
+          },
+          ProxyAdmin: {
+            address: '0x2478dD2394AD4B28D318Ec69Ee32acaa2b30A4b6',
+          },
+        },
+      },
     ];
   }
 
