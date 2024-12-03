@@ -31,6 +31,11 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: async (configService: ConfigService): Promise<any> => {
+        const dbUrl = configService.get('DATABASE_URL');
+        if (!dbUrl) {
+          throw new Error('DATABASE_URL is not set');
+        }
+
         const dbSync = configService.get('DB_SYNC') === '1' ? true : false;
         const ssl =
           configService.get('DATABASE_SSL_ENABLED') && configService.get('DATABASE_SSL_ENABLED') === '1'
@@ -51,7 +56,7 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
 
         return {
           type: 'postgres',
-          url: configService.get('DATABASE_URL'),
+          url: dbUrl,
           entities: [__dirname + '/**/*.entity.js'],
           migrations: [__dirname + '/migrations/*.js'],
           cli: {
