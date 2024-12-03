@@ -7,7 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "build": "nest build",
-    "postbuild": "copyfiles --error --up 1 \"src/contracts/**/*\" \"dist\"; copyfiles --error --up 1 \"src/simulator/**/*\" \"dist\"",
+    "postbuild": "copyfiles --error --up 1 \"src/simulator/**/*\" \"dist\"",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "TZ=UTC nest start --watch --debug",
     "start:dev": "TZ=UTC nest start --watch",

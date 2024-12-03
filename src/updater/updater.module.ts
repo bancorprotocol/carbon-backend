@@ -24,6 +24,7 @@ import { VolumeModule } from '../volume/volume.module';
 import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
 import { CodexModule } from '../codex/codex.module';
+import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { CodexModule } from '../codex/codex.module';
     TvlModule,
     DeploymentModule,
     CodexModule,
+    ArbitrageExecutedEventModule,
   ],
   providers: [UpdaterService],
 })

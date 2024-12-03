@@ -18,7 +18,8 @@ import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { ActivityService } from '../activity/activity.service';
 import { TvlService } from '../tvl/tvl.service';
-import { Deployment, DeploymentService } from '../deployment/deployment.service'; // Import DeploymentService
+import { Deployment, DeploymentService } from '../deployment/deployment.service';
+import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -46,6 +47,7 @@ export class UpdaterService {
     private dexScreenerService: DexScreenerService,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
+    private arbitrageExecutedEventService: ArbitrageExecutedEventService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -130,6 +132,9 @@ export class UpdaterService {
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
+
+      await this.arbitrageExecutedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating arbitrage executed events for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;

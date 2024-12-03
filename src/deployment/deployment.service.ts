@@ -54,7 +54,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGEthereum,
         blockchainType: BlockchainType.Ethereum,
         rpcEndpoint: this.configService.get('ETHEREUM_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 2000000,
+        harvestEventsBatchSize: 100000,
         harvestConcurrency: 10,
         multicallAddress: '0x5Eb3fa2DFECdDe21C950813C665E9364fa609bD2',
         startBlock: 17087000,
@@ -78,6 +78,9 @@ export class DeploymentService {
           },
           CarbonVoucher: {
             address: '0x3660F04B79751e31128f6378eAC70807e38f554E',
+          },
+          BancorArbitrage: {
+            address: '0x41Eeba3355d7D6FF628B7982F3F9D055c39488cB',
           },
         },
       },
@@ -105,6 +108,9 @@ export class DeploymentService {
           CarbonVoucher: {
             address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
           },
+          BancorArbitrage: {
+            address: '0xC56Eb3d03C5D7720DAf33a3718affb9BcAb03FBc',
+          },
         },
       },
       {
@@ -131,6 +137,9 @@ export class DeploymentService {
           CarbonVoucher: {
             address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
           },
+          BancorArbitrage: {
+            address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
+          },
         },
       },
       {
@@ -155,6 +164,9 @@ export class DeploymentService {
           },
           ProxyAdmin: {
             address: '0x2478dD2394AD4B28D318Ec69Ee32acaa2b30A4b6',
+          },
+          BancorArbitrage: {
+            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
           },
         },
       },
