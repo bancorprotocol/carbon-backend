@@ -108,9 +108,9 @@ WITH filtered_strategies AS (
     SELECT COUNT(DISTINCT "pairId") AS active_pairs 
     FROM filtered_strategies
 ), number_trades AS (
-    SELECT COUNT("id") AS number_trades 
-    FROM "tokens-traded-events"
-    WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'    
+    SELECT COUNT(*) AS number_trades 
+    FROM "strategy-updated-events"
+    WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
 ), latest_updated_block AS (
     SELECT MIN("last_processed_block"."block") AS last_block, MIN("updatedAt") AS last_timestamp 
     FROM last_processed_block
@@ -173,8 +173,8 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
   private async getTrending(deployment: Deployment): Promise<any> {
     const totalTradeCountQuery = this.strategy.query(`
       SELECT count(*)::INT as trade_count
-      FROM "tokens-traded-events"
-      WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+      FROM "strategy-updated-events"
+      WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
     `);
 
     const tradeCountQuery = this.strategy.query(`
@@ -182,13 +182,13 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
           SELECT s."strategyId" as id, COUNT(s.*)::INT as strategy_trades_24h
           FROM  "strategy-updated-events" s
           WHERE s."timestamp" >= NOW() - INTERVAL '24 hours'
-          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
           GROUP BY 1   
       ),
       strategy_trade_counts as (
           SELECT s."strategyId" as id, COUNT(s.*)::INT as strategy_trades
           FROM  "strategy-updated-events" s
-          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
           GROUP BY 1   
       )
       SELECT stc.id, stc.strategy_trades, COALESCE(sc24.strategy_trades_24h,0) as strategy_trades_24h, t0.address as token0, t1.address as token1, 
@@ -208,13 +208,13 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
           SELECT s."pairId" as pair_id, COUNT(s.*)::INT as pair_trades_24h
           FROM  "strategy-updated-events" s
           WHERE s."timestamp" >= NOW() - INTERVAL '24 hours'
-          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          AND "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
           GROUP BY 1   
       ),
       pair_counts as (
           SELECT s."pairId" as pair_id, COUNT(s.*)::INT as pair_trades
           FROM  "strategy-updated-events" s
-          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+          WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
           GROUP BY 1
       )
       SELECT p.pair_id, p.pair_trades, COALESCE(pc24.pair_trades_24h,0) as pair_trades_24h, 
