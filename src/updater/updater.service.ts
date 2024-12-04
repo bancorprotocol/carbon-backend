@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { Inject, Injectable } from '@nestjs/common';
 import * as _ from 'lodash';
 import { HarvesterService } from '../harvester/harvester.service';
-import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
