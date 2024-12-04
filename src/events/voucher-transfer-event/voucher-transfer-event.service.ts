@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { VoucherTransferEvent } from './voucher-transfer-event.entity';
-import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
+import { ContractsNames, CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { BigNumber } from '@ethersproject/bignumber';
 import { Deployment } from '../../deployment/deployment.service';
 
@@ -28,7 +28,7 @@ export class VoucherTransferEventService {
   async update(endBlock: number, deployment: Deployment): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'voucher-transfer-events',
-      contractName: 'Voucher',
+      contractName: ContractsNames.CarbonVoucher,
       eventName: 'Transfer',
       endBlock,
       repository: this.repository,

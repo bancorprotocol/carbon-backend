@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { StrategyDeletedEvent } from './strategy-deleted-event.entity';
-import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
+import { ContractsNames, CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
@@ -24,7 +24,7 @@ export class StrategyDeletedEventService {
   ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'strategy-deleted-events',
-      contractName: 'CarbonController',
+      contractName: ContractsNames.CarbonController,
       eventName: 'StrategyDeleted',
       endBlock,
       repository: this.repository,

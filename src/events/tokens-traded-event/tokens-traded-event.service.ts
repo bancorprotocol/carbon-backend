@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { TokensTradedEvent } from './tokens-traded-event.entity';
-import { CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
+import { ContractsNames, CustomFnArgs, HarvesterService } from '../../harvester/harvester.service';
 import { PairsDictionary } from '../../pair/pair.service';
 import { TokensByAddress } from '../../token/token.service';
 import Decimal from 'decimal.js';
@@ -39,7 +39,7 @@ export class TokensTradedEventService {
   ): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'tokens-traded-events',
-      contractName: 'CarbonController',
+      contractName: ContractsNames.CarbonController,
       eventName: 'TokensTraded',
       endBlock,
       repository: this.repository,

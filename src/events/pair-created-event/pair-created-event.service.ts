@@ -2,7 +2,7 @@ import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { PairCreatedEvent } from './pair-created-event.entity';
-import { HarvesterService } from '../../harvester/harvester.service';
+import { ContractsNames, HarvesterService } from '../../harvester/harvester.service';
 import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
@@ -16,7 +16,7 @@ export class PairCreatedEventService {
   async update(endBlock: number, deployment: Deployment): Promise<any> {
     return this.harvesterService.processEvents({
       entity: 'pair-created-events',
-      contractName: 'CarbonController',
+      contractName: ContractsNames.CarbonController,
       eventName: 'PairCreated',
       endBlock,
       repository: this.repository,
