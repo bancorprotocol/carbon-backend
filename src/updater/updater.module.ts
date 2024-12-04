@@ -25,7 +25,8 @@ import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
 import { CodexModule } from '../codex/codex.module';
 import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
-
+import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
+import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 @Module({
   imports: [
     BlockModule,
@@ -53,6 +54,8 @@ import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event
     DeploymentModule,
     CodexModule,
     ArbitrageExecutedEventModule,
+    VortexTokensTradedEventModule,
+    VortexTradingResetEventModule,
   ],
   providers: [UpdaterService],
 })

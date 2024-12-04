@@ -5,13 +5,21 @@ import { decimalsABI, nameABI, symbolABI } from '../abis/erc20.abi';
 import * as _ from 'lodash';
 import { Token } from './token.entity';
 import { HarvesterService } from '../harvester/harvester.service';
-import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
+import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
+import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 
 export interface TokensByAddress {
   [address: string]: Token;
+}
+
+// First define an interface for the address data
+interface AddressData {
+  address: string;
+  blockId: number;
 }
 
 @Injectable()
@@ -21,6 +29,9 @@ export class TokenService {
     private harvesterService: HarvesterService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private pairCreatedEventService: PairCreatedEventService,
+    private vortexTokensTradedEventService: VortexTokensTradedEventService,
+    private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private vortexTradingResetEventService: VortexTradingResetEventService,
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
@@ -29,14 +40,70 @@ export class TokenService {
     // figure out start block
     const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, 1);
 
-    // fetch pair created events
-    const newEvents = await this.pairCreatedEventService.get(lastProcessedBlockNumber, endBlock, deployment);
+    // Define batch size
+    const batchSize = 100000;
+    let currentBlock = lastProcessedBlockNumber;
 
-    // create new tokens
-    const eventBatches = _.chunk(newEvents, 1000);
-    for (const eventsBatch of eventBatches) {
-      await this.createFromEvents(eventsBatch, deployment);
-      await this.lastProcessedBlockService.update(lastProcessedEntity, eventsBatch[eventsBatch.length - 1].block.id);
+    while (currentBlock < endBlock) {
+      const nextBlock = Math.min(currentBlock + batchSize, endBlock);
+
+      // fetch pair created events
+      const newPairCreatedEvents = await this.pairCreatedEventService.get(currentBlock, nextBlock, deployment);
+
+      // fetch arbitrage executed events
+      const newArbitrageExecutedEvents = await this.arbitrageExecutedEventService.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
+      // fetch vortex tokens traded events
+      const newVortexTokensTradedEvents = await this.vortexTokensTradedEventService.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
+      // fetch vortex trading reset events
+      const newVortexTradingResetEvents = await this.vortexTradingResetEventService.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
+      // Create array of AddressData objects with both address and blockId
+      const addressesData: AddressData[] = [
+        ...newPairCreatedEvents.map((e) => ({ address: e.token0, blockId: e.block.id })),
+        ...newPairCreatedEvents.map((e) => ({ address: e.token1, blockId: e.block.id })),
+        ...newVortexTokensTradedEvents.map((e) => ({ address: e.token, blockId: e.block.id })),
+        ...newArbitrageExecutedEvents
+          .map((e) => e.sourceTokens.map((token) => ({ address: token, blockId: e.block.id })))
+          .flat(),
+        ...newArbitrageExecutedEvents
+          .map((e) => e.tokenPath.map((token) => ({ address: token, blockId: e.block.id })))
+          .flat(),
+        ...newVortexTradingResetEvents.map((e) => ({ address: e.token, blockId: e.block.id })),
+      ];
+
+      // Sort by blockId to ensure we process in chronological order
+      addressesData.sort((a, b) => a.blockId - b.blockId);
+
+      // create new tokens
+      const addressesBatches = _.chunk(addressesData, 1000);
+      for (const addressesBatch of addressesBatches) {
+        // Extract just the addresses for token creation
+        const addresses = addressesBatch.map((data) => data.address);
+        await this.createFromAddresses(addresses, deployment);
+
+        // Update using the last block ID from this batch
+        await this.lastProcessedBlockService.update(
+          lastProcessedEntity,
+          addressesBatch[addressesBatch.length - 1].blockId,
+        );
+      }
+
+      // Move to the next batch
+      currentBlock = nextBlock;
     }
 
     // update last processed block number
@@ -64,13 +131,9 @@ export class TokenService {
     });
   }
 
-  private async createFromEvents(events: PairCreatedEvent[], deployment: Deployment) {
+  private async createFromAddresses(addresses: string[], deployment: Deployment) {
     // map all token addresses in an array
-    const eventsAddresses = new Set();
-    events.forEach((e) => {
-      eventsAddresses.add(e.token0);
-      eventsAddresses.add(e.token1);
-    });
+    const addressesSet = new Set(addresses);
 
     // filter out already existing tokens
     const currentlyExistingTokens: any = await this.token.find({
@@ -79,7 +142,7 @@ export class TokenService {
     const currentlyExistingAddresses = currentlyExistingTokens.map((t) => t.address);
 
     const newAddresses = [];
-    Array.from(eventsAddresses).forEach((t) => {
+    Array.from(addressesSet).forEach((t) => {
       if (!currentlyExistingAddresses.includes(t)) {
         newAddresses.push(t);
       }

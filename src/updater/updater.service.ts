@@ -19,6 +19,8 @@ import { ActivityService } from '../activity/activity.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
+import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -47,6 +49,8 @@ export class UpdaterService {
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private vortexTokensTradedEventService: VortexTokensTradedEventService,
+    private vortexTradingResetEventService: VortexTradingResetEventService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -93,6 +97,18 @@ export class UpdaterService {
       await this.pairCreatedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished pairs creation events for ${deployment.exchangeId}`);
 
+      // handle VortexTokensTraded events
+      await this.vortexTokensTradedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished Vortex tokens traded events for ${deployment.exchangeId}`);
+
+      // handle ArbitrageExecuted events
+      await this.arbitrageExecutedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating arbitrage executed events for ${deployment.exchangeId}`);
+
+      // handle VortexTradingReset events
+      await this.vortexTradingResetEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating vortex trading reset events for ${deployment.exchangeId}`);
+
       // create tokens
       await this.tokenService.update(endBlock, deployment);
       const tokens = await this.tokenService.allByAddress(deployment);
@@ -131,9 +147,6 @@ export class UpdaterService {
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
-
-      await this.arbitrageExecutedEventService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating arbitrage executed events for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;

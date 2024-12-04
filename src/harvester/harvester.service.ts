@@ -7,7 +7,6 @@ import { PairsDictionary } from '../pair/pair.service';
 import { BlockService, BlocksDictionary } from '../block/block.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
-import { ProxyAdmin } from '../abis/ProxyAdmin.abi';
 import { CarbonController } from '../abis/CarbonController.abi';
 import { CarbonPOL } from '../abis/CarbonPOL.abi';
 import { CarbonVortex } from '../abis/CarbonVortex.abi';
@@ -28,7 +27,6 @@ export const VERSIONS = {
 
 export enum ContractsNames {
   ERC20 = 'ERC20',
-  ProxyAdmin = 'ProxyAdmin',
   CarbonController = 'CarbonController',
   CarbonPOL = 'CarbonPOL',
   CarbonVortex = 'CarbonVortex',
@@ -38,7 +36,6 @@ export enum ContractsNames {
 
 const Contracts = {
   [ContractsNames.ERC20]: ERC20,
-  [ContractsNames.ProxyAdmin]: ProxyAdmin,
   [ContractsNames.CarbonController]: CarbonController,
   [ContractsNames.CarbonPOL]: CarbonPOL,
   [ContractsNames.CarbonVortex]: CarbonVortex,
