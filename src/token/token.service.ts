@@ -11,6 +11,7 @@ import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
+import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 
 export interface TokensByAddress {
   [address: string]: Token;
@@ -32,6 +33,7 @@ export class TokenService {
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
+    private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
@@ -71,6 +73,13 @@ export class TokenService {
         deployment,
       );
 
+      // fetch vortex funds withdrawn events
+      const newVortexFundsWithdrawnEvents = await this.vortexFundsWithdrawnEventService.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
       // Create array of AddressData objects with both address and blockId
       const addressesData: AddressData[] = [
         ...newPairCreatedEvents.map((e) => ({ address: e.token0, blockId: e.block.id })),
@@ -83,6 +92,9 @@ export class TokenService {
           .map((e) => e.tokenPath.map((token) => ({ address: token, blockId: e.block.id })))
           .flat(),
         ...newVortexTradingResetEvents.map((e) => ({ address: e.token, blockId: e.block.id })),
+        ...newVortexFundsWithdrawnEvents
+          .map((e) => e.tokens.map((token) => ({ address: token, blockId: e.block.id })))
+          .flat(),
       ];
 
       // Sort by blockId to ensure we process in chronological order

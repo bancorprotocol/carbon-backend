@@ -203,8 +203,8 @@ export const CarbonVortex: any[] = [
     anonymous: false,
     inputs: [
       {
-        indexed: true,
-        internalType: 'Token[]',
+        indexed: false,
+        internalType: 'address[]',
         name: 'tokens',
         type: 'address[]',
       },

@@ -21,6 +21,7 @@ import { Deployment, DeploymentService } from '../deployment/deployment.service'
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
+import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -51,6 +52,7 @@ export class UpdaterService {
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
+    private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -108,6 +110,11 @@ export class UpdaterService {
       // handle VortexTradingReset events
       await this.vortexTradingResetEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating vortex trading reset events for ${deployment.exchangeId}`);
+
+      // TODO: REQUIRES HANDLING THE ABI TYPE MISMATCH
+      // handle VortexFundsWithdrawn events
+      // await this.vortexFundsWithdrawnEventService.update(endBlock, deployment);
+      // console.log(`CARBON SERVICE - Finished Vortex funds withdrawn events for ${deployment.exchangeId}`);
 
       // create tokens
       await this.tokenService.update(endBlock, deployment);
