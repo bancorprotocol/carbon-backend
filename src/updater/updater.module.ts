@@ -24,7 +24,10 @@ import { VolumeModule } from '../volume/volume.module';
 import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
 import { CodexModule } from '../codex/codex.module';
-
+import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
+import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
+import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
+import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
 @Module({
   imports: [
     BlockModule,
@@ -51,6 +54,10 @@ import { CodexModule } from '../codex/codex.module';
     TvlModule,
     DeploymentModule,
     CodexModule,
+    ArbitrageExecutedEventModule,
+    VortexTokensTradedEventModule,
+    VortexTradingResetEventModule,
+    VortexFundsWithdrawnEventModule,
   ],
   providers: [UpdaterService],
 })

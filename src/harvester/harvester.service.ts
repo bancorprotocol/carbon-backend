@@ -7,11 +7,11 @@ import { PairsDictionary } from '../pair/pair.service';
 import { BlockService, BlocksDictionary } from '../block/block.service';
 import { Quote } from '../quote/quote.entity';
 import { ERC20 } from '../abis/erc20.abi';
-import { ProxyAdmin } from '../abis/ProxyAdmin.abi';
 import { CarbonController } from '../abis/CarbonController.abi';
 import { CarbonPOL } from '../abis/CarbonPOL.abi';
 import { CarbonVortex } from '../abis/CarbonVortex.abi';
 import { CarbonVoucher } from '../abis/CarbonVoucher.abi';
+import { BancorArbitrage } from '../abis/BancorArbitrage.abi';
 import moment from 'moment';
 import { MulticallAbiEthereum } from '../abis/multicall.abi';
 import { multicallAbiSei } from '../abis/multicall.abi';
@@ -27,20 +27,20 @@ export const VERSIONS = {
 
 export enum ContractsNames {
   ERC20 = 'ERC20',
-  ProxyAdmin = 'ProxyAdmin',
   CarbonController = 'CarbonController',
   CarbonPOL = 'CarbonPOL',
   CarbonVortex = 'CarbonVortex',
   CarbonVoucher = 'CarbonVoucher',
+  BancorArbitrage = 'BancorArbitrage',
 }
 
 const Contracts = {
   [ContractsNames.ERC20]: ERC20,
-  [ContractsNames.ProxyAdmin]: ProxyAdmin,
   [ContractsNames.CarbonController]: CarbonController,
   [ContractsNames.CarbonPOL]: CarbonPOL,
   [ContractsNames.CarbonVortex]: CarbonVortex,
   [ContractsNames.CarbonVoucher]: CarbonVoucher,
+  [ContractsNames.BancorArbitrage]: BancorArbitrage,
 };
 
 export interface ConstantField {

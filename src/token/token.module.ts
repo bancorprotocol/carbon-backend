@@ -6,6 +6,10 @@ import { HarvesterModule } from '../harvester/harvester.module';
 import { Token } from './token.entity';
 import { TokenService } from './token.service';
 import { PairCreatedEventModule } from '../events/pair-created-event/pair-created-event.module';
+import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
+import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
+import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
+import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
 
 @Module({
   imports: [
@@ -14,6 +18,10 @@ import { PairCreatedEventModule } from '../events/pair-created-event/pair-create
     RedisModule,
     HarvesterModule,
     PairCreatedEventModule,
+    ArbitrageExecutedEventModule,
+    VortexTokensTradedEventModule,
+    VortexTradingResetEventModule,
+    VortexFundsWithdrawnEventModule,
   ],
   providers: [TokenService],
   exports: [TokenService, TypeOrmModule.forFeature([Token])],

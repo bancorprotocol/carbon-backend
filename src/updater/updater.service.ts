@@ -17,7 +17,11 @@ import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { ActivityService } from '../activity/activity.service';
 import { TvlService } from '../tvl/tvl.service';
-import { Deployment, DeploymentService } from '../deployment/deployment.service'; // Import DeploymentService
+import { Deployment, DeploymentService } from '../deployment/deployment.service';
+import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
+import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
+import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -45,6 +49,10 @@ export class UpdaterService {
     private dexScreenerService: DexScreenerService,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
+    private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private vortexTokensTradedEventService: VortexTokensTradedEventService,
+    private vortexTradingResetEventService: VortexTradingResetEventService,
+    private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -90,6 +98,23 @@ export class UpdaterService {
       // handle PairCreated events
       await this.pairCreatedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished pairs creation events for ${deployment.exchangeId}`);
+
+      // handle VortexTokensTraded events
+      await this.vortexTokensTradedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished Vortex tokens traded events for ${deployment.exchangeId}`);
+
+      // handle ArbitrageExecuted events
+      await this.arbitrageExecutedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating arbitrage executed events for ${deployment.exchangeId}`);
+
+      // handle VortexTradingReset events
+      await this.vortexTradingResetEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating vortex trading reset events for ${deployment.exchangeId}`);
+
+      // TODO: REQUIRES HANDLING THE ABI TYPE MISMATCH
+      // handle VortexFundsWithdrawn events
+      // await this.vortexFundsWithdrawnEventService.update(endBlock, deployment);
+      // console.log(`CARBON SERVICE - Finished Vortex funds withdrawn events for ${deployment.exchangeId}`);
 
       // create tokens
       await this.tokenService.update(endBlock, deployment);
