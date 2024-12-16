@@ -27,8 +27,8 @@ export class NotificationService {
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {
     this.projectId = this.configService.get('GOOGLE_CLOUD_PROJECT');
-    this.queueName = 'bancor-alerts';
-    this.location = 'europe-west2';
+    this.queueName = this.configService.get('QUEUE_NAME');
+    this.location = this.configService.get('QUEUE_LOCATION');
 
     // Register all event services
     this.registerEventServices();
@@ -44,6 +44,10 @@ export class NotificationService {
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
     if (!deployment.notifications) return;
+
+    if (!this.queueName || !this.location) {
+      throw new Error('QUEUE_NAME or QUEUE_LOCATION is not set');
+    }
 
     const lastProcessedEntity = `${deployment.blockchainType}-${deployment.exchangeId}-notifications`;
     const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, 1);

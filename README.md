@@ -72,7 +72,7 @@ npm start
 
 On the first run, the application will sync each network to current state. This will heavily consume the RPC API urls, if you're using a free plan from Alchemy or another provider, you might be rate limited and the sync process will take some time.
 
-If you're facing network issues when syncing the chain state, try reducing the parameters `harvestEventsBatchSize` and `harvestConcurrency` for each network in the deployment config on `deployment.service.ts`. This will slow down the sync, but will be lighter on your network. 
+If you're facing network issues when syncing the chain state, try reducing the parameters `harvestEventsBatchSize` and `harvestConcurrency` for each network in the deployment config on `deployment.service.ts`. This will slow down the sync, but will be lighter on your network.
 
 ## API Documentation
 
@@ -231,6 +231,128 @@ The diagram includes:
 - Property types
 - Primary key indicators
 - Relationships between entities (one-to-one, one-to-many, many-to-many)
+
+## Notifications System
+
+The Carbon Backend includes a notification system that sends alerts to Telegram channels.
+
+### Configuration and Setup
+
+Configure the notification system in your `.env` file:
+
+```bash
+# Telegram Configuration
+TELEGRAM_BOT_TOKEN=your-bot-token
+TELEGRAM_CHAT_ID=your-chat-id
+
+# Google Cloud Tasks Configuration
+QUEUE_NAME=bancor-alerts
+QUEUE_LOCATION=europe-west2
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/credentials.json
+GOOGLE_CLOUD_PROJECT=your-project-id
+API_URL=https://your-api-url.com
+
+# Network-Specific Thread IDs
+ETHEREUM_CARBON_THREAD_ID=123
+ETHEREUM_FASTLANE_THREAD_ID=456
+ETHEREUM_VORTEX_THREAD_ID=789
+
+# Explorer URLs (for transaction links)
+ETHEREUM_EXPLORER_URL=https://etherscan.io/tx/
+ETHEREUM_WALLET_URL=https://app.carbondefi.xyz/wallet/
+```
+
+### Modifying Existing Notifications
+
+1. **Locate Format Function**
+   In `TelegramService`, find the corresponding format function:
+
+   ```typescript
+   private async formatExistingEventMessage(
+     event: ExistingEvent,
+     tokens: TokensByAddress,
+     quotes: QuotesByAddress,
+     deployment: Deployment,
+   ): Promise<string> {
+     // Modify the message format here
+     return `Your modified message format`;
+   }
+   ```
+
+2. **Helper Methods Available**
+   - `amountToken(amount: string, precision: number, token: Token)`: Format token amounts
+   - `amountUSD(amount: string, precision: number, usdPrice: string, token: Token)`: Format USD amounts
+   - `getUsdRate(tokenAddress: string, quotes: QuotesByAddress, deployment: Deployment)`: Get token USD rate
+   - `printNumber(num: number, precision: number)`: Format numbers with precision
+
+### Adding New Event Notifications
+
+1. **Update Event Types**
+
+   ```typescript
+   // In src/events/event-types.ts
+   export enum EventTypes {
+     YourNewEvent = 'YourNewEvent',
+     // ... other events
+   }
+   ```
+
+2. **Add Format Function**
+
+   ```typescript
+   private async formatYourNewEventMessage(
+     event: YourNewEvent,
+     tokens: TokensByAddress,
+     quotes: QuotesByAddress,
+     deployment: Deployment,
+   ): Promise<string> {
+     return `New Event: ${event.name}
+   Transaction: ${deployment.notifications.explorerUrl}${event.transactionHash}`;
+   }
+   ```
+
+3. **Register in Switch Statement**
+
+   ```typescript
+   switch (eventType) {
+     case EventTypes.YourNewEvent:
+       message = await this.formatYourNewEventMessage(event, tokens, quotes, deployment);
+       threadId = deployment.notifications.telegram.threads.yourThreadId;
+       break;
+   }
+   ```
+
+4. **Register Services**
+
+   ```typescript
+   // In NotificationService
+   private registerEventServices() {
+     this.eventServices.set(EventTypes.YourNewEvent, this.yourEventService);
+   }
+
+   // In NotificationController
+   this.eventServiceMap = new Map([
+     [EventTypes.YourNewEvent, yourEventService],
+   ]);
+   ```
+
+5. **Configure Thread IDs**
+
+   ```bash
+   # In .env
+   ETHEREUM_YOUR_THREAD_ID=123
+
+   ```
+
+### How It Works
+
+1. `NotificationService` processes events in batches from the blockchain
+2. For each event found, it creates a task in Google Cloud Tasks queue
+3. Tasks trigger the `/notifications/telegram` endpoint
+4. `NotificationController` retrieves the event data and passes it to `TelegramService`
+5. `TelegramService` formats the message based on event type and sends it to the appropriate Telegram thread
+
+This system ensures reliable delivery of notifications even with high event volumes and provides network-specific configuration options.
 
 ## License
 
