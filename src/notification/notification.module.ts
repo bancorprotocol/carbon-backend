@@ -12,6 +12,7 @@ import { DeploymentModule } from '../deployment/deployment.module';
 import { TokenModule } from '../token/token.module';
 import { QuoteModule } from '../quote/quote.module';
 import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
+import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { StrategyCreatedEventModule } from '../events/strategy-created-event/str
     TokenModule,
     QuoteModule,
     StrategyCreatedEventModule,
+    TokensTradedEventModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, TelegramService],

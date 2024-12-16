@@ -9,6 +9,7 @@ import { DeploymentService } from '../deployment/deployment.service';
 import { TokenService } from '../token/token.service';
 import { QuoteService } from '../quote/quote.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
+import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
 
 interface EventService {
   getOne(id: string | number): Promise<any>;
@@ -28,6 +29,7 @@ export class NotificationController {
     private tokenService: TokenService,
     private quoteService: QuoteService,
     private strategyCreatedEventService: StrategyCreatedEventService,
+    private tokensTradedEventService: TokensTradedEventService,
   ) {
     this.eventServiceMap = new Map<EventTypes, EventService>([
       [EventTypes.VortexTokensTradedEvent, vortexTokensTradedEventService],
@@ -35,6 +37,7 @@ export class NotificationController {
       [EventTypes.VortexTradingResetEvent, vortexTradingResetEventService],
       [EventTypes.VortexFundsWithdrawnEvent, vortexFundsWithdrawnEventService],
       [EventTypes.StrategyCreatedEvent, strategyCreatedEventService],
+      [EventTypes.TokensTradedEvent, tokensTradedEventService],
     ]);
   }
 

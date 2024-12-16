@@ -14,6 +14,7 @@ export enum EventTypes {
   VortexTradingResetEvent = 'VortexTradingResetEvent',
   VortexFundsWithdrawnEvent = 'VortexFundsWithdrawnEvent',
   StrategyCreatedEvent = 'StrategyCreatedEvent',
+  TokensTradedEvent = 'TokensTradedEvent',
 }
 
 @Injectable()

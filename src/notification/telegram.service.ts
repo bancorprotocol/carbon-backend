@@ -10,6 +10,7 @@ import { EventTypes } from './notification.service';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
 import { QuoteService } from '../quote/quote.service';
 import { Deployment } from '../deployment/deployment.service';
+import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 
 @Injectable()
 export class TelegramService {
@@ -80,6 +81,10 @@ export class TelegramService {
         break;
       case EventTypes.StrategyCreatedEvent:
         message = await this.formatStrategyCreatedMessage(event, tokens, quotes, deployment);
+        threadId = 32;
+        break;
+      case EventTypes.TokensTradedEvent:
+        message = await this.formatTokensTradedMessage(event, tokens, quotes, deployment);
         threadId = 32;
         break;
     }
@@ -153,6 +158,39 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
 ⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
   }
 
+  private async formatTokensTradedMessage(
+    event: TokensTradedEvent,
+    tokens: TokensByAddress,
+    quotes: QuotesByAddress,
+    deployment: Deployment,
+  ): Promise<string> {
+    const sourceToken = tokens[event.sourceToken.address];
+    const targetToken = tokens[event.targetToken.address];
+
+    const sourceUsdRate = await this.getUsdRate(sourceToken.address, quotes, deployment);
+    const targetUsdRate = await this.getUsdRate(targetToken.address, quotes, deployment);
+
+    const sourceTokenAmount = this.amountToken(event.sourceAmount, 3, sourceToken);
+    const targetTokenAmount = this.amountToken(event.targetAmount, 3, targetToken);
+
+    const sourceUsdAmount = sourceUsdRate
+      ? this.amountUSD(event.sourceAmount, 1, sourceUsdRate.toString(), sourceToken)
+      : 'N/A';
+    const targetUsdAmount = targetUsdRate
+      ? this.amountUSD(event.targetAmount, 1, targetUsdRate.toString(), targetToken)
+      : 'N/A';
+
+    return `**Strategies Filled - Ethereum**
+    
+From: 
+${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
+To: 
+${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
+
+🗓️ ${new Date(event.timestamp).toLocaleString()}
+⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+  }
+
   private amountUSD(amount: string, precision: number, usdPrice: string, token: Token) {
     const tokenAmount = Number(ethers.utils.formatUnits(amount, token.decimals));
     const usdAmount = tokenAmount * Number(usdPrice);
@@ -199,10 +237,10 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
       // Remove trailing zeros
       return trailingZeros.replace(/\.?0+$/, '');
     } else if (num < 1000) {
-      return num.toPrecision(precision);
+      return num.toFixed(precision);
     } else {
-      // Print the number as is (no scientific notation) with 0 decimal places
-      return num.toFixed();
+      // Format large numbers with the specified precision
+      return num.toFixed(1);
     }
   }
 }
