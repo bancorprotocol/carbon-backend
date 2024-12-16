@@ -22,6 +22,7 @@ import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-even
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
+import { NotificationService } from '../notification/notification.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -53,6 +54,7 @@ export class UpdaterService {
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
+    private notificationService: NotificationService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -115,6 +117,10 @@ export class UpdaterService {
       // handle VortexFundsWithdrawn events
       // await this.vortexFundsWithdrawnEventService.update(endBlock, deployment);
       // console.log(`CARBON SERVICE - Finished Vortex funds withdrawn events for ${deployment.exchangeId}`);
+
+      // handle notifications
+      await this.notificationService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished notifications for ${deployment.exchangeId}`);
 
       // create tokens
       await this.tokenService.update(endBlock, deployment);

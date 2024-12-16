@@ -7,15 +7,7 @@ import { VortexTradingResetEventService } from '../events/vortex-trading-reset-e
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { Deployment } from '../deployment/deployment.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
-
-export enum EventTypes {
-  ArbitrageExecutedEvent = 'ArbitrageExecutedEvent',
-  VortexTokensTradedEvent = 'VortexTokensTradedEvent',
-  VortexTradingResetEvent = 'VortexTradingResetEvent',
-  VortexFundsWithdrawnEvent = 'VortexFundsWithdrawnEvent',
-  StrategyCreatedEvent = 'StrategyCreatedEvent',
-  TokensTradedEvent = 'TokensTradedEvent',
-}
+import { EventTypes } from '../events/event-types';
 
 @Injectable()
 export class NotificationService {
@@ -34,7 +26,6 @@ export class NotificationService {
     private strategyCreatedEventService: StrategyCreatedEventService,
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {
-    this.initClient();
     this.projectId = this.configService.get('GOOGLE_CLOUD_PROJECT');
     this.queueName = 'bancor-alerts';
     this.location = 'europe-west2';
@@ -52,6 +43,8 @@ export class NotificationService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
+    if (!deployment.notifications) return;
+
     const lastProcessedEntity = `${deployment.blockchainType}-${deployment.exchangeId}-notifications`;
     const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, 1);
     const batchSize = 100000;
@@ -68,11 +61,23 @@ export class NotificationService {
     await this.lastProcessedBlockService.update(lastProcessedEntity, endBlock);
   }
 
+  private async initClient() {
+    if (!this.tasksClient) {
+      const { CloudTasksClient } = await import('@google-cloud/tasks');
+      this.tasksClient = new CloudTasksClient();
+    }
+    return this.tasksClient;
+  }
+
   private async processBlockRange(startBlock: number, endBlock: number, deployment: Deployment): Promise<void> {
-    const BATCH_SIZE = 500; // Conservative batch size for createTasks
+    const BATCH_SIZE = 500;
     const allTasks = [];
 
     const eventProcessingPromises = Array.from(this.eventServices.entries()).map(async ([eventType, service]) => {
+      if (deployment.notifications?.disabledEvents?.includes(eventType)) {
+        return;
+      }
+
       const events = await service.get(startBlock, endBlock, deployment);
       const tasks = events.map((event) => ({
         httpRequest: {
@@ -94,23 +99,25 @@ export class NotificationService {
 
     await Promise.all(eventProcessingPromises);
 
-    // Process tasks in batches
+    const client = await this.initClient();
+    const parent = client.queuePath(this.projectId, this.location, this.queueName);
+
+    // Process tasks in batches, but create them individually
     for (let i = 0; i < allTasks.length; i += BATCH_SIZE) {
       const taskBatch = allTasks.slice(i, i + BATCH_SIZE);
-      if (taskBatch.length > 0) {
-        const parent = this.tasksClient.queuePath(this.projectId, this.location, this.queueName);
-        const request = {
-          parent,
-          tasks: taskBatch,
-        };
-
-        await this.tasksClient.createTasks(request);
-      }
+      await Promise.all(
+        taskBatch.map(async (task) => {
+          const request = {
+            parent,
+            task,
+          };
+          try {
+            await client.createTask(request);
+          } catch (error) {
+            console.error('Error creating task:', error);
+          }
+        }),
+      );
     }
-  }
-
-  private async initClient() {
-    const { CloudTasksClient } = await import('@google-cloud/tasks');
-    this.tasksClient = new CloudTasksClient();
   }
 }

@@ -6,7 +6,7 @@ import { QuotesByAddress } from '../quote/quote.service';
 import { TokensByAddress } from '../token/token.service';
 import { ethers } from 'ethers';
 import { Token } from 'src/token/token.entity';
-import { EventTypes } from './notification.service';
+import { EventTypes } from '../events/event-types';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
 import { QuoteService } from '../quote/quote.service';
 import { Deployment } from '../deployment/deployment.service';
@@ -81,23 +81,23 @@ export class TelegramService {
     switch (eventType) {
       case EventTypes.ArbitrageExecutedEvent:
         message = await this.formatArbitrageExecutedMessage(event, tokens, quotes, deployment);
-        threadId = 34;
+        threadId = deployment.notifications.telegram.threads.fastlaneId;
         break;
       case EventTypes.StrategyCreatedEvent:
         message = await this.formatStrategyCreatedMessage(event, tokens, quotes, deployment);
-        threadId = 32;
+        threadId = deployment.notifications.telegram.threads.carbonThreadId;
         break;
       case EventTypes.TokensTradedEvent:
         message = await this.formatTokensTradedMessage(event, tokens, quotes, deployment);
-        threadId = 32;
+        threadId = deployment.notifications.telegram.threads.carbonThreadId;
         break;
       case EventTypes.VortexTradingResetEvent:
-        message = await this.formatVortexTradingResetMessage(event, tokens, quotes, deployment);
-        threadId = 32;
+        message = await this.formatVortexTradingResetMessage(event, tokens, deployment);
+        threadId = deployment.notifications.telegram.threads.vortexId;
         break;
       case EventTypes.VortexTokensTradedEvent:
         message = await this.formatVortexTokenTradedMessage(event, tokens, quotes, deployment);
-        threadId = 32;
+        threadId = deployment.notifications.telegram.threads.vortexId;
         break;
     }
 
@@ -140,7 +140,7 @@ Caller amount: ${await this.formatAmount(event.rewardAmounts[i], token, usdRate)
 ${tokenMessages}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
-⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
   }
 
   private async formatStrategyCreatedMessage(
@@ -166,8 +166,8 @@ Buy ${token0.symbol} Budget: ${await this.formatAmount(order1.y, token1, usdRate
 Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRate0)}
 
 🗓️ ${new Date(event.block.timestamp).toLocaleString()}
-🧳 View wallet holdings: <a href="https://app.carbondefi.xyz/explore/wallet/${event.owner}">View</a>
-⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+🧳 View wallet holdings: <a href="${deployment.notifications.carbonWalletUrl}${event.owner}">View</a>
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
   }
 
   private async formatTokensTradedMessage(
@@ -200,13 +200,12 @@ To:
 ${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
-⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
   }
 
   private async formatVortexTradingResetMessage(
     event: VortexTradingResetEvent,
     tokens: TokensByAddress,
-    quotes: QuotesByAddress,
     deployment: Deployment,
   ): Promise<string> {
     const token = tokens[event.token];
@@ -216,7 +215,7 @@ ${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
 Auction price was reset for: ${token.symbol}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
-⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
   }
 
   private async formatVortexTokenTradedMessage(
@@ -293,7 +292,7 @@ For: ${targetTokenAmount} ${targetToken.symbol} (${targetUsdAmount ? `$${targetU
 Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceToken.symbol}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
-⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
   }
 
   private amountUSD(amount: string, precision: number, usdPrice: string, token: Token) {

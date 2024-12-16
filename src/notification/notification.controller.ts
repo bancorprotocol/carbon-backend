@@ -1,6 +1,6 @@
 import { Controller, Post, Body } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
-import { EventTypes } from './notification.service';
+import { EventTypes } from '../events/event-types';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
