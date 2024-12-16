@@ -8,9 +8,16 @@ import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdra
 import { DeploymentService } from '../deployment/deployment.service';
 import { TokenService } from '../token/token.service';
 import { QuoteService } from '../quote/quote.service';
+import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
+
+interface EventService {
+  getOne(id: string | number): Promise<any>;
+}
 
 @Controller('notifications')
 export class NotificationController {
+  private eventServiceMap: Map<EventTypes, EventService>;
+
   constructor(
     private telegramService: TelegramService,
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
@@ -20,34 +27,31 @@ export class NotificationController {
     private deploymentService: DeploymentService,
     private tokenService: TokenService,
     private quoteService: QuoteService,
-  ) {}
+    private strategyCreatedEventService: StrategyCreatedEventService,
+  ) {
+    this.eventServiceMap = new Map<EventTypes, EventService>([
+      [EventTypes.VortexTokensTradedEvent, vortexTokensTradedEventService],
+      [EventTypes.ArbitrageExecutedEvent, arbitrageExecutedEventService],
+      [EventTypes.VortexTradingResetEvent, vortexTradingResetEventService],
+      [EventTypes.VortexFundsWithdrawnEvent, vortexFundsWithdrawnEventService],
+      [EventTypes.StrategyCreatedEvent, strategyCreatedEventService],
+    ]);
+  }
 
   @Post('telegram')
   async sendTelegramNotification(@Body() data: any) {
     const { eventType, eventId } = data;
 
-    let event;
-    switch (eventType) {
-      case EventTypes.VortexTokensTradedEvent:
-        event = await this.vortexTokensTradedEventService.getOne(eventId);
-        break;
-      case EventTypes.ArbitrageExecutedEvent:
-        event = await this.arbitrageExecutedEventService.getOne(eventId);
-        break;
-      case EventTypes.VortexTradingResetEvent:
-        event = await this.vortexTradingResetEventService.getOne(eventId);
-        break;
-      case EventTypes.VortexFundsWithdrawnEvent:
-        event = await this.vortexFundsWithdrawnEventService.getOne(eventId);
-        break;
-      default:
-        throw new Error(`Unsupported event type: ${eventType}`);
+    const eventService = this.eventServiceMap.get(eventType);
+    if (!eventService) {
+      throw new Error(`Unsupported event type: ${eventType}`);
     }
 
+    const event = await eventService.getOne(eventId);
     const deployment = await this.deploymentService.getDeploymentByExchangeId(event.exchangeId);
     const tokens = await this.tokenService.allByAddress(deployment);
     const quotes = await this.quoteService.allByAddress(deployment);
 
-    await this.telegramService.sendEventNotification(eventType, event, tokens, quotes);
+    await this.telegramService.sendEventNotification(eventType, event, tokens, quotes, deployment);
   }
 }

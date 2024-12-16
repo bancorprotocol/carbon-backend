@@ -6,16 +6,14 @@ import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-e
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { Deployment } from '../deployment/deployment.service';
-import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
-import { ArbitrageExecutedEvent } from '../events/arbitrage-executed-event/arbitrage-executed-event.entity';
-import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
-import { VortexFundsWithdrawnEvent } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.entity';
+import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 
 export enum EventTypes {
   VortexTokensTradedEvent = 'VortexTokensTradedEvent',
   ArbitrageExecutedEvent = 'ArbitrageExecutedEvent',
   VortexTradingResetEvent = 'VortexTradingResetEvent',
   VortexFundsWithdrawnEvent = 'VortexFundsWithdrawnEvent',
+  StrategyCreatedEvent = 'StrategyCreatedEvent',
 }
 
 @Injectable()
@@ -32,6 +30,7 @@ export class NotificationService {
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
+    private strategyCreatedEventService: StrategyCreatedEventService,
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {
     this.initClient();
@@ -48,6 +47,7 @@ export class NotificationService {
     this.eventServices.set(EventTypes.ArbitrageExecutedEvent, this.arbitrageExecutedEventService);
     this.eventServices.set(EventTypes.VortexTradingResetEvent, this.vortexTradingResetEventService);
     this.eventServices.set(EventTypes.VortexFundsWithdrawnEvent, this.vortexFundsWithdrawnEventService);
+    this.eventServices.set(EventTypes.StrategyCreatedEvent, this.strategyCreatedEventService);
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {

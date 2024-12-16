@@ -9,8 +9,9 @@ import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event
 import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { DeploymentModule } from '../deployment/deployment.module';
-import { TokenModule } from 'src/token/token.module';
-import { QuoteModule } from 'src/quote/quote.module';
+import { TokenModule } from '../token/token.module';
+import { QuoteModule } from '../quote/quote.module';
+import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { QuoteModule } from 'src/quote/quote.module';
     DeploymentModule,
     TokenModule,
     QuoteModule,
+    StrategyCreatedEventModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, TelegramService],

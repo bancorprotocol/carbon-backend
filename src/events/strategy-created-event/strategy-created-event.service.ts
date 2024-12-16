@@ -64,6 +64,17 @@ export class StrategyCreatedEventService {
       .getMany();
   }
 
+  async getOne(id: string) {
+    return this.repository
+      .createQueryBuilder('strategyCreatedEvents')
+      .leftJoinAndSelect('strategyCreatedEvents.block', 'block')
+      .leftJoinAndSelect('strategyCreatedEvents.pair', 'pair')
+      .leftJoinAndSelect('strategyCreatedEvents.token0', 'token0')
+      .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
+      .where('strategyCreatedEvents.id = :id', { id })
+      .getOne();
+  }
+
   async parseEvent(args: CustomFnArgs): Promise<any> {
     const { event, rawEvent } = args;
 
