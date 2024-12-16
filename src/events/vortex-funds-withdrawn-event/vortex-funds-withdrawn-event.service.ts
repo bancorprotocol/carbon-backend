@@ -62,4 +62,8 @@ export class VortexFundsWithdrawnEventService {
 
     return event;
   }
+
+  async getOne(id: number) {
+    return this.repository.findOne({ where: { id } });
+  }
 }

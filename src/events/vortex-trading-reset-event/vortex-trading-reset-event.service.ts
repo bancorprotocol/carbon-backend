@@ -60,4 +60,8 @@ export class VortexTradingResetEventService {
     event['targetAmount'] = BigNumber.from(rawEvent.returnValues.price.targetAmount).toString();
     return event;
   }
+
+  async getOne(id: number) {
+    return this.repository.findOne({ where: { id } });
+  }
 }

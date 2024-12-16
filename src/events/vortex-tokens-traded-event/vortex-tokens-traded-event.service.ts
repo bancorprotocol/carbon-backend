@@ -53,4 +53,8 @@ export class VortexTokensTradedEventService {
       .orderBy('block.id', 'ASC')
       .getMany();
   }
+
+  async getOne(id: number) {
+    return this.repository.findOne({ where: { id } });
+  }
 }
