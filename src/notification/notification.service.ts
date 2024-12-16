@@ -9,8 +9,8 @@ import { Deployment } from '../deployment/deployment.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 
 export enum EventTypes {
-  VortexTokensTradedEvent = 'VortexTokensTradedEvent',
   ArbitrageExecutedEvent = 'ArbitrageExecutedEvent',
+  VortexTokensTradedEvent = 'VortexTokensTradedEvent',
   VortexTradingResetEvent = 'VortexTradingResetEvent',
   VortexFundsWithdrawnEvent = 'VortexFundsWithdrawnEvent',
   StrategyCreatedEvent = 'StrategyCreatedEvent',

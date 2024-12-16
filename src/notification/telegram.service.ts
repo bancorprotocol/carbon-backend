@@ -11,6 +11,10 @@ import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-
 import { QuoteService } from '../quote/quote.service';
 import { Deployment } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
+import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
+import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
+
+const TransferAbi = ['event Transfer (address indexed from, address indexed to, uint256 value)'];
 
 @Injectable()
 export class TelegramService {
@@ -85,6 +89,14 @@ export class TelegramService {
         break;
       case EventTypes.TokensTradedEvent:
         message = await this.formatTokensTradedMessage(event, tokens, quotes, deployment);
+        threadId = 32;
+        break;
+      case EventTypes.VortexTradingResetEvent:
+        message = await this.formatVortexTradingResetMessage(event, tokens, quotes, deployment);
+        threadId = 32;
+        break;
+      case EventTypes.VortexTokensTradedEvent:
+        message = await this.formatVortexTokenTradedMessage(event, tokens, quotes, deployment);
         threadId = 32;
         break;
     }
@@ -186,6 +198,99 @@ From:
 ${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
 To: 
 ${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
+
+🗓️ ${new Date(event.timestamp).toLocaleString()}
+⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+  }
+
+  private async formatVortexTradingResetMessage(
+    event: VortexTradingResetEvent,
+    tokens: TokensByAddress,
+    quotes: QuotesByAddress,
+    deployment: Deployment,
+  ): Promise<string> {
+    const token = tokens[event.token];
+
+    return `🌀 **Carbon Vortex 2.0** 🌀
+
+Auction price was reset for: ${token.symbol}
+
+🗓️ ${new Date(event.timestamp).toLocaleString()}
+⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;
+  }
+
+  private async formatVortexTokenTradedMessage(
+    event: VortexTokensTradedEvent,
+    tokens: TokensByAddress,
+    quotes: QuotesByAddress,
+    deployment: Deployment,
+  ): Promise<string> {
+    const provider = new ethers.providers.JsonRpcProvider(deployment.rpcEndpoint);
+    const txReceipt = await provider.getTransactionReceipt(event.transactionHash);
+    const contractAddr = deployment.contracts['CarbonVortex'].address;
+
+    let sourceTokenAddr = undefined;
+    let targetTokenAddr = undefined;
+
+    for (const log of txReceipt.logs) {
+      try {
+        const eventsParser = new ethers.utils.Interface(TransferAbi);
+        const parsedLog = eventsParser.parseLog(log);
+        const value = BigInt(parsedLog.args.value);
+        const fromAddr = parsedLog.args['from'];
+        const toAddr = parsedLog.args.to;
+
+        if (value === BigInt(event.sourceAmount) && fromAddr === event.caller && toAddr === contractAddr) {
+          sourceTokenAddr = log.address;
+        }
+
+        if (value === BigInt(event.targetAmount) && fromAddr === contractAddr && toAddr === event.caller) {
+          targetTokenAddr = log.address;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (sourceTokenAddr === undefined && targetTokenAddr === undefined) {
+      throw new Error("couldn't find neither source token or target token in events");
+    }
+
+    // If we haven't found one of them, then it is a native eth one
+    if (sourceTokenAddr === undefined) {
+      sourceTokenAddr = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE'; // native eth fake address
+    }
+
+    if (targetTokenAddr === undefined) {
+      targetTokenAddr = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
+    }
+
+    const sourceToken = tokens[sourceTokenAddr];
+    const targetToken = tokens[targetTokenAddr];
+
+    const sourceUsdRate = await this.getUsdRate(sourceTokenAddr, quotes, deployment);
+    const targetUsdRate = await this.getUsdRate(targetTokenAddr, quotes, deployment);
+
+    const sourceTokenAmount = this.amountToken(event.sourceAmount, 5, sourceToken);
+    const targetTokenAmount = this.amountToken(event.targetAmount, 6, targetToken);
+
+    const sourceUsdAmount = sourceUsdRate
+      ? Math.round(Number(ethers.utils.formatUnits(event.sourceAmount, sourceToken.decimals)) * sourceUsdRate)
+      : null;
+    const targetUsdAmount = targetUsdRate
+      ? Math.round(Number(ethers.utils.formatUnits(event.targetAmount, targetToken.decimals)) * targetUsdRate)
+      : null;
+
+    const rate =
+      Number(ethers.utils.formatUnits(event.targetAmount, targetToken.decimals)) /
+      Number(ethers.utils.formatUnits(event.sourceAmount, sourceToken.decimals));
+
+    return `🌀 **Carbon Vortex 2.0** 🌀
+
+Tokens traded
+Received: ${sourceTokenAmount} ${sourceToken.symbol} (${sourceUsdAmount ? `$${sourceUsdAmount}` : 'N/A'})
+For: ${targetTokenAmount} ${targetToken.symbol} (${targetUsdAmount ? `$${targetUsdAmount}` : 'N/A'})
+Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceToken.symbol}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
 ⛓️ Tx hash: <a href="https://etherscan.io/tx/${event.transactionHash}">View</a>`;

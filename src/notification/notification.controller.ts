@@ -32,8 +32,8 @@ export class NotificationController {
     private tokensTradedEventService: TokensTradedEventService,
   ) {
     this.eventServiceMap = new Map<EventTypes, EventService>([
-      [EventTypes.VortexTokensTradedEvent, vortexTokensTradedEventService],
       [EventTypes.ArbitrageExecutedEvent, arbitrageExecutedEventService],
+      [EventTypes.VortexTokensTradedEvent, vortexTokensTradedEventService],
       [EventTypes.VortexTradingResetEvent, vortexTradingResetEventService],
       [EventTypes.VortexFundsWithdrawnEvent, vortexFundsWithdrawnEventService],
       [EventTypes.StrategyCreatedEvent, strategyCreatedEventService],
