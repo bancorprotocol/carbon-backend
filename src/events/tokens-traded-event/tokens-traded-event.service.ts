@@ -66,7 +66,10 @@ export class TokensTradedEventService {
     return event;
   }
 
-  async get(params: TokensTradedEventQueryParams = {}, deployment: Deployment): Promise<TokensTradedEvent[]> {
+  async getWithQueryParams(
+    params: TokensTradedEventQueryParams = {},
+    deployment: Deployment,
+  ): Promise<TokensTradedEvent[]> {
     const { startBlock, endBlock, startTime, endTime, limit, type, pairId, last24h, order } = params;
     const queryOrder = order === 'DESC' ? 'DESC' : 'ASC';
 
@@ -132,8 +135,23 @@ export class TokensTradedEventService {
     return trades;
   }
 
+  async get(startBlock: number, endBlock: number, deployment: Deployment): Promise<TokensTradedEvent[]> {
+    return this.repository
+      .createQueryBuilder('tokensTradedEvents')
+      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
+      .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
+      .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
+      .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
+      .where('block.id > :startBlock', { startBlock })
+      .andWhere('block.id <= :endBlock', { endBlock })
+      .andWhere('tokensTradedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('tokensTradedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
+      .orderBy('block.id', 'ASC')
+      .getMany();
+  }
+
   async volume24hByToken(deployment: Deployment): Promise<any> {
-    const trades = await this.get({ last24h: true, normalizeDecimals: true }, deployment);
+    const trades = await this.getWithQueryParams({ last24h: true, normalizeDecimals: true }, deployment);
 
     const result = {};
     trades.forEach((t) => {
@@ -153,7 +171,7 @@ export class TokensTradedEventService {
   }
 
   async volume24hByPair(deployment: Deployment): Promise<any> {
-    const trades = await this.get({ last24h: true, normalizeDecimals: true }, deployment);
+    const trades = await this.getWithQueryParams({ last24h: true, normalizeDecimals: true }, deployment);
 
     const result = {};
     trades.forEach((t) => {
