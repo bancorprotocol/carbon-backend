@@ -1,6 +1,7 @@
 // deployment.service.ts
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventTypes } from '../events/event-types';
 
 export const NATIVE_TOKEN = '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE';
 
@@ -37,6 +38,19 @@ export interface Deployment {
   contracts: {
     [contractName: string]: {
       address: string;
+    };
+  };
+  notifications?: {
+    explorerUrl: string;
+    carbonWalletUrl: string;
+    disabledEvents?: EventTypes[];
+    telegram: {
+      botToken: string;
+      threads: {
+        carbonThreadId: number;
+        fastlaneId: number;
+        vortexId: number;
+      };
     };
   };
 }
@@ -80,6 +94,18 @@ export class DeploymentService {
             address: '0x41Eeba3355d7D6FF628B7982F3F9D055c39488cB',
           },
         },
+        notifications: {
+          explorerUrl: this.configService.get('ETHEREUM_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('ETHEREUM_CARBON_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('ETHEREUM_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('ETHEREUM_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('ETHEREUM_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('ETHEREUM_VORTEX_THREAD_ID'),
+            },
+          },
+        },
       },
       {
         exchangeId: ExchangeId.OGSei,
@@ -107,6 +133,18 @@ export class DeploymentService {
           },
           CarbonVortex: {
             address: '0x5715203B16F15d7349Cb1E3537365E9664EAf933',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('SEI_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('SEI_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('SEI_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('SEI_VORTEX_THREAD_ID'),
+            },
           },
         },
       },
@@ -138,6 +176,18 @@ export class DeploymentService {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
         },
+        notifications: {
+          explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('CELO_VORTEX_THREAD_ID'),
+            },
+          },
+        },
       },
       {
         exchangeId: ExchangeId.OGBlast,
@@ -164,6 +214,19 @@ export class DeploymentService {
           },
           CarbonVortex: {
             address: '0x0f54099D787e26c90c487625B4dE819eC5A9BDAA',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('BLAST_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('BLAST_CARBON_WALLET_URL'),
+          disabledEvents: [EventTypes.TokensTradedEvent],
+          telegram: {
+            botToken: this.configService.get('BLAST_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('BLAST_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('BLAST_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('BLAST_VORTEX_THREAD_ID'),
+            },
           },
         },
       },

@@ -206,4 +206,15 @@ export class TokensTradedEventService {
 
     return result;
   }
+
+  async getOne(id: string) {
+    return this.repository
+      .createQueryBuilder('tokensTradedEvents')
+      .leftJoinAndSelect('tokensTradedEvents.block', 'block')
+      .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
+      .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'token0')
+      .leftJoinAndSelect('tokensTradedEvents.targetToken', 'token1')
+      .where('tokensTradedEvents.id = :id', { id })
+      .getOne();
+  }
 }

@@ -206,11 +206,11 @@ export class QuoteService implements OnModuleInit {
 
   private async shouldSkipProvider(blockchainType: string, address: string, provider: string): Promise<boolean> {
     const key = `skip:${blockchainType}:${address}:${provider}`;
-    return (await this.redis.get(key)) === '1';
+    return (await this.redis.client.get(key)) === '1';
   }
 
   private async setProviderSkipFlag(blockchainType: string, address: string, provider: string): Promise<void> {
     const key = `skip:${blockchainType}:${address}:${provider}`;
-    await this.redis.setex(key, this.SKIP_TIMEOUT, '1');
+    await this.redis.client.setex(key, this.SKIP_TIMEOUT, '1');
   }
 }

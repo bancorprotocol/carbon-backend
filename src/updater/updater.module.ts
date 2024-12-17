@@ -28,6 +28,7 @@ import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event
 import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
 import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
+import { NotificationModule } from '../notification/notification.module';
 @Module({
   imports: [
     BlockModule,
@@ -58,6 +59,7 @@ import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdraw
     VortexTokensTradedEventModule,
     VortexTradingResetEventModule,
     VortexFundsWithdrawnEventModule,
+    NotificationModule,
   ],
   providers: [UpdaterService],
 })
