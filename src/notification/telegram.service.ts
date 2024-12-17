@@ -113,7 +113,7 @@ Caller amount: ${await this.formatAmount(event.rewardAmounts[i], token, usdRate)
       }
     }
 
-    return `**Arb Fast Lane - Ethereum**
+    return `**Arb Fast Lane - ${this.toPascalCase(deployment.exchangeId)}**
 
 ${tokenMessages}
 
@@ -135,7 +135,7 @@ ${tokenMessages}
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
-    return `**New Strategy Created - Ethereum**
+    return `**New Strategy Created - ${this.toPascalCase(deployment.exchangeId)}**
     
 Base token: ${token0.symbol}
 Quote token: ${token1.symbol}
@@ -170,7 +170,7 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
       ? this.amountUSD(event.targetAmount, 1, targetUsdRate.toString(), targetToken)
       : 'N/A';
 
-    return `**Strategies Filled - Ethereum**
+    return `**Strategies Filled - ${this.toPascalCase(deployment.exchangeId)}**
     
 From: 
 ${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
@@ -346,5 +346,9 @@ Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceTok
       // Format large numbers with the specified precision
       return num.toFixed(1);
     }
+  }
+
+  private toPascalCase(str: string): string {
+    return str.toLowerCase().replace(/(^|[-_])(.)/g, (_, __, c) => c.toUpperCase());
   }
 }
