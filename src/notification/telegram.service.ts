@@ -18,40 +18,7 @@ const TransferAbi = ['event Transfer (address indexed from, address indexed to, 
 
 @Injectable()
 export class TelegramService {
-  private bot: Telegraf;
-
-  constructor(private configService: ConfigService, private quoteService: QuoteService) {
-    this.bot = new Telegraf(this.configService.get('TELEGRAM_BOT_TOKEN'));
-  }
-
-  private async getUsdRate(
-    tokenAddress: string,
-    quotes: QuotesByAddress,
-    deployment: Deployment,
-  ): Promise<number | null> {
-    const quote = quotes[tokenAddress];
-    if (quote && quote.usd) {
-      return Number(quote.usd);
-    }
-
-    try {
-      const latestPrice = await this.quoteService.getLatestPrice(deployment, tokenAddress, ['usd']);
-      if (latestPrice && latestPrice.data && latestPrice.data.USD) {
-        return Number(latestPrice.data.USD);
-      }
-    } catch (error) {
-      return null;
-    }
-
-    return null;
-  }
-
-  private async formatAmount(amount: string, token: Token, usdRate: number | null): Promise<string> {
-    if (usdRate === null) {
-      return `${this.amountToken(amount, 6, token)} ${token.symbol}`;
-    }
-    return this.amountUSD(amount, 6, usdRate.toString(), token);
-  }
+  constructor(private configService: ConfigService, private quoteService: QuoteService) {}
 
   async sendEventNotification(
     eventType: EventTypes,
@@ -60,13 +27,24 @@ export class TelegramService {
     quotes: QuotesByAddress,
     deployment: Deployment,
   ) {
+    const bot = new Telegraf(deployment.notifications.telegram.botToken);
     const { message, threadId } = await this.formatEventMessage(eventType, event, tokens, quotes, deployment);
     const chatId = this.configService.get('TELEGRAM_CHAT_ID');
 
-    await this.bot.telegram.sendMessage(chatId, message, {
+    await bot.telegram.sendMessage(chatId, message, {
       message_thread_id: threadId,
       parse_mode: 'HTML',
+      link_preview_options: {
+        is_disabled: true,
+      },
     });
+  }
+
+  private async formatAmount(amount: string, token: Token, usdRate: number | null): Promise<string> {
+    if (usdRate === null) {
+      return `${this.amountToken(amount, 6, token)} ${token.symbol}`;
+    }
+    return this.amountUSD(amount, 6, usdRate.toString(), token);
   }
 
   private async formatEventMessage(
@@ -293,6 +271,28 @@ Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceTok
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
 ⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
+  }
+
+  private async getUsdRate(
+    tokenAddress: string,
+    quotes: QuotesByAddress,
+    deployment: Deployment,
+  ): Promise<number | null> {
+    const quote = quotes[tokenAddress];
+    if (quote && quote.usd) {
+      return Number(quote.usd);
+    }
+
+    try {
+      const latestPrice = await this.quoteService.getLatestPrice(deployment, tokenAddress, ['usd']);
+      if (latestPrice && latestPrice.data && latestPrice.data.USD) {
+        return Number(latestPrice.data.USD);
+      }
+    } catch (error) {
+      return null;
+    }
+
+    return null;
   }
 
   private amountUSD(amount: string, precision: number, usdPrice: string, token: Token) {

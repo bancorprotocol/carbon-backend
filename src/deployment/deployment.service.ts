@@ -45,6 +45,7 @@ export interface Deployment {
     carbonWalletUrl: string;
     disabledEvents?: EventTypes[];
     telegram: {
+      botToken: string;
       threads: {
         carbonThreadId: number;
         fastlaneId: number;
@@ -97,6 +98,7 @@ export class DeploymentService {
           explorerUrl: this.configService.get('ETHEREUM_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('ETHEREUM_CARBON_WALLET_URL'),
           telegram: {
+            botToken: this.configService.get('ETHEREUM_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('ETHEREUM_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('ETHEREUM_FASTLANE_THREAD_ID'),
@@ -137,6 +139,7 @@ export class DeploymentService {
           explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
           telegram: {
+            botToken: this.configService.get('SEI_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('SEI_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('SEI_FASTLANE_THREAD_ID'),
@@ -177,6 +180,7 @@ export class DeploymentService {
           explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
           telegram: {
+            botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
@@ -217,6 +221,7 @@ export class DeploymentService {
           carbonWalletUrl: this.configService.get('BLAST_CARBON_WALLET_URL'),
           disabledEvents: [EventTypes.TokensTradedEvent],
           telegram: {
+            botToken: this.configService.get('BLAST_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('BLAST_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('BLAST_FASTLANE_THREAD_ID'),

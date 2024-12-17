@@ -242,7 +242,6 @@ Configure the notification system in your `.env` file:
 
 ```bash
 # Telegram Configuration
-TELEGRAM_BOT_TOKEN=your-bot-token
 TELEGRAM_CHAT_ID=your-chat-id
 
 # Google Cloud Tasks Configuration
@@ -253,6 +252,7 @@ GOOGLE_CLOUD_PROJECT=your-project-id
 API_URL=https://your-api-url.com
 
 # Network-Specific Thread IDs
+ETHEREUM_TELEGRAM_BOT_TOKEN=your-bot-token
 ETHEREUM_CARBON_THREAD_ID=123
 ETHEREUM_FASTLANE_THREAD_ID=456
 ETHEREUM_VORTEX_THREAD_ID=789
