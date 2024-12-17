@@ -50,7 +50,7 @@ export class CoinGeckoController {
       queryParams['pairId'] = pair.id;
     }
 
-    const trades = await this.tokensTradedEventService.get(queryParams, deployment);
+    const trades = await this.tokensTradedEventService.getWithQueryParams(queryParams, deployment);
     const result = [];
     trades.map((t) => {
       const rate = new Decimal(t.targetAmount).div(t.sourceAmount).toNumber();

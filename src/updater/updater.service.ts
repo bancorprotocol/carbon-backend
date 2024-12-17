@@ -118,10 +118,6 @@ export class UpdaterService {
       // await this.vortexFundsWithdrawnEventService.update(endBlock, deployment);
       // console.log(`CARBON SERVICE - Finished Vortex funds withdrawn events for ${deployment.exchangeId}`);
 
-      // handle notifications
-      await this.notificationService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished notifications for ${deployment.exchangeId}`);
-
       // create tokens
       await this.tokenService.update(endBlock, deployment);
       const tokens = await this.tokenService.allByAddress(deployment);
@@ -160,6 +156,10 @@ export class UpdaterService {
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
+
+      // handle notifications
+      await this.notificationService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished notifications for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;

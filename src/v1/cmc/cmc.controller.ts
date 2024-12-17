@@ -51,7 +51,7 @@ export class CmcController {
     @Query() params: HistoricalTradesDto,
   ): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
-    const trades = await this.tokensTradedEventService.get(
+    const trades = await this.tokensTradedEventService.getWithQueryParams(
       {
         limit: params.limit,
         order: 'DESC',
