@@ -10,11 +10,13 @@ import { TokenService } from '../token/token.service';
 import { QuoteService } from '../quote/quote.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
+import { ApiExcludeController } from '@nestjs/swagger';
 
 interface EventService {
   getOne(id: string | number): Promise<any>;
 }
 
+@ApiExcludeController()
 @Controller('notifications')
 export class NotificationController {
   private eventServiceMap: Map<EventTypes, EventService>;
