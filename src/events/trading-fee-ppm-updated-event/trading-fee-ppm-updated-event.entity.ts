@@ -17,11 +17,11 @@ export class TradingFeePpmUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'enum', enum: BlockchainType })
+  @Column()
   @Index()
   blockchainType: BlockchainType;
 
-  @Column({ type: 'enum', enum: ExchangeId })
+  @Column()
   @Index()
   exchangeId: ExchangeId;
 

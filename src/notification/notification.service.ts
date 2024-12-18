@@ -53,7 +53,10 @@ export class NotificationService {
     }
 
     const lastProcessedEntity = `${deployment.blockchainType}-${deployment.exchangeId}-notifications`;
-    const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, 1);
+    const initTo = await this.lastProcessedBlockService.get(
+      `${deployment.blockchainType}-${deployment.exchangeId}-pair-created-events`,
+    );
+    const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, initTo);
     const batchSize = 100000;
     let currentBlock = lastProcessedBlockNumber;
 
