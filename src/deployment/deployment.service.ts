@@ -10,6 +10,7 @@ export enum BlockchainType {
   Sei = 'sei-network',
   Celo = 'celo',
   Blast = 'blast',
+  Base = 'base',
 }
 
 export enum ExchangeId {
@@ -17,6 +18,7 @@ export enum ExchangeId {
   OGSei = 'sei',
   OGCelo = 'celo',
   OGBlast = 'blast',
+  BaseGraphene = 'base-graphene',
 }
 
 export interface GasToken {
@@ -226,6 +228,46 @@ export class DeploymentService {
               carbonThreadId: this.configService.get('BLAST_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('BLAST_FASTLANE_THREAD_ID'),
               vortexId: this.configService.get('BLAST_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.BaseGraphene,
+        blockchainType: BlockchainType.Base,
+        rpcEndpoint: this.configService.get('BASE_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 5314500,
+        gasToken: {
+          name: 'Ether',
+          symbol: 'ETH',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        contracts: {
+          CarbonController: {
+            address: '0xfbf069dbbf453c1ab23042083cfa980b3a672bba',
+          },
+          CarbonVoucher: {
+            address: '0x907F03ae649581EBFF369a21C587cb8F154A0B84',
+          },
+          BancorArbitrage: {
+            address: '0x2ae2404cd44c830d278f51f053a08f54b3756e1c',
+          },
+          CarbonVortex: {
+            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('BASE_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('BASE_GRAPHENE_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('BASE_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('BASE_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('BASE_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('BASE_VORTEX_THREAD_ID'),
             },
           },
         },

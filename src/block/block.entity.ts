@@ -6,7 +6,7 @@ export class Block {
   @PrimaryColumn()
   id: number;
 
-  @Column({ type: 'enum', enum: BlockchainType })
+  @Column()
   @Index()
   blockchainType: BlockchainType;
 

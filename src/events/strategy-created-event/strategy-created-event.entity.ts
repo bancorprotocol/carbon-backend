@@ -31,11 +31,11 @@ export class StrategyCreatedEvent {
   @ManyToOne(() => Block, { eager: true })
   block: Block;
 
-  @Column({ type: 'enum', enum: BlockchainType })
+  @Column()
   @Index()
   blockchainType: BlockchainType;
 
-  @Column({ type: 'enum', enum: ExchangeId })
+  @Column()
   @Index()
   exchangeId: ExchangeId;
 

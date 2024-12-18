@@ -7,6 +7,7 @@ import { BlockchainType, Deployment, NATIVE_TOKEN } from '../deployment/deployme
 export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
 export const ETHEREUM_NETWORK_ID = 1;
+export const BASE_NETWORK_ID = 8453;
 
 @Injectable()
 export class CodexService {
