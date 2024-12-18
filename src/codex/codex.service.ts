@@ -40,10 +40,13 @@ export class CodexService {
 
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();
-      const originalAddress = originalAddresses.find(
-        (addr) =>
-          addr.toLowerCase() === address || (nativeTokenAliasUsed && addr.toLowerCase() === NATIVE_TOKEN.toLowerCase()),
-      );
+      const originalAddress = originalAddresses.find((addr) => {
+        const lowerAddr = addr.toLowerCase();
+        if (nativeTokenAliasUsed && lowerAddr === NATIVE_TOKEN.toLowerCase()) {
+          return address === deployment.nativeTokenAlias.toLowerCase();
+        }
+        return lowerAddr === address;
+      });
 
       if (originalAddress) {
         result[originalAddress.toLowerCase()] = {
