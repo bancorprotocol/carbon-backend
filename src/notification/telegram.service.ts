@@ -113,7 +113,7 @@ Caller amount: ${await this.formatAmount(event.rewardAmounts[i], token, usdRate)
       }
     }
 
-    return `**Arb Fast Lane - ${this.toPascalCase(deployment.exchangeId)}**
+    return `<b>Arb Fast Lane - ${this.toPascalCase(deployment.exchangeId)}</b>
 
 ${tokenMessages}
 
@@ -135,7 +135,7 @@ ${tokenMessages}
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
-    return `**New Strategy Created - ${this.toPascalCase(deployment.exchangeId)}**
+    return `<b>New Strategy Created - ${this.toPascalCase(deployment.exchangeId)}</b>
     
 Base token: ${token0.symbol}
 Quote token: ${token1.symbol}
@@ -170,7 +170,7 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
       ? this.amountUSD(event.targetAmount, 1, targetUsdRate.toString(), targetToken)
       : 'N/A';
 
-    return `**Strategies Filled - ${this.toPascalCase(deployment.exchangeId)}**
+    return `<b>Strategies Filled - ${this.toPascalCase(deployment.exchangeId)}</b>
     
 From: 
 ${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
@@ -188,7 +188,7 @@ ${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
   ): Promise<string> {
     const token = tokens[event.token];
 
-    return `🌀 **Carbon Vortex 2.0** 🌀
+    return `🌀 <b>Carbon Vortex 2.0</b> 🌀
 
 Auction price was reset for: ${token.symbol}
 
@@ -262,7 +262,7 @@ Auction price was reset for: ${token.symbol}
       Number(ethers.utils.formatUnits(event.targetAmount, targetToken.decimals)) /
       Number(ethers.utils.formatUnits(event.sourceAmount, sourceToken.decimals));
 
-    return `🌀 **Carbon Vortex 2.0** 🌀
+    return `🌀 <b>Carbon Vortex 2.0</b> 🌀
 
 Tokens traded
 Received: ${sourceTokenAmount} ${sourceToken.symbol} (${sourceUsdAmount ? `$${sourceUsdAmount}` : 'N/A'})
