@@ -18,6 +18,7 @@ export class MarketRateController {
     [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Blast]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Base]: [{ name: 'codex', enabled: true }],
   };
 
   constructor(

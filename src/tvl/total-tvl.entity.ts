@@ -7,11 +7,11 @@ export class TotalTvl {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column({ type: 'enum', enum: BlockchainType })
+  @Column()
   @Index() // Single-column index for fast filtering on blockchainType
   blockchainType: BlockchainType;
 
-  @Column({ type: 'enum', enum: ExchangeId })
+  @Column()
   @Index() // Single-column index for fast filtering on exchangeId
   exchangeId: ExchangeId;
 
