@@ -161,6 +161,8 @@ export class CodexService {
         return CELO_NETWORK_ID;
       case BlockchainType.Ethereum:
         return ETHEREUM_NETWORK_ID;
+      case BlockchainType.Base:
+        return BASE_NETWORK_ID;
       default:
         return null;
     }
