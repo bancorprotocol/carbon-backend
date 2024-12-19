@@ -171,7 +171,7 @@ steps:
         '--set-env-vars=BLAST_VORTEX_THREAD_ID=1312658',
         '--set-env-vars=BLAST_EXPLORER_URL=https://blastscan.io/tx/',
         '--set-env-vars=BLAST_CARBON_WALLET_URL=https://blast.carbondefi.xyz/explore/wallet/',
-'--set-env-vars=BASE_CARBON_THREAD_ID=2084551',
+        '--set-env-vars=BASE_CARBON_THREAD_ID=2084551',
         '--set-env-vars=BASE_FASTLANE_THREAD_ID=2084548',
         '--set-env-vars=BASE_VORTEX_THREAD_ID=1312658',
         '--set-env-vars=BASE_EXPLORER_URL=https://basescan.org/tx/',
