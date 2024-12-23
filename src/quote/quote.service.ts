@@ -89,16 +89,12 @@ export class QuoteService implements OnModuleInit {
       const addresses = tokens.map((t) => t.address);
 
       let newPrices;
-      if (deployment.blockchainType === BlockchainType.Sei) {
-        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
-      } else if (deployment.blockchainType === BlockchainType.Celo) {
-        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
-      } else if (deployment.blockchainType === BlockchainType.Base) {
-        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
-      } else {
+      if (deployment.blockchainType === BlockchainType.Ethereum) {
         newPrices = await this.coingeckoService.getLatestPrices(addresses, deployment);
         const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(deployment);
         newPrices = { ...newPrices, ...gasTokenPrice };
+      } else {
+        newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       }
 
       await this.updateQuotes(tokens, newPrices, deployment);
