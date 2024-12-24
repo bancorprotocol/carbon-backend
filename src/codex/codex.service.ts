@@ -8,6 +8,8 @@ export const SEI_NETWORK_ID = 531;
 export const CELO_NETWORK_ID = 42220;
 export const ETHEREUM_NETWORK_ID = 1;
 export const BASE_NETWORK_ID = 8453;
+export const FANTOM_NETWORK_ID = 250;
+export const MANTLE_NETWORK_ID = 5000;
 
 @Injectable()
 export class CodexService {
@@ -163,6 +165,10 @@ export class CodexService {
         return ETHEREUM_NETWORK_ID;
       case BlockchainType.Base:
         return BASE_NETWORK_ID;
+      case BlockchainType.Mantle:
+        return MANTLE_NETWORK_ID;
+      case BlockchainType.Fantom:
+        return FANTOM_NETWORK_ID;
       default:
         return null;
     }

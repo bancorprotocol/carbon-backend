@@ -11,6 +11,8 @@ export enum BlockchainType {
   Celo = 'celo',
   Blast = 'blast',
   Base = 'base',
+  Fantom = 'fantom',
+  Mantle = 'mantle',
 }
 
 export enum ExchangeId {
@@ -19,6 +21,8 @@ export enum ExchangeId {
   OGCelo = 'celo',
   OGBlast = 'blast',
   BaseGraphene = 'base-graphene',
+  FantomGraphene = 'fantom-graphene',
+  MantleGraphene = 'mantle-graphene',
 }
 
 export interface GasToken {
@@ -268,6 +272,88 @@ export class DeploymentService {
               carbonThreadId: this.configService.get('BASE_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('BASE_FASTLANE_THREAD_ID'),
               vortexId: this.configService.get('BASE_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.FantomGraphene,
+        blockchainType: BlockchainType.Fantom,
+        rpcEndpoint: this.configService.get('FANTOM_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 69969086,
+        gasToken: {
+          name: 'Fantom',
+          symbol: 'FTM',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',
+        contracts: {
+          CarbonController: {
+            address: '0xf37102e11E06276ac9D393277BD7b63b3393b361',
+          },
+          CarbonVoucher: {
+            address: '0xf779D71178d96b5151D25DE608ac2Ab0558F6aA2',
+          },
+          BancorArbitrage: {
+            address: '0xFe19CbA3aB1A189B7FC17cAa798Df64Ad2b54d4D',
+          },
+          CarbonVortex: {
+            address: '0x4A0c4eF72e0BA9d6A2d34dAD6E794378d9Ad4130',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('FANTOM_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('FANTOM_GRAPHENE_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('FANTOM_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('FANTOM_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('FANTOM_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('FANTOM_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.MantleGraphene,
+        blockchainType: BlockchainType.Mantle,
+        rpcEndpoint: this.configService.get('MANTLE_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 18438182,
+        gasToken: {
+          name: 'Mantle',
+          symbol: 'MNT',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8',
+        contracts: {
+          CarbonController: {
+            address: '0x7900f766F06e361FDDB4FdeBac5b138c4EEd8d4A',
+          },
+          CarbonVoucher: {
+            address: '0x953A6D3f9DB06027b2feb8b76a76AA2FC8334865',
+          },
+          BancorArbitrage: {
+            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          CarbonVortex: {
+            address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('MANTLE_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('MANTLE_GRAPHENE_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('MANTLE_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('MANTLE_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('MANTLE_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('MANTLE_VORTEX_THREAD_ID'),
             },
           },
         },

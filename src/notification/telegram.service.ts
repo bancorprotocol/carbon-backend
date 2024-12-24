@@ -86,6 +86,10 @@ export class TelegramService {
     let name = this.toPascalCase(deployment.exchangeId);
     if (deployment.exchangeId === ExchangeId.BaseGraphene) {
       name = 'Graphene on Base';
+    } else if (deployment.exchangeId === ExchangeId.MantleGraphene) {
+      name = 'Graphene on Mantle';
+    } else if (deployment.exchangeId === ExchangeId.FantomGraphene) {
+      name = 'Graphene on Fantom';
     }
     return name;
   }
