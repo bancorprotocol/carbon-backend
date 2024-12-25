@@ -14,6 +14,10 @@ export class ArbitrageExecutedEventService {
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<any> {
+    if (!deployment.contracts[ContractsNames.BancorArbitrage]) {
+      return;
+    }
+
     return this.harvesterService.processEvents({
       entity: 'arbitrage-executed-events',
       contractName: ContractsNames.BancorArbitrage,

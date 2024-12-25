@@ -23,6 +23,7 @@ export enum ExchangeId {
   BaseGraphene = 'base-graphene',
   FantomGraphene = 'fantom-graphene',
   MantleGraphene = 'mantle-graphene',
+  MantleSupernova = 'mantle-supernova',
 }
 
 export interface GasToken {
@@ -343,6 +344,41 @@ export class DeploymentService {
           },
           CarbonVortex: {
             address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('MANTLE_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('MANTLE_GRAPHENE_WALLET_URL'),
+          telegram: {
+            botToken: this.configService.get('MANTLE_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('MANTLE_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('MANTLE_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('MANTLE_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.MantleSupernova,
+        blockchainType: BlockchainType.Mantle,
+        rpcEndpoint: this.configService.get('MANTLE_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 61955463,
+        gasToken: {
+          name: 'Mantle',
+          symbol: 'MNT',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0x78c1b0C915c4FAA5FffA6CAbf0219DA63d7f4cb8',
+        contracts: {
+          CarbonController: {
+            address: '0x04FBC7f949326fFf7Fe4D6aE96BAfa3D8e8A8c0a',
+          },
+          CarbonVoucher: {
+            address: '0x6ed7042cc1ef691ef64d8dcf3764b004d62590dd',
           },
         },
         notifications: {
