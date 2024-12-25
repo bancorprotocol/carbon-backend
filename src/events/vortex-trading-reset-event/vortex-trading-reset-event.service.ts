@@ -15,6 +15,10 @@ export class VortexTradingResetEventService {
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<any> {
+    if (!deployment.contracts[ContractsNames.CarbonVortex]) {
+      return;
+    }
+
     return this.harvesterService.processEvents({
       entity: 'vortex-trading-reset-events',
       contractName: ContractsNames.CarbonVortex,

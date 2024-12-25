@@ -14,6 +14,10 @@ export class VortexTokensTradedEventService {
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<any> {
+    if (!deployment.contracts[ContractsNames.CarbonVortex]) {
+      return;
+    }
+
     return this.harvesterService.processEvents({
       entity: 'vortex-tokens-traded-events',
       contractName: ContractsNames.CarbonVortex,
