@@ -9,7 +9,7 @@ import { Token } from 'src/token/token.entity';
 import { EventTypes } from '../events/event-types';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
 import { QuoteService } from '../quote/quote.service';
-import { Deployment, ExchangeId } from '../deployment/deployment.service';
+import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
 import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
@@ -84,10 +84,11 @@ export class TelegramService {
 
   private getExchangeName(deployment: Deployment): string {
     let name = this.toPascalCase(deployment.exchangeId);
-    if (deployment.exchangeId === ExchangeId.BaseGraphene) {
+
+    if (deployment.blockchainType === BlockchainType.Mantle) {
+      name = 'Mantle';
+    } else if (deployment.exchangeId === ExchangeId.BaseGraphene) {
       name = 'Graphene on Base';
-    } else if (deployment.exchangeId === ExchangeId.MantleGraphene) {
-      name = 'Graphene on Mantle';
     } else if (deployment.exchangeId === ExchangeId.FantomGraphene) {
       name = 'Graphene on Fantom';
     }
