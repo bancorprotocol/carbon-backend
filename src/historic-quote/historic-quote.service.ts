@@ -9,7 +9,7 @@ import * as _ from 'lodash';
 import moment from 'moment';
 import Decimal from 'decimal.js';
 import { BlockchainType, Deployment, DeploymentService, NATIVE_TOKEN } from '../deployment/deployment.service';
-import { BASE_NETWORK_ID, CELO_NETWORK_ID, CodexService, SEI_NETWORK_ID } from '../codex/codex.service';
+import { CodexService } from '../codex/codex.service';
 
 type Candlestick = {
   timestamp: number;
@@ -76,8 +76,8 @@ export class HistoricQuoteService implements OnModuleInit {
     try {
       await Promise.all([
         await this.updateCoinMarketCapQuotes(),
-        await this.updateCodexQuotes(BlockchainType.Sei, SEI_NETWORK_ID),
-        await this.updateCodexQuotes(BlockchainType.Celo, CELO_NETWORK_ID),
+        await this.updateCodexQuotes(BlockchainType.Sei),
+        await this.updateCodexQuotes(BlockchainType.Celo),
         // await this.updateCodexQuotes(BlockchainType.Base, BASE_NETWORK_ID),
       ]);
     } catch (error) {
@@ -109,10 +109,10 @@ export class HistoricQuoteService implements OnModuleInit {
     console.log('CoinMarketCap quotes updated');
   }
 
-  private async updateCodexQuotes(blockchainType: BlockchainType, networkId: number): Promise<void> {
+  private async updateCodexQuotes(blockchainType: BlockchainType): Promise<void> {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const latest = await this.getLatest(blockchainType);
-    const addresses = await this.codexService.getAllTokenAddresses(networkId);
+    const addresses = await this.codexService.getAllTokenAddresses(deployment);
     const quotes = await this.codexService.getLatestPrices(deployment, addresses);
     const newQuotes = [];
 
@@ -187,22 +187,22 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
-  async seedCodex(blockchainType: BlockchainType, networkId: number): Promise<void> {
+  async seedCodex(blockchainType: BlockchainType): Promise<void> {
+    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const start = moment().subtract(1, 'year').unix();
     const end = moment().unix();
     let i = 0;
 
-    const addresses = await this.codexService.getAllTokenAddresses(networkId);
+    const addresses = await this.codexService.getAllTokenAddresses(deployment);
     const batchSize = 100;
 
-    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const nativeTokenAlias = deployment.nativeTokenAlias ? deployment.nativeTokenAlias : null;
 
     for (let startIndex = 0; startIndex < addresses.length; startIndex += batchSize) {
       const batchAddresses = addresses.slice(startIndex, startIndex + batchSize);
 
       // Fetch historical quotes for the current batch of addresses
-      const quotesByAddress = await this.codexService.getHistoricalQuotes(networkId, batchAddresses, start, end);
+      const quotesByAddress = await this.codexService.getHistoricalQuotes(deployment, batchAddresses, start, end);
 
       const newQuotes = [];
 

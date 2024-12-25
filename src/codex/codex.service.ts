@@ -4,12 +4,15 @@ import { Codex } from '@codex-data/sdk';
 import moment from 'moment';
 import { BlockchainType, Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 
-export const SEI_NETWORK_ID = 531;
-export const CELO_NETWORK_ID = 42220;
-export const ETHEREUM_NETWORK_ID = 1;
-export const BASE_NETWORK_ID = 8453;
-export const FANTOM_NETWORK_ID = 250;
-export const MANTLE_NETWORK_ID = 5000;
+export const NETWORK_IDS = {
+  [BlockchainType.Sei]: 531,
+  [BlockchainType.Celo]: 42220,
+  [BlockchainType.Ethereum]: 1,
+  [BlockchainType.Base]: 8453,
+  [BlockchainType.Fantom]: 250,
+  [BlockchainType.Mantle]: 5000,
+  [BlockchainType.Blast]: 5615,
+};
 
 @Injectable()
 export class CodexService {
@@ -21,17 +24,15 @@ export class CodexService {
   }
 
   async getLatestPrices(deployment: Deployment, addresses: string[]): Promise<any> {
-    const networkId = this.getNetworkId(deployment.blockchainType);
-    if (!networkId) return null;
+    if (addresses.length === 0) return {};
 
-    const originalAddresses = [...addresses];
-    let nativeTokenAliasUsed = false;
+    const networkId = NETWORK_IDS[deployment.blockchainType];
+    if (!networkId) return null;
 
     // Replace only if targetAddress (NATIVE_TOKEN) is present in addresses
     if (deployment.nativeTokenAlias) {
       addresses = addresses.map((address) => {
         if (address.toLowerCase() === NATIVE_TOKEN.toLowerCase()) {
-          nativeTokenAliasUsed = true;
           return deployment.nativeTokenAlias;
         }
         return address;
@@ -43,17 +44,9 @@ export class CodexService {
 
     tokens.forEach((t) => {
       const address = t.token.address.toLowerCase();
-      const originalAddress = originalAddresses.find((addr) => {
-        const lowerAddr = addr.toLowerCase();
-        if (nativeTokenAliasUsed && lowerAddr === NATIVE_TOKEN.toLowerCase()) {
-          return address === deployment.nativeTokenAlias.toLowerCase();
-        }
-        return lowerAddr === address;
-      });
-
-      if (originalAddress) {
-        result[originalAddress.toLowerCase()] = {
-          address: originalAddress.toLowerCase(),
+      if (address) {
+        result[address] = {
+          address,
           usd: Number(t.priceUSD),
           provider: 'codex',
           last_updated_at: moment().unix(),
@@ -61,16 +54,26 @@ export class CodexService {
       }
     });
 
+    if (deployment.nativeTokenAlias) {
+      result[NATIVE_TOKEN.toLowerCase()] = {
+        address: NATIVE_TOKEN.toLowerCase(),
+        usd: result[deployment.nativeTokenAlias.toLowerCase()].usd,
+        provider: 'codex',
+        last_updated_at: moment().unix(),
+      };
+    }
+
     return result;
   }
 
-  async getHistoricalQuotes(networkId: number, tokenAddresses: string[], from: number, to: number) {
+  async getHistoricalQuotes(deployment: Deployment, tokenAddresses: string[], from: number, to: number) {
     const limit = (await import('p-limit')).default;
     const concurrencyLimit = limit(1);
     const maxPoints = 1499;
     const resolution = 240; // Resolution in minutes (adjustable here)
     const resolutionSeconds = resolution * 60; // Convert resolution to seconds
     const maxBatchDuration = maxPoints * resolutionSeconds; // Max batch duration in seconds
+    const networkId = NETWORK_IDS[deployment.blockchainType];
 
     const fetchWithRetry = async (tokenAddress: string, batchFrom: number, batchTo: number): Promise<any> => {
       try {
@@ -120,7 +123,8 @@ export class CodexService {
     }
   }
 
-  async getAllTokenAddresses(networkId: number): Promise<string[]> {
+  async getAllTokenAddresses(deployment: Deployment): Promise<string[]> {
+    const networkId = NETWORK_IDS[deployment.blockchainType];
     const tokens = await this.fetchTokens(networkId);
     const uniqueAddresses = Array.from(new Set(tokens.map((t) => t.token.address.toLowerCase())));
     return uniqueAddresses;
@@ -153,24 +157,5 @@ export class CodexService {
     } while (fetched.length === limit);
 
     return allTokens;
-  }
-
-  private getNetworkId(blockchainType: string): number {
-    switch (blockchainType) {
-      case BlockchainType.Sei:
-        return SEI_NETWORK_ID;
-      case BlockchainType.Celo:
-        return CELO_NETWORK_ID;
-      case BlockchainType.Ethereum:
-        return ETHEREUM_NETWORK_ID;
-      case BlockchainType.Base:
-        return BASE_NETWORK_ID;
-      case BlockchainType.Mantle:
-        return MANTLE_NETWORK_ID;
-      case BlockchainType.Fantom:
-        return FANTOM_NETWORK_ID;
-      default:
-        return null;
-    }
   }
 }
