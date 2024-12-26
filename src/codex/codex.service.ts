@@ -11,7 +11,8 @@ export const NETWORK_IDS = {
   [BlockchainType.Base]: 8453,
   [BlockchainType.Fantom]: 250,
   [BlockchainType.Mantle]: 5000,
-  [BlockchainType.Blast]: 5615,
+  [BlockchainType.Blast]: 81457,
+  [BlockchainType.Linea]: 59144,
 };
 
 @Injectable()

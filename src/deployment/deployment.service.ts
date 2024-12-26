@@ -13,6 +13,7 @@ export enum BlockchainType {
   Base = 'base',
   Fantom = 'fantom',
   Mantle = 'mantle',
+  Linea = 'linea',
 }
 
 export enum ExchangeId {
@@ -24,6 +25,8 @@ export enum ExchangeId {
   FantomGraphene = 'fantom-graphene',
   MantleGraphene = 'mantle-graphene',
   MantleSupernova = 'mantle-supernova',
+  LineaXFai = 'linea-xfai',
+  BaseAlienBase = 'base-alienbase',
 }
 
 export interface GasToken {
@@ -51,6 +54,7 @@ export interface Deployment {
     explorerUrl: string;
     carbonWalletUrl: string;
     disabledEvents?: EventTypes[];
+    title: string;
     telegram: {
       botToken: string;
       threads: {
@@ -104,6 +108,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('ETHEREUM_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('ETHEREUM_CARBON_WALLET_URL'),
+          title: 'Ethereum',
           telegram: {
             botToken: this.configService.get('ETHEREUM_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -145,6 +150,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
+          title: 'Sei',
           telegram: {
             botToken: this.configService.get('SEI_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -186,6 +192,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
+          title: 'Celo',
           telegram: {
             botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -226,6 +233,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('BLAST_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('BLAST_CARBON_WALLET_URL'),
+          title: 'Blast',
           disabledEvents: [EventTypes.TokensTradedEvent],
           telegram: {
             botToken: this.configService.get('BLAST_TELEGRAM_BOT_TOKEN'),
@@ -267,6 +275,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('BASE_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('BASE_GRAPHENE_WALLET_URL'),
+          title: 'Graphene on Base',
           telegram: {
             botToken: this.configService.get('BASE_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -308,6 +317,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('FANTOM_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('FANTOM_GRAPHENE_WALLET_URL'),
+          title: 'Graphene on Fantom',
           telegram: {
             botToken: this.configService.get('FANTOM_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -349,6 +359,7 @@ export class DeploymentService {
         notifications: {
           explorerUrl: this.configService.get('MANTLE_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('MANTLE_GRAPHENE_WALLET_URL'),
+          title: 'Graphene on Mantle',
           telegram: {
             botToken: this.configService.get('MANTLE_TELEGRAM_BOT_TOKEN'),
             threads: {
@@ -383,13 +394,92 @@ export class DeploymentService {
         },
         notifications: {
           explorerUrl: this.configService.get('MANTLE_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('MANTLE_GRAPHENE_WALLET_URL'),
+          carbonWalletUrl: this.configService.get('MANTLE_SUPERNOVA_WALLET_URL'),
+          title: 'Supernova on Mantle',
           telegram: {
             botToken: this.configService.get('MANTLE_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('MANTLE_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('MANTLE_FASTLANE_THREAD_ID'),
               vortexId: this.configService.get('MANTLE_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.LineaXFai,
+        blockchainType: BlockchainType.Linea,
+        rpcEndpoint: this.configService.get('LINEA_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 5242975,
+        gasToken: {
+          name: 'ETH',
+          symbol: 'ETH',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0xe5D7C2a44FfDDf6b295A15c148167daaAf5Cf34f',
+        contracts: {
+          CarbonController: {
+            address: '0xdebc64044cd911b0cc90dcc94bf97f440eb5e503',
+          },
+          CarbonVoucher: {
+            address: '0x3dae488DcB2835c43E71557E7745b838Dc7e46DD',
+          },
+          BancorArbitrage: {
+            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          CarbonVortex: {
+            address: '0x5bCA3389786385a35bca14C2D0582adC6cb2482e',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('LINEA_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('LINEA_XFAI_WALLET_URL'),
+          disabledEvents: [EventTypes.TokensTradedEvent, EventTypes.StrategyCreatedEvent],
+          title: 'XFai on Linea',
+          telegram: {
+            botToken: this.configService.get('LINEA_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('LINEA_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('LINEA_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('LINEA_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.BaseAlienBase,
+        blockchainType: BlockchainType.Base,
+        rpcEndpoint: this.configService.get('BASE_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 20000,
+        harvestConcurrency: 10,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 18342064,
+        gasToken: {
+          name: 'Ether',
+          symbol: 'ETH',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        contracts: {
+          CarbonController: {
+            address: '0x0D6E297A73016b437CaAE65BFe32c59803B215D0',
+          },
+          CarbonVoucher: {
+            address: '0x2f3B0d35830B921FE7FcD08401C6CBBe29a72DC9',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('BASE_EXPLORER_URL'),
+          carbonWalletUrl: '',
+          title: 'AlienBase',
+          telegram: {
+            botToken: this.configService.get('BASE_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('BASE_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('BASE_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('BASE_VORTEX_THREAD_ID'),
             },
           },
         },

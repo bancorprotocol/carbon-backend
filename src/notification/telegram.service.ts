@@ -9,7 +9,7 @@ import { Token } from 'src/token/token.entity';
 import { EventTypes } from '../events/event-types';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
 import { QuoteService } from '../quote/quote.service';
-import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
+import { Deployment } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
 import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
@@ -82,19 +82,6 @@ export class TelegramService {
     return { message, threadId };
   }
 
-  private getExchangeName(deployment: Deployment): string {
-    let name = this.toPascalCase(deployment.exchangeId);
-
-    if (deployment.blockchainType === BlockchainType.Mantle) {
-      name = 'Mantle';
-    } else if (deployment.exchangeId === ExchangeId.BaseGraphene) {
-      name = 'Graphene on Base';
-    } else if (deployment.exchangeId === ExchangeId.FantomGraphene) {
-      name = 'Graphene on Fantom';
-    }
-    return name;
-  }
-
   private async formatArbitrageExecutedMessage(
     event: ArbitrageExecutedEvent,
     tokens: TokensByAddress,
@@ -126,7 +113,7 @@ Caller amount: ${await this.formatAmount(event.rewardAmounts[i], token, usdRate)
       }
     }
 
-    return `<b>Arb Fast Lane - ${this.getExchangeName(deployment)}</b>
+    return `<b>Arb Fast Lane - ${deployment.blockchainType}</b>
 
 ${tokenMessages}
 
@@ -148,7 +135,7 @@ ${tokenMessages}
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
-    return `<b>New Strategy Created - ${this.getExchangeName(deployment)}</b>
+    return `<b>New Strategy Created - ${deployment.notifications.title}</b>
     
 Base token: ${token0.symbol}
 Quote token: ${token1.symbol}
@@ -183,7 +170,7 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
       ? this.amountUSD(event.targetAmount, 1, targetUsdRate.toString(), targetToken)
       : 'N/A';
 
-    return `<b>Strategies Filled - ${this.getExchangeName(deployment)}</b>
+    return `<b>Strategies Filled - ${deployment.notifications.title}</b>
     
 From: 
 ${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
