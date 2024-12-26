@@ -212,10 +212,11 @@ export class DeploymentService {
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
         startBlock: 6257000,
         gasToken: {
-          name: 'Blast',
-          symbol: 'BLAST',
+          name: 'Ether',
+          symbol: 'ETH',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        nativeTokenAlias: '0x4300000000000000000000000000000000000004',
         contracts: {
           CarbonController: {
             address: '0xfBF49e30Ed1b610E24148c23D32eD5f3F2fC5Dba',
@@ -258,6 +259,7 @@ export class DeploymentService {
           symbol: 'ETH',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        nativeTokenAlias: '0x4200000000000000000000000000000000000006',
         contracts: {
           CarbonController: {
             address: '0xfbf069dbbf453c1ab23042083cfa980b3a672bba',
@@ -462,6 +464,7 @@ export class DeploymentService {
           symbol: 'ETH',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        nativeTokenAlias: '0x4200000000000000000000000000000000000006',
         contracts: {
           CarbonController: {
             address: '0x0D6E297A73016b437CaAE65BFe32c59803B215D0',
