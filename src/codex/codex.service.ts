@@ -55,7 +55,7 @@ export class CodexService {
       }
     });
 
-    if (deployment.nativeTokenAlias) {
+    if (deployment.nativeTokenAlias && result[deployment.nativeTokenAlias.toLowerCase()]) {
       result[NATIVE_TOKEN.toLowerCase()] = {
         address: NATIVE_TOKEN.toLowerCase(),
         usd: result[deployment.nativeTokenAlias.toLowerCase()].usd,
