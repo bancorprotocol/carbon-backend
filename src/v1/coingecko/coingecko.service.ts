@@ -28,8 +28,7 @@ export class CoingeckoService {
   }
 
   private async getTickers(deployment: Deployment): Promise<any> {
-    const query = `
-      with created_pairs as (
+    const query = `with created_pairs as (
           Select token0, token1, 
           CAST(token0 as varchar) || '_' || CAST(token1 as varchar) as native_pair,
           LEAST(CAST(token0 as varchar), CAST(token1 as varchar)) || '_' || GREATEST(CAST(token0 as varchar), CAST(token1 as varchar)) AS pair_alpha
@@ -43,8 +42,8 @@ export class CoingeckoService {
           CASE WHEN s."sourceAmount"::double precision = 0 THEN 0 ELSE (s."targetAmount"::double precision/pow(10,t1.decimals)) / (s."sourceAmount"::double precision/pow(10,t0.decimals)) END as rate,
           LEAST(CAST(t0.address as varchar), CAST(t1.address as varchar)) || '_' || GREATEST(CAST(t0.address as varchar), CAST(t1.address as varchar)) AS pair_alpha
           from "tokens-traded-events" s
-          left join tokens t0 on t0.id = s."sourceTokenId"
-          left join tokens t1 on t1.id = s."targetTokenId"
+          left join tokens t0 on t0.id = s."sourceTokenId" and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on t1.id = s."targetTokenId" and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
           where s."blockchainType" = '${deployment.blockchainType}' and s."exchangeId" = '${deployment.exchangeId}'
       ),
       carbon_trades_24h as (
@@ -108,8 +107,8 @@ export class CoingeckoService {
                   token1 as target_currency, t1.symbol as quote_symbol, token1_vol as target_volume,
                   last_price
           from aggregated a
-          left join tokens t0 on t0.address = a.token0
-          left join tokens t1 on t1.address = a.token1
+          left join tokens t0 on t0.address = a.token0 and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on t1.address = a.token1 and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
           order by target_volume
       ),
       trade_data as (
@@ -134,8 +133,8 @@ export class CoingeckoService {
           p."token0Id", t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0, 
           p."token1Id", t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1
           from "pairs" p
-          left join tokens t0 on t0.id = p."token0Id"
-          left join tokens t1 on t1.id = p."token1Id"
+          left join tokens t0 on t0.id = p."token0Id" and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on t1.id = p."token1Id" and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
           where p."blockchainType" = '${deployment.blockchainType}' and p."exchangeId" = '${deployment.exchangeId}'
       ),
       raw_strategies as (
@@ -153,8 +152,8 @@ export class CoingeckoService {
               s."token0Id", t0.address as token0, t0.decimals as decimals0, 
               s."token1Id", t1.address as token1, t1.decimals as decimals1
           from "strategies" s
-          left join tokens t0 on t0.id = s."token0Id"
-          left join tokens t1 on t1.id = s."token1Id"
+          left join tokens t0 on t0.id = s."token0Id" and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on t1.id = s."token1Id" and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
           where s."blockchainType" = '${deployment.blockchainType}' and s."exchangeId" = '${deployment.exchangeId}'
       ),
       order_flipping as (
@@ -247,10 +246,10 @@ export class CoingeckoService {
           volume1_min2perc/POW(10,t1.decimals) as volume1_min2perc_real,
           volume1_min2perc/POW(10,t1.decimals) * q1.usd::double precision as volume1_min2perc_usd
           from add_volume_per_order p
-          left join tokens t0 on t0.address = p.token0
-          left join tokens t1 on t1.address = p.token1
-          left join quotes q0 on q0."tokenId" = t0."id"
-          left join quotes q1 on q1."tokenId" = t1."id"
+          left join tokens t0 on t0.address = p.token0 and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on t1.address = p.token1 and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
+          left join quotes q0 on q0."tokenId" = t0."id" and q0."blockchainType" = '${deployment.blockchainType}'
+          left join quotes q1 on q1."tokenId" = t1."id" and q1."blockchainType" = '${deployment.blockchainType}'
       ),
       plus2_min2s as (
           select native_pair, sum(volume0_min2perc_real) as volume0_min2perc_tkn, sum(volume1_min2perc_real) as volume1_min2perc_tkn, sum(volume0_min2perc_usd) as volume0_min2perc_usd, sum(volume1_min2perc_usd) as volume1_min2perc_usd
@@ -282,7 +281,7 @@ export class CoingeckoService {
       left join rate0s r0 on r0.native_pair = t.ticker_id
       left join rate1s r1 on r1.native_pair = t.ticker_id
       left join plus2_min2s pl on pl.native_pair = t.ticker_id
-    `;
+`;
 
     const result = await this.strategy.query(query);
     result.forEach((r) => {
