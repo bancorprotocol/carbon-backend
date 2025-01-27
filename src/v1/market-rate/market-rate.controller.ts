@@ -44,10 +44,11 @@ export class MarketRateController {
     // check if we already have a quote for this token
     if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
       const existingQuotes = await this.quoteService.findQuotes(deployment.blockchainType, [address]);
-      if (existingQuotes[address]) {
+      const existingQuote = existingQuotes[address] || existingQuotes[address.toLowerCase()];
+      if (existingQuote) {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        if (new Date(existingQuotes[address].updatedAt) > fiveMinutesAgo) {
-          return { data: { USD: parseFloat(existingQuotes[address].usd) }, provider: existingQuotes[address].provider };
+        if (new Date(existingQuote.updatedAt) > fiveMinutesAgo) {
+          return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
         }
       }
     }
