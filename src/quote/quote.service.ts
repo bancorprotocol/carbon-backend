@@ -1,6 +1,6 @@
 import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { Quote } from './quote.entity';
 import { TokenService } from '../token/token.service';
 import { CoinGeckoService } from './coingecko.service';
@@ -115,6 +115,13 @@ export class QuoteService implements OnModuleInit {
     const all = await this.quoteRepository.find({ where: { blockchainType: deployment.blockchainType } });
     const tokensByAddress = {};
     all.forEach((q) => (tokensByAddress[q.token.address] = q));
+    return tokensByAddress;
+  }
+
+  async findQuotes(blockchainType: BlockchainType, addresses: string[]): Promise<QuotesByAddress> {
+    const result = await this.quoteRepository.find({ where: { blockchainType, token: { address: In(addresses) } } });
+    const tokensByAddress = {};
+    result.forEach((q) => (tokensByAddress[q.token.address] = q));
     return tokensByAddress;
   }
 

@@ -7,6 +7,7 @@ import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.dec
 import { CodexService } from '../../codex/codex.service';
 import { CoinGeckoService } from '../../quote/coingecko.service';
 import { BlockchainProviderConfig } from '../../historic-quote/historic-quote.service';
+import { QuoteService } from '../../quote/quote.service';
 
 @Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
@@ -28,6 +29,7 @@ export class MarketRateController {
     private deploymentService: DeploymentService,
     private codexService: CodexService,
     private coinGeckoService: CoinGeckoService,
+    private quoteService: QuoteService,
   ) {}
 
   @Get('')
@@ -38,6 +40,17 @@ export class MarketRateController {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { address, convert } = params;
     const currencies = convert.split(',');
+
+    // check if we already have a quote for this token
+    if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
+      const existingQuotes = await this.quoteService.findQuotes(deployment.blockchainType, [address]);
+      if (existingQuotes[address]) {
+        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+        if (new Date(existingQuotes[address].updatedAt) > fiveMinutesAgo) {
+          return { data: { USD: existingQuotes[address].usd }, provider: existingQuotes[address].provider };
+        }
+      }
+    }
 
     const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
 
