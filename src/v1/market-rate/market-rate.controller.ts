@@ -47,7 +47,7 @@ export class MarketRateController {
       if (existingQuotes[address]) {
         const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
         if (new Date(existingQuotes[address].updatedAt) > fiveMinutesAgo) {
-          return { data: { USD: existingQuotes[address].usd }, provider: existingQuotes[address].provider };
+          return { data: { USD: parseFloat(existingQuotes[address].usd) }, provider: existingQuotes[address].provider };
         }
       }
     }
