@@ -31,7 +31,7 @@ export class ActivityService {
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
 
-    const BATCH_SIZE = 1000000;
+    const BATCH_SIZE = 500000;
 
     // Process blocks in batches
     for (let batchStart = startBlock; batchStart < endBlock; batchStart += BATCH_SIZE) {
@@ -112,9 +112,9 @@ export class ActivityService {
           FROM
             all_states_marked
           WHERE
-            "blockId" > ${startBlock}
+            "blockId" > ${batchStart}
             AND
-            "blockId" < ${endBlock}
+            "blockId" < ${batchEnd}
         ),
         -- For each strategy that needs updating we can get the prior state AND insert that into the original flow
         prior_strategyupdated AS (
@@ -123,7 +123,7 @@ export class ActivityService {
           FROM
             "strategy-updated-events"
           WHERE
-            "blockId" < ${startBlock}
+            "blockId" < ${batchStart}
             AND "blockchainType" = '${deployment.blockchainType}'
             AND "exchangeId" = '${deployment.exchangeId}'
           ORDER BY
@@ -186,7 +186,7 @@ export class ActivityService {
               FROM
                 "strategy-updated-events"
               WHERE
-                "blockId" < ${startBlock}
+                "blockId" < ${batchStart}
                 AND "blockchainType" = '${deployment.blockchainType}'
                 AND "exchangeId" = '${deployment.exchangeId}'
             )
@@ -216,9 +216,9 @@ export class ActivityService {
             LEFT JOIN tokens t0 ON t0.id = s."token0Id"
             LEFT JOIN tokens t1 ON t1.id = s."token1Id"
           WHERE
-            "blockId" > ${startBlock}
+            "blockId" > ${batchStart}
             AND
-            "blockId" < ${endBlock}
+            "blockId" < ${batchEnd}
             AND s."blockchainType" = '${deployment.blockchainType}'
             AND s."exchangeId" = '${deployment.exchangeId}'
         ),
@@ -244,9 +244,9 @@ export class ActivityService {
             LEFT JOIN tokens t0 ON t0.id = s."token0Id"
             LEFT JOIN tokens t1 ON t1.id = s."token1Id"
           WHERE
-            "blockId" > ${startBlock}
+            "blockId" > ${batchStart}
             AND
-            "blockId" < ${endBlock}
+            "blockId" < ${batchEnd}
             AND s."blockchainType" = '${deployment.blockchainType}'
             AND s."exchangeId" = '${deployment.exchangeId}'
         ),
@@ -272,9 +272,9 @@ export class ActivityService {
             LEFT JOIN tokens t0 ON t0.id = s."token0Id"
             LEFT JOIN tokens t1 ON t1.id = s."token1Id"
           WHERE
-            "blockId" > ${startBlock}
+            "blockId" > ${batchStart}
             AND
-            "blockId" < ${endBlock}
+            "blockId" < ${batchEnd}
             AND s."blockchainType" = '${deployment.blockchainType}'
             AND s."exchangeId" = '${deployment.exchangeId}'
         ),
