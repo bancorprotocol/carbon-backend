@@ -22,3 +22,5 @@ export function convertKeysToCamelCase(obj) {
   }
   return obj; // If it's neither an array nor an object, return the value directly
 }
+
+export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

@@ -20,6 +20,7 @@ import { TokensByAddress } from '../token/token.service';
 import { BigNumber } from '@ethersproject/bignumber';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { ConfigService } from '@nestjs/config';
+import { sleep } from '../utilities';
 
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
@@ -196,7 +197,7 @@ export class HarvesterService {
   }
 
   async processEvents(args: ProcessEventsArgs): Promise<any[]> {
-    const { deployment } = args; // Extract deployment from args
+    const { deployment } = args;
     const key = `${deployment.blockchainType}-${deployment.exchangeId}-${args.entity}`;
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
     const result = [];
@@ -204,6 +205,9 @@ export class HarvesterService {
     if (args.skipPreClearing !== true) {
       await this.preClear(args.repository, lastProcessedBlock, deployment);
     }
+
+    const limit = (await import('p-limit')).default;
+    const concurrencyLimit = limit(deployment.harvestConcurrency);
 
     for (
       let rangeStart = lastProcessedBlock + 1;
@@ -222,7 +226,7 @@ export class HarvesterService {
         rangeEnd,
         args.contractAddress,
         deployment,
-      ); // Pass deployment
+      );
 
       if (events.length > 0) {
         let blocksDictionary: BlocksDictionary;
@@ -234,16 +238,13 @@ export class HarvesterService {
 
         const newEvents = await Promise.all(
           events.map(async (e) => {
-            if (e.transactionHash === '0x4274ad534b26c72588faae1331dac752e7f4facf0fff9333a4b9964b751331a1') {
-              console.log(rangeStart, rangeEnd);
-            }
             let newEvent = args.repository.create({
               block: { id: Number(e.blockNumber) },
               transactionIndex: Number(e.transactionIndex),
               transactionHash: e.transactionHash,
               logIndex: Number(e.logIndex),
-              blockchainType: deployment.blockchainType, // Include blockchainType
-              exchangeId: deployment.exchangeId, // Include exchangeId
+              blockchainType: deployment.blockchainType,
+              exchangeId: deployment.exchangeId,
             });
 
             if (args.constants) {
@@ -301,9 +302,13 @@ export class HarvesterService {
             }
 
             if (args.fetchCallerId) {
-              const web3 = new Web3(deployment.rpcEndpoint);
-              const transaction = await web3.eth.getTransaction(e.transactionHash);
-              newEvent['callerId'] = transaction.from;
+              await concurrencyLimit(async () => {
+                const web3 = new Web3(deployment.rpcEndpoint);
+                const transaction = await web3.eth.getTransaction(e.transactionHash);
+                newEvent['callerId'] = transaction.from;
+
+                await sleep(deployment.harvestSleep || 0);
+              });
             }
 
             if (args.customFns) {
