@@ -17,8 +17,7 @@ export class ActivityService {
   ) {}
 
   private getActivityQuery(batchStart: number, batchEnd: number, deployment: Deployment): string {
-    return `
-      WITH selector_created AS (
+    return `WITH selector_created AS (
         SELECT
           "strategyId",
           "blockId",
@@ -85,15 +84,13 @@ export class ActivityService {
         ORDER BY
           "strategyId", "blockId" DESC, "logIndex" DESC
       ),
-      recently_updated_strategies AS (
+      recently_updated_strategies AS ( 
         SELECT
           *
         FROM
           all_states_marked
         WHERE
           "blockId" > ${batchStart}
-          AND
-          "blockId" < ${batchEnd}
       ),
       -- For each strategy that needs updating we can get the prior state AND insert that into the original flow
       prior_strategyupdated AS (
@@ -195,7 +192,7 @@ export class ActivityService {
           LEFT JOIN tokens t0 ON t0.id = s."token0Id"
           LEFT JOIN tokens t1 ON t1.id = s."token1Id"
         WHERE
-          "blockId" > ${batchStart}
+          "blockId" >= ${batchStart}
           AND
           "blockId" < ${batchEnd}
           AND s."blockchainType" = '${deployment.blockchainType}'
@@ -223,7 +220,7 @@ export class ActivityService {
           LEFT JOIN tokens t0 ON t0.id = s."token0Id"
           LEFT JOIN tokens t1 ON t1.id = s."token1Id"
         WHERE
-          "blockId" > ${batchStart}
+          "blockId" >= ${batchStart}
           AND
           "blockId" < ${batchEnd}
           AND s."blockchainType" = '${deployment.blockchainType}'
@@ -251,7 +248,7 @@ export class ActivityService {
           LEFT JOIN tokens t0 ON t0.id = s."token0Id"
           LEFT JOIN tokens t1 ON t1.id = s."token1Id"
         WHERE
-          "blockId" > ${batchStart}
+          "blockId" >= ${batchStart}
           AND
           "blockId" < ${batchEnd}
           AND s."blockchainType" = '${deployment.blockchainType}'
@@ -1083,8 +1080,8 @@ export class ActivityService {
       ORDER BY
         block_number,
         sorting_order,
-        id;      
-    `;
+        id;
+  `;
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
