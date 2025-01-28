@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import * as _ from 'lodash';
 import Web3 from 'web3';
 import { Deployment } from '../deployment/deployment.service';
+import { sleep } from '../utilities';
 
 export interface BlocksDictionary {
   [id: number]: Date;
@@ -37,9 +38,7 @@ export class BlockService {
   private async fetchAndStore(blocks: Array<number>, deployment: Deployment): Promise<void> {
     const batches = _.chunk(blocks, 100);
     const limit = (await import('p-limit')).default;
-    const concurrencyLimit = limit(deployment.blockchainType === 'sei-network' ? 1 : 10);
-
-    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const concurrencyLimit = limit(deployment.harvestConcurrency);
 
     for (let i = 0; i < batches.length; i++) {
       const newBlocks = [];
@@ -56,9 +55,7 @@ export class BlockService {
               });
               newBlocks.push(newBlock);
 
-              if (deployment.blockchainType === 'sei-network') {
-                await sleep(1000); // Wait 1 second between requests for sei-network
-              }
+              await sleep(deployment.harvestSleep || 0);
             } catch (error) {
               console.log('error detected:', error);
             }
