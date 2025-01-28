@@ -36,29 +36,36 @@ export class BlockService {
 
   private async fetchAndStore(blocks: Array<number>, deployment: Deployment): Promise<void> {
     const batches = _.chunk(blocks, 100);
+    const limit = (await import('p-limit')).default;
+    const concurrencyLimit = limit(deployment.blockchainType === 'sei-network' ? 1 : 10);
+
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
     for (let i = 0; i < batches.length; i++) {
-      const promises = [];
       const newBlocks = [];
 
-      for (let x = 0; x < batches[i].length; x++) {
-        const promise = new Promise(async (resolve) => {
-          try {
-            const blockchainData = await this.getBlockchainData(batches[i][x], deployment);
-            const newBlock = this.block.create({
-              id: Number(blockchainData.number),
-              timestamp: new Date(parseInt(blockchainData.timestamp) * 1000),
-              blockchainType: deployment.blockchainType,
-            });
-            newBlocks.push(newBlock);
-          } catch (error) {
-            console.log('error detected:', error);
-          }
-          resolve(true);
-        });
-        promises.push(promise);
-      }
-      await Promise.all(promises);
+      await Promise.all(
+        batches[i].map((blockNumber) =>
+          concurrencyLimit(async () => {
+            try {
+              const blockchainData = await this.getBlockchainData(blockNumber, deployment);
+              const newBlock = this.block.create({
+                id: Number(blockchainData.number),
+                timestamp: new Date(parseInt(blockchainData.timestamp) * 1000),
+                blockchainType: deployment.blockchainType,
+              });
+              newBlocks.push(newBlock);
+
+              if (deployment.blockchainType === 'sei-network') {
+                await sleep(1000); // Wait 1 second between requests for sei-network
+              }
+            } catch (error) {
+              console.log('error detected:', error);
+            }
+          }),
+        ),
+      );
+
       await this.block.save(newBlocks);
     }
   }
