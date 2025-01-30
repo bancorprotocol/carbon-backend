@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import * as _ from 'lodash';
 import Web3 from 'web3';
 import { Deployment } from '../deployment/deployment.service';
+import { sleep } from '../utilities';
 
 export interface BlocksDictionary {
   [id: number]: Date;
@@ -36,29 +37,32 @@ export class BlockService {
 
   private async fetchAndStore(blocks: Array<number>, deployment: Deployment): Promise<void> {
     const batches = _.chunk(blocks, 100);
+    const limit = (await import('p-limit')).default;
+    const concurrencyLimit = limit(deployment.harvestConcurrency);
 
     for (let i = 0; i < batches.length; i++) {
-      const promises = [];
       const newBlocks = [];
 
-      for (let x = 0; x < batches[i].length; x++) {
-        const promise = new Promise(async (resolve) => {
-          try {
-            const blockchainData = await this.getBlockchainData(batches[i][x], deployment);
-            const newBlock = this.block.create({
-              id: Number(blockchainData.number),
-              timestamp: new Date(parseInt(blockchainData.timestamp) * 1000),
-              blockchainType: deployment.blockchainType,
-            });
-            newBlocks.push(newBlock);
-          } catch (error) {
-            console.log('error detected:', error);
-          }
-          resolve(true);
-        });
-        promises.push(promise);
-      }
-      await Promise.all(promises);
+      await Promise.all(
+        batches[i].map((blockNumber) =>
+          concurrencyLimit(async () => {
+            try {
+              const blockchainData = await this.getBlockchainData(blockNumber, deployment);
+              const newBlock = this.block.create({
+                id: Number(blockchainData.number),
+                timestamp: new Date(parseInt(blockchainData.timestamp) * 1000),
+                blockchainType: deployment.blockchainType,
+              });
+              newBlocks.push(newBlock);
+
+              await sleep(deployment.harvestSleep || 0);
+            } catch (error) {
+              console.log('error detected:', error);
+            }
+          }),
+        ),
+      );
+
       await this.block.save(newBlocks);
     }
   }
