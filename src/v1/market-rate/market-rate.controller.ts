@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { MarketRateDto } from './market-rate.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
@@ -41,15 +41,11 @@ export class MarketRateController {
     const { address, convert } = params;
     const currencies = convert.split(',');
 
-    // check if we already have a quote for this token
+    // check if we currencies requested are the same as the ones we already have
     if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
-      const existingQuotes = await this.quoteService.findQuotes(deployment.blockchainType, [address]);
-      const existingQuote = existingQuotes[address] || existingQuotes[address.toLowerCase()];
+      const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
       if (existingQuote) {
-        const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-        if (new Date(existingQuote.updatedAt) > fiveMinutesAgo) {
-          return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
-        }
+        return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
       }
     }
 
@@ -85,7 +81,11 @@ export class MarketRateController {
     }
 
     if (!data || Object.keys(data).length === 0) {
-      throw new Error(`No price data available for token: ${address}`);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Unsupported token address',
+      });
     }
 
     const result = {
