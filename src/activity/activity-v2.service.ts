@@ -17,6 +17,7 @@ import { VoucherTransferEventService } from '../events/voucher-transfer-event/vo
 import { StrategyState } from './activity.types';
 import { parseOrder, processOrder } from './activity.utils';
 import { TokensByAddress } from '../token/token.service';
+import { Decimal } from 'decimal.js';
 
 @Injectable()
 export class ActivityV2Service {
@@ -391,19 +392,20 @@ export class ActivityV2Service {
 
     const order0 = parseOrder(event.order0);
     const order1 = parseOrder(event.order1);
-    const processed0 = processOrder(order0, token0.decimals);
-    const processed1 = processOrder(order1, token1.decimals);
+    const processed0 = processOrder(order0, new Decimal(token0.decimals));
+    const processed1 = processOrder(order1, new Decimal(token1.decimals));
 
     // Get previous state for delta calculations
     const previousState = this.strategyStates.get(event.strategyId);
     let prevProcessed0, prevProcessed1;
 
     if (previousState) {
-      prevProcessed0 = processOrder(parseOrder(previousState.order0), previousState.token0.decimals);
-      prevProcessed1 = processOrder(parseOrder(previousState.order1), previousState.token1.decimals);
+      prevProcessed0 = processOrder(parseOrder(previousState.order0), new Decimal(token0.decimals));
+      prevProcessed1 = processOrder(parseOrder(previousState.order1), new Decimal(token1.decimals));
     }
 
-    const priceScaleFactor = Math.pow(10, token1.decimals - token0.decimals);
+    const sellPriceScaleFactor = new Decimal(10).pow(new Decimal(token1.decimals).minus(token0.decimals));
+    const buyPriceScaleFactor = new Decimal(10).pow(new Decimal(token0.decimals).minus(token1.decimals));
 
     const activity = new ActivityV2();
     activity.blockchainType = deployment.blockchainType;
@@ -422,15 +424,15 @@ export class ActivityV2Service {
     activity.buyBudget = processed1.yNormalized.toString();
     activity.sellBudget = processed0.yNormalized.toString();
 
-    // Price information for token0 -> token1
-    activity.sellPriceA = (processed0.priceA * priceScaleFactor).toString();
-    activity.sellPriceMarg = (processed0.priceMarg * priceScaleFactor).toString();
-    activity.sellPriceB = (processed0.priceB * priceScaleFactor).toString();
+    // Price information for token0 -> token1 (sell prices)
+    activity.sellPriceA = processed0.sellPriceA.mul(sellPriceScaleFactor).toString();
+    activity.sellPriceMarg = processed0.sellPriceMarg.mul(sellPriceScaleFactor).toString();
+    activity.sellPriceB = processed0.sellPriceB.mul(sellPriceScaleFactor).toString();
 
-    // Price information for token1 -> token0
-    activity.buyPriceA = (processed1.priceA / priceScaleFactor).toString();
-    activity.buyPriceMarg = (processed1.priceMarg / priceScaleFactor).toString();
-    activity.buyPriceB = (processed1.priceB / priceScaleFactor).toString();
+    // Price information for token1 -> token0 (buy prices)
+    activity.buyPriceA = processed1.buyPriceA.mul(buyPriceScaleFactor).toString();
+    activity.buyPriceMarg = processed1.buyPriceMarg.mul(buyPriceScaleFactor).toString();
+    activity.buyPriceB = processed1.buyPriceB.mul(buyPriceScaleFactor).toString();
 
     // Transaction information
     activity.timestamp = event.timestamp;
@@ -458,26 +460,44 @@ export class ActivityV2Service {
 
     // Calculate and assign budget changes
     if (previousState) {
-      activity.buyBudgetChange = (processed1.yNormalized - prevProcessed1.yNormalized).toString();
-      activity.sellBudgetChange = (processed0.yNormalized - prevProcessed0.yNormalized).toString();
+      activity.buyBudgetChange = processed1.yNormalized.minus(prevProcessed1.yNormalized).toString();
+      activity.sellBudgetChange = processed0.yNormalized.minus(prevProcessed0.yNormalized).toString();
 
       // Calculate price deltas
-      activity.buyPriceADelta = (processed1.priceA - prevProcessed1.priceA).toString();
-      activity.buyPriceMargDelta = (processed1.priceMarg - prevProcessed1.priceMarg).toString();
-      activity.buyPriceBDelta = (processed1.priceB - prevProcessed1.priceB).toString();
+      activity.buyPriceADelta = processed1.buyPriceA
+        .minus(prevProcessed1.buyPriceA)
+        .mul(buyPriceScaleFactor)
+        .toString();
+      activity.buyPriceMargDelta = processed1.buyPriceMarg
+        .minus(prevProcessed1.buyPriceMarg)
+        .mul(buyPriceScaleFactor)
+        .toString();
+      activity.buyPriceBDelta = processed1.buyPriceB
+        .minus(prevProcessed1.buyPriceB)
+        .mul(buyPriceScaleFactor)
+        .toString();
 
-      activity.sellPriceADelta = (processed0.priceA - prevProcessed0.priceA).toString();
-      activity.sellPriceMargDelta = (processed0.priceMarg - prevProcessed0.priceMarg).toString();
-      activity.sellPriceBDelta = (processed0.priceB - prevProcessed0.priceB).toString();
+      activity.sellPriceADelta = processed0.sellPriceA
+        .minus(prevProcessed0.sellPriceA)
+        .mul(sellPriceScaleFactor)
+        .toString();
+      activity.sellPriceMargDelta = processed0.sellPriceMarg
+        .minus(prevProcessed0.sellPriceMarg)
+        .mul(sellPriceScaleFactor)
+        .toString();
+      activity.sellPriceBDelta = processed0.sellPriceB
+        .minus(prevProcessed0.sellPriceB)
+        .mul(sellPriceScaleFactor)
+        .toString();
 
       // Calculate trade-related fields if applicable
       if (event instanceof StrategyUpdatedEvent && event.reason === 1) {
-        const y0Delta = processed0.yNormalized - prevProcessed0.yNormalized;
-        const y1Delta = processed1.yNormalized - prevProcessed1.yNormalized;
+        const y0Delta = processed0.yNormalized.minus(prevProcessed0.yNormalized);
+        const y1Delta = processed1.yNormalized.minus(prevProcessed1.yNormalized);
 
-        if (y0Delta < 0 && y1Delta > 0) {
+        if (y0Delta.isNegative() && y1Delta.isPositive()) {
           activity.action = 'sell_high'; // Sold token0, bought token1
-        } else if (y1Delta < 0 && y0Delta > 0) {
+        } else if (y1Delta.isNegative() && y0Delta.isPositive()) {
           activity.action = 'buy_low'; // Sold token1, bought token0
         }
       }
@@ -492,39 +512,65 @@ export class ActivityV2Service {
     const newOrder0 = parseOrder(event.order0);
     const newOrder1 = parseOrder(event.order1);
 
-    const y0Delta = newOrder0.y - prevOrder0.y;
-    const y1Delta = newOrder1.y - prevOrder1.y;
+    // Calculate raw deltas from orders
+    const y0Delta = newOrder0.y.minus(prevOrder0.y);
+    const y1Delta = newOrder1.y.minus(prevOrder1.y);
+    const A0Delta = newOrder0.A.minus(prevOrder0.A);
+    const A1Delta = newOrder1.A.minus(prevOrder1.A);
+    const B0Delta = newOrder0.B.minus(prevOrder0.B);
+    const B1Delta = newOrder1.B.minus(prevOrder1.B);
 
-    const hasPriceChange =
-      newOrder0.A !== prevOrder0.A ||
-      newOrder0.B !== prevOrder0.B ||
-      newOrder1.A !== prevOrder1.A ||
-      newOrder1.B !== prevOrder1.B;
+    // Define threshold for significant price changes (as used in the SQL query)
+    const threshold = new Decimal(0);
+    const significantPriceChange =
+      A0Delta.abs().gt(threshold) ||
+      A1Delta.abs().gt(threshold) ||
+      B0Delta.abs().gt(threshold) ||
+      B1Delta.abs().gt(threshold);
 
-    if (!hasPriceChange) {
-      if (y0Delta > 0 && y1Delta === 0) return 'deposit';
-      if (y0Delta === 0 && y1Delta > 0) return 'deposit';
-      if (y0Delta < 0 && y1Delta === 0) return 'withdraw';
-      if (y0Delta === 0 && y1Delta < 0) return 'withdraw';
-      if (y0Delta > 0 && y1Delta > 0) return 'edit_deposit';
-      if (y0Delta < 0 && y1Delta < 0) return 'edit_withdraw';
-      if ((y0Delta > 0 && y1Delta < 0) || (y0Delta < 0 && y1Delta > 0)) return 'edit_deposit_withdraw';
-    }
-
-    if (hasPriceChange) {
-      if (y0Delta === 0 && y1Delta === 0) {
-        const isZeroPrices =
-          newOrder0.A === BigInt(0) &&
-          newOrder0.B === BigInt(0) &&
-          newOrder1.A === BigInt(0) &&
-          newOrder1.B === BigInt(0);
-
-        return isZeroPrices ? 'strategy_paused' : 'edit_price';
+    if (event.reason === 0) {
+      // Case 1: Significant price change with deposit-like conditions:
+      // Either token0 increases while token1 remains unchanged, token1 increases while token0 is unchanged,
+      // or both tokens register a deposit.
+      if (
+        significantPriceChange &&
+        ((y0Delta.gt(0) && y1Delta.eq(0)) || (y0Delta.eq(0) && y1Delta.gt(0)) || (y0Delta.gt(0) && y1Delta.gt(0)))
+      ) {
+        return 'edit_deposit';
       }
+
+      // Case 2: Significant price change with withdraw-like conditions:
+      // Either token0 decreases while token1 remains unchanged, token1 decreases with token0 unchanged,
+      // or both tokens decrease.
+      if (
+        significantPriceChange &&
+        ((y0Delta.lt(0) && y1Delta.eq(0)) || (y0Delta.eq(0) && y1Delta.lt(0)) || (y0Delta.lt(0) && y1Delta.lt(0)))
+      ) {
+        return 'edit_withdraw';
+      }
+
+      // Case 3: Significant price change and any nonzero y delta (catching opposite-sign changes)
+      if (significantPriceChange && (!y0Delta.eq(0) || !y1Delta.eq(0))) {
+        return 'edit_deposit_withdraw';
+      }
+
+      // Case 4: Significant price change (with no y delta)
+      if (significantPriceChange) {
+        return 'edit_price';
+      }
+
+      // Case 5: No significant price change but deposit/withdraw activities
+      if (y0Delta.gt(0)) return 'Deposited TKN0';
+      if (y1Delta.gt(0)) return 'Deposited TKN1';
+      if (y0Delta.lt(0)) return 'Withdrew TKN0';
+      if (y1Delta.lt(0)) return 'Withdrew TKN1';
+
+      // Fallback: if no conditions met
+      return 'edit_price';
+    } else {
+      // For non-zero reasons (e.g. trade events with reason = 1) default to 'edit_price'.
       return 'edit_price';
     }
-
-    return 'edit_price';
   }
 
   private createTransferActivity(
@@ -554,22 +600,23 @@ export class ActivityV2Service {
     // Process current orders
     const order0 = parseOrder(state.order0);
     const order1 = parseOrder(state.order1);
-    const processed0 = processOrder(order0, state.token0.decimals);
-    const processed1 = processOrder(order1, state.token1.decimals);
+    const processed0 = processOrder(order0, new Decimal(state.token0.decimals));
+    const processed1 = processOrder(order1, new Decimal(state.token1.decimals));
 
     // Budget information
     activity.buyBudget = processed1.yNormalized.toString();
     activity.sellBudget = processed0.yNormalized.toString();
 
-    const priceScaleFactor = Math.pow(10, state.token1.decimals - state.token0.decimals);
+    const sellPriceScaleFactor = new Decimal(10).pow(new Decimal(state.token1.decimals).minus(state.token0.decimals));
+    const buyPriceScaleFactor = new Decimal(10).pow(new Decimal(state.token0.decimals).minus(state.token1.decimals));
 
     // Price information
-    activity.sellPriceA = (processed0.priceA * priceScaleFactor).toString();
-    activity.sellPriceMarg = (processed0.priceMarg * priceScaleFactor).toString();
-    activity.sellPriceB = (processed0.priceB * priceScaleFactor).toString();
-    activity.buyPriceA = (processed1.priceA / priceScaleFactor).toString();
-    activity.buyPriceMarg = (processed1.priceMarg / priceScaleFactor).toString();
-    activity.buyPriceB = (processed1.priceB / priceScaleFactor).toString();
+    activity.sellPriceA = processed0.sellPriceA.mul(sellPriceScaleFactor).toString();
+    activity.sellPriceMarg = processed0.sellPriceMarg.mul(sellPriceScaleFactor).toString();
+    activity.sellPriceB = processed0.sellPriceB.mul(sellPriceScaleFactor).toString();
+    activity.buyPriceA = processed1.buyPriceA.mul(buyPriceScaleFactor).toString();
+    activity.buyPriceMarg = processed1.buyPriceMarg.mul(buyPriceScaleFactor).toString();
+    activity.buyPriceB = processed1.buyPriceB.mul(buyPriceScaleFactor).toString();
 
     // Transfer specific information
     activity.oldOwner = event.from;

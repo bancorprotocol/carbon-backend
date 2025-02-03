@@ -1,4 +1,5 @@
 import { Token } from '../token/token.entity';
+import { Decimal } from 'decimal.js';
 
 export interface StrategyState {
   currentOwner: string;
@@ -11,20 +12,23 @@ export interface StrategyState {
 }
 
 export interface OrderData {
-  y: number;
-  z: number;
-  A: bigint;
-  B: bigint;
+  y: Decimal;
+  z: Decimal;
+  A: Decimal;
+  B: Decimal;
 }
 
 export interface ProcessedOrder {
-  y: number;
-  z: number;
-  A: number;
-  B: number;
-  yNormalized: number;
-  zNormalized: number;
-  priceA: number;
-  priceMarg: number;
-  priceB: number;
+  y: string;
+  z: string;
+  A: string;
+  B: string;
+  yNormalized: Decimal;
+  zNormalized: Decimal;
+  buyPriceA: Decimal;
+  buyPriceMarg: Decimal;
+  buyPriceB: Decimal;
+  sellPriceA: Decimal;
+  sellPriceMarg: Decimal;
+  sellPriceB: Decimal;
 }
