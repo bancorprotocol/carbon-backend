@@ -26,7 +26,7 @@
     "migration:revert": "npm run build && typeorm-ts-node-commonjs migration:revert -d src/typeorm.config.ts",
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
-    "db:seed": "node scripts/seed.js"
+    "db:seed": "node src/scripts/seed.js"
   },
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
