@@ -23,6 +23,7 @@ import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-e
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 import { NotificationService } from '../notification/notification.service';
+import { ActivityV2Service } from '../activity/activity-v2.service';
 
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
@@ -55,6 +56,7 @@ export class UpdaterService {
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     private notificationService: NotificationService,
+    private activityV2Service: ActivityV2Service,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -153,6 +155,9 @@ export class UpdaterService {
 
       await this.activityService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
+
+      await this.activityV2Service.update(endBlock, deployment, tokens);
+      console.log(`CARBON SERVICE - Finished updating activities-v2 for ${deployment.exchangeId}`);
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);

@@ -18,7 +18,6 @@ export class VoucherTransferEventService {
     return this.repository
       .createQueryBuilder('v')
       .leftJoinAndSelect('v.block', 'block')
-      .leftJoinAndSelect('v.strategy', 'strategy')
       .where('v.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('v.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .orderBy('block.id', 'ASC')
@@ -43,7 +42,6 @@ export class VoucherTransferEventService {
     return this.repository
       .createQueryBuilder('v')
       .leftJoinAndSelect('v.block', 'block')
-      .leftJoinAndSelect('v.strategy', 'strategy')
       .where('block.id > :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('v.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
