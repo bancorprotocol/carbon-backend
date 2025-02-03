@@ -60,6 +60,34 @@ To set up Carbon Backend, follow these steps:
    pip install -r src/simulator/requirements.txt
    ```
 
+7. (Optional) Database Seeding:
+
+   If you need to import data from an external database, you can use the seeding script:
+
+   a. Configure the database connection variables in your `.env` file:
+
+   ```env
+   # External Database Configuration
+   EXTERNAL_DATABASE_USERNAME=username
+   EXTERNAL_DATABASE_PASSWORD=password
+   EXTERNAL_DATABASE_HOST=host
+   EXTERNAL_DATABASE_NAME=database_name
+
+   # Local Database Configuration
+   DATABASE_NAME=local_db_name
+   DATABASE_USERNAME=username
+   DATABASE_HOST=localhost
+   DATABASE_PASSWORD=password
+   ```
+
+   b. Run the seeding script:
+
+   ```bash
+   npm run db:seed
+   ```
+
+   This will import the database structure and data from the external database to your local database, excluding certain tables as configured in the seed script.
+
 ## Usage
 
 To run Carbon Backend:
