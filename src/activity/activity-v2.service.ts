@@ -39,6 +39,15 @@ export class ActivityV2Service {
     const key = `${deployment.blockchainType}-${deployment.exchangeId}-activities-v2`;
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
 
+    // Clean up existing activities for this batch range
+    await this.activityRepository
+      .createQueryBuilder()
+      .delete()
+      .where('"blockNumber" >= :lastProcessedBlock', { lastProcessedBlock })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+      .execute();
+
     await this.initializeStrategyStates(lastProcessedBlock, deployment);
 
     // Process blocks in batches
@@ -46,16 +55,6 @@ export class ActivityV2Service {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       console.log(`Processing blocks ${batchStart} to ${batchEnd}`);
-
-      // Clean up existing activities for this batch range
-      await this.activityRepository
-        .createQueryBuilder()
-        .delete()
-        .where('"blockNumber" > :batchStart', { batchStart })
-        .andWhere('"blockNumber" <= :batchEnd', { batchEnd })
-        .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
-        .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
-        .execute();
 
       // Fetch events in parallel
       const [createdEvents, updatedEvents, deletedEvents, tradedEvents] = await Promise.all([
@@ -560,10 +559,10 @@ export class ActivityV2Service {
       }
 
       // Case 5: No significant price change but deposit/withdraw activities
-      if (y0Delta.gt(0)) return 'Deposited TKN0';
-      if (y1Delta.gt(0)) return 'Deposited TKN1';
-      if (y0Delta.lt(0)) return 'Withdrew TKN0';
-      if (y1Delta.lt(0)) return 'Withdrew TKN1';
+      if (y0Delta.gt(0)) return 'deposit';
+      if (y1Delta.gt(0)) return 'deposit';
+      if (y0Delta.lt(0)) return 'withdraw';
+      if (y1Delta.lt(0)) return 'withdraw';
 
       // Fallback: if no conditions met
       return 'edit_price';
