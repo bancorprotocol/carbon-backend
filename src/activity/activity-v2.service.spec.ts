@@ -52,6 +52,81 @@ const mockTokens: TokensByAddress = {
   },
 };
 
+const mockPair = {
+  id: 1,
+  blockchainType: mockDeployment.blockchainType,
+  exchangeId: mockDeployment.exchangeId,
+  block: {
+    id: 1,
+    blockchainType: mockDeployment.blockchainType,
+    timestamp: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  token0: mockTokens['0xtoken0'],
+  token1: mockTokens['0xtoken1'],
+  name: 'TKN0-TKN1',
+  tokensTradedEvents: [],
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const baseCreatedEvent = {
+  id: '1',
+  strategyId: '1',
+  owner: '0xowner',
+  token0: mockTokens['0xtoken0'],
+  token1: mockTokens['0xtoken1'],
+  order0: JSON.stringify({ y: '100', A: '1', B: '1' }),
+  order1: JSON.stringify({ y: '100', A: '1', B: '1' }),
+  block: {
+    id: 1,
+    blockchainType: mockDeployment.blockchainType,
+    timestamp: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  timestamp: new Date(),
+  transactionHash: '0xtx',
+  transactionIndex: 0,
+  logIndex: 0,
+  pair: mockPair,
+  blockchainType: mockDeployment.blockchainType,
+  exchangeId: mockDeployment.exchangeId,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const baseUpdatedEvent = {
+  id: 1,
+  strategyId: '1',
+  owner: '0xowner',
+  token0: mockTokens['0xtoken0'],
+  token1: mockTokens['0xtoken1'],
+  order0: JSON.stringify({ y: '100', A: '1', B: '1' }),
+  order1: JSON.stringify({ y: '100', A: '1', B: '1' }),
+  block: {
+    id: 1,
+    blockchainType: mockDeployment.blockchainType,
+    timestamp: new Date(),
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  },
+  timestamp: new Date(),
+  transactionHash: '0xtx',
+  transactionIndex: 0,
+  logIndex: 0,
+  pair: mockPair,
+  blockchainType: mockDeployment.blockchainType,
+  exchangeId: mockDeployment.exchangeId,
+  createdAt: new Date(),
+  updatedAt: new Date(),
+};
+
+const baseDeletedEvent = {
+  ...baseUpdatedEvent,
+};
+
 describe('ActivityV2Service', () => {
   let service: ActivityV2Service;
   let mockActivityRepository: Partial<Repository<ActivityV2>>;
@@ -116,101 +191,35 @@ describe('ActivityV2Service', () => {
 
   describe('determine action type', () => {
     it('should assign create_strategy action for creation events', async () => {
-      const createdEvent = {
-        id: '1',
-        strategyId: '1',
-        owner: '0xowner',
-        token0: { address: '0xtoken0' },
-        token1: { address: '0xtoken1' },
-        order0: JSON.stringify({ y: '100', A: '1', B: '1' }),
-        order1: JSON.stringify({ y: '100', A: '1', B: '1' }),
-        block: { id: 1 },
-        timestamp: new Date(),
-        transactionHash: '0xtx',
-        transactionIndex: 0,
-        logIndex: 0,
-        pair: { id: 1 },
-        blockchainType: mockDeployment.blockchainType,
-        exchangeId: mockDeployment.exchangeId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as StrategyCreatedEvent;
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
 
       const activities = service.processEvents([createdEvent], [], [], [], mockDeployment, mockTokens);
-
       expect(activities[0].action).toBe('create_strategy');
     });
 
     it('should assign strategy_paused action when prices are zero', async () => {
-      // First create a strategy to initialize the state
-      const createdEvent = {
-        id: '1',
-        strategyId: '1',
-        owner: '0xowner',
-        token0: { address: '0xtoken0' },
-        token1: { address: '0xtoken1' },
-        order0: JSON.stringify({ y: '100', A: '1', B: '1' }),
-        order1: JSON.stringify({ y: '100', A: '1', B: '1' }),
-        block: { id: 1 },
-        timestamp: new Date(),
-        transactionHash: '0xtx',
-        transactionIndex: 0,
-        logIndex: 0,
-        pair: { id: 1 },
-        blockchainType: mockDeployment.blockchainType,
-        exchangeId: mockDeployment.exchangeId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      } as StrategyCreatedEvent;
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
 
-      // Then update it with zero prices
       const updatedEvent = {
-        id: 2,
-        strategyId: '1',
-        token0: { address: '0xtoken0' },
-        token1: { address: '0xtoken1' },
+        ...baseUpdatedEvent,
         order0: JSON.stringify({ y: '100', A: '0', B: '0' }),
         order1: JSON.stringify({ y: '100', A: '0', B: '0' }),
-        block: { id: 2 },
-        timestamp: new Date(),
         transactionHash: '0xtx2',
-        transactionIndex: 0,
-        logIndex: 0,
         reason: 0,
-        pair: { id: 1 },
-        blockchainType: mockDeployment.blockchainType,
-        exchangeId: mockDeployment.exchangeId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       } as StrategyUpdatedEvent;
 
       const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
-
       expect(activities[1].action).toBe('strategy_paused');
     });
 
     it('should assign deleted action for deletion events', async () => {
       const deletedEvent = {
-        id: 3,
-        strategyId: '1',
-        token0: { address: '0xtoken0' },
-        token1: { address: '0xtoken1' },
+        ...baseDeletedEvent,
         order0: JSON.stringify({ y: '0', A: '0', B: '0' }),
         order1: JSON.stringify({ y: '0', A: '0', B: '0' }),
-        block: { id: 1 },
-        timestamp: new Date(),
-        transactionHash: '0xtx',
-        transactionIndex: 0,
-        logIndex: 0,
-        pair: { id: 1 },
-        blockchainType: mockDeployment.blockchainType,
-        exchangeId: mockDeployment.exchangeId,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       } as StrategyDeletedEvent;
 
       const activities = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens);
-
       expect(activities[0].action).toBe('deleted');
     });
   });
