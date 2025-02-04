@@ -384,6 +384,8 @@ export class ActivityV2Service {
   ): Promise<ActivityV2> {
     const token0 = tokens[event.token0.address];
     const token1 = tokens[event.token1.address];
+    const decimals0 = new Decimal(token0.decimals);
+    const decimals1 = new Decimal(token1.decimals);
 
     if (!token0 || !token1) {
       throw new Error(`Token not found for addresses ${event.token0.address}, ${event.token1.address}`);
@@ -394,7 +396,7 @@ export class ActivityV2Service {
     const order1 = parseOrder(event.order1);
 
     // Process the orders using the updated processOrders function.
-    const processedOrders = processOrders(order0, order1, token0.decimals, token1.decimals);
+    const processedOrders = processOrders(order0, order1, decimals0, decimals1);
 
     // Get previous state (if available) and process its orders for delta calculations.
     const previousState = this.strategyStates.get(event.strategyId);
@@ -403,8 +405,8 @@ export class ActivityV2Service {
       prevProcessed = processOrders(
         parseOrder(previousState.order0),
         parseOrder(previousState.order1),
-        token0.decimals,
-        token1.decimals,
+        decimals0,
+        decimals1,
       );
     }
 
@@ -563,6 +565,8 @@ export class ActivityV2Service {
     deployment: Deployment,
   ): ActivityV2 {
     const activity = new ActivityV2();
+    const decimals0 = new Decimal(state.token0.decimals);
+    const decimals1 = new Decimal(state.token1.decimals);
 
     // Basic information
     activity.blockchainType = deployment.blockchainType;
@@ -584,7 +588,7 @@ export class ActivityV2Service {
     // Process orders using the updated processOrders function.
     const order0 = parseOrder(state.order0);
     const order1 = parseOrder(state.order1);
-    const processedOrders = processOrders(order0, order1, state.token0.decimals, state.token1.decimals);
+    const processedOrders = processOrders(order0, order1, decimals0, decimals1);
 
     // Budget information is now derived from the normalized liquidity values.
     activity.sellBudget = processedOrders.liquidity0.toString();

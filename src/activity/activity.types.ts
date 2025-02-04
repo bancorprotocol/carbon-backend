@@ -18,17 +18,19 @@ export interface OrderData {
   B: Decimal;
 }
 
-export interface ProcessedOrder {
-  y: string;
-  z: string;
-  A: string;
-  B: string;
-  yNormalized: Decimal;
-  zNormalized: Decimal;
-  buyPriceA: Decimal;
-  buyPriceMarg: Decimal;
-  buyPriceB: Decimal;
+export interface ProcessedOrders {
+  y0: string;
+  z0: string;
+  y1: string;
+  z1: string;
+  liquidity0: Decimal;
+  capacity0: Decimal;
+  liquidity1: Decimal;
+  capacity1: Decimal;
   sellPriceA: Decimal;
   sellPriceMarg: Decimal;
   sellPriceB: Decimal;
+  buyPriceA: Decimal;
+  buyPriceMarg: Decimal;
+  buyPriceB: Decimal;
 }

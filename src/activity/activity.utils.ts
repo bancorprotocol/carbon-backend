@@ -1,4 +1,4 @@
-import { OrderData, ProcessedOrder } from './activity.types';
+import { OrderData, ProcessedOrders } from './activity.types';
 import { Decimal } from 'decimal.js';
 
 export function parseOrder(orderJson: string): OrderData {
@@ -12,17 +12,17 @@ export function parseOrder(orderJson: string): OrderData {
 }
 
 export function processOrders(
-  order0: OrderData, // JSON string representing order0 (token0 side)
-  order1: OrderData, // JSON string representing order1 (token1 side)
-  decimals0: number, // e.g. token0 decimals
-  decimals1: number, // e.g. token1 decimals
-) {
+  order0: OrderData,
+  order1: OrderData,
+  decimals0: Decimal,
+  decimals1: Decimal,
+): ProcessedOrders {
   // Constants
   const two48 = new Decimal(2).pow(48);
   const denominator0 = new Decimal(10).pow(decimals0);
   const denominator1 = new Decimal(10).pow(decimals1);
 
-  // Normalize liquidity and capacity (mimicking y0/10^decimals, etc.)
+  // Normalize y and z values
   const liquidity0 = order0.y.div(denominator0);
   const capacity0 = order0.z.div(denominator0);
   const liquidity1 = order1.y.div(denominator1);
@@ -46,22 +46,18 @@ export function processOrders(
   const A1_exponent = order1.A.div(two48).floor();
   const A1_real = A1_remainder.mul(new Decimal(2).pow(A1_exponent));
 
-  console.log(B0_real, B1_real);
-
   // Multipliers to adjust for the difference in decimals between tokens
-  const multiplierSell = new Decimal(10).pow(decimals1 - decimals0);
-  const multiplierBuy = new Decimal(10).pow(decimals0 - decimals1);
+  const multiplierSell = new Decimal(10).pow(decimals1.sub(decimals0));
+  const multiplierBuy = new Decimal(10).pow(decimals0.sub(decimals1));
 
   // --- For the sell side (order0 values) ---
   // Compute lowest, marginal, and highest rates for token0 side.
-  // The SQL casts (value / 2^48 :: BIGINT) are mimicked by using .floor().
-
-  const lowestRate0 = new Decimal(B0_real.div(two48).floor()).pow(2).mul(multiplierSell);
-  const highestRate0 = new Decimal(B0_real.plus(A0_real).div(two48).floor()).pow(2).mul(multiplierSell);
+  const lowestRate0 = new Decimal(B0_real.div(two48)).pow(2).mul(multiplierSell);
+  const highestRate0 = new Decimal(B0_real.plus(A0_real).div(two48)).pow(2).mul(multiplierSell);
   const baseMarg0 = liquidity0.equals(capacity0)
     ? B0_real.plus(A0_real)
     : B0_real.plus(A0_real.mul(liquidity0).div(capacity0));
-  const marginalRate0 = new Decimal(baseMarg0.div(two48).floor()).pow(2).mul(multiplierSell);
+  const marginalRate0 = new Decimal(baseMarg0.div(two48)).pow(2).mul(multiplierSell);
 
   // --- For the buy side (order1 values) ---
   const lowestRate1 = new Decimal(B1_real.div(two48)).pow(2).mul(multiplierBuy);
@@ -83,16 +79,14 @@ export function processOrders(
   const buyPriceB = highestRate1;
 
   return {
+    y0: order0.y.toString(),
+    z0: order0.z.toString(),
+    y1: order1.y.toString(),
+    z1: order1.z.toString(),
     liquidity0,
     capacity0,
     liquidity1,
     capacity1,
-    lowestRate0,
-    marginalRate0,
-    highestRate0,
-    lowestRate1,
-    marginalRate1,
-    highestRate1,
     sellPriceA,
     sellPriceMarg,
     sellPriceB,
