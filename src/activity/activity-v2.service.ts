@@ -15,7 +15,7 @@ import { StrategyUpdatedEventService } from '../events/strategy-updated-event/st
 import { StrategyDeletedEventService } from '../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { StrategyState } from './activity.types';
-import { parseOrder, processOrder } from './activity.utils';
+import { parseOrder, processOrders } from './activity.utils';
 import { TokensByAddress } from '../token/token.service';
 import { Decimal } from 'decimal.js';
 
@@ -389,22 +389,24 @@ export class ActivityV2Service {
       throw new Error(`Token not found for addresses ${event.token0.address}, ${event.token1.address}`);
     }
 
+    // Parse the orders from the event
     const order0 = parseOrder(event.order0);
     const order1 = parseOrder(event.order1);
-    const processed0 = processOrder(order0, new Decimal(token0.decimals));
-    const processed1 = processOrder(order1, new Decimal(token1.decimals));
 
-    // Get previous state for delta calculations
+    // Process the orders using the updated processOrders function.
+    const processedOrders = processOrders(order0, order1, token0.decimals, token1.decimals);
+
+    // Get previous state (if available) and process its orders for delta calculations.
     const previousState = this.strategyStates.get(event.strategyId);
-    let prevProcessed0, prevProcessed1;
-
+    let prevProcessed;
     if (previousState) {
-      prevProcessed0 = processOrder(parseOrder(previousState.order0), new Decimal(token0.decimals));
-      prevProcessed1 = processOrder(parseOrder(previousState.order1), new Decimal(token1.decimals));
+      prevProcessed = processOrders(
+        parseOrder(previousState.order0),
+        parseOrder(previousState.order1),
+        token0.decimals,
+        token1.decimals,
+      );
     }
-
-    const sellPriceScaleFactor = new Decimal(10).pow(new Decimal(token1.decimals).minus(token0.decimals));
-    const buyPriceScaleFactor = new Decimal(10).pow(new Decimal(token0.decimals).minus(token1.decimals));
 
     const activity = new ActivityV2();
     activity.blockchainType = deployment.blockchainType;
@@ -413,34 +415,35 @@ export class ActivityV2Service {
     activity.action = action;
     activity.baseQuote = `${event.token0.symbol}/${event.token1.symbol}`;
 
-    // Token information
+    // Set token information.
     activity.baseSellToken = event.token0.symbol;
     activity.baseSellTokenAddress = event.token0.address;
     activity.quoteBuyToken = event.token1.symbol;
     activity.quoteBuyTokenAddress = event.token1.address;
 
-    // Budget information
-    activity.buyBudget = processed1.yNormalized.toString();
-    activity.sellBudget = processed0.yNormalized.toString();
+    // Budget information is now taken from the liquidity (normalized y) values.
+    activity.sellBudget = processedOrders.liquidity0.toString();
+    activity.buyBudget = processedOrders.liquidity1.toString();
 
-    // Price information for token0 -> token1 (sell prices)
-    activity.sellPriceA = processed0.sellPriceA.mul(sellPriceScaleFactor).toString();
-    activity.sellPriceMarg = processed0.sellPriceMarg.mul(sellPriceScaleFactor).toString();
-    activity.sellPriceB = processed0.sellPriceB.mul(sellPriceScaleFactor).toString();
+    // Price information comes directly from the processed order prices.
+    // For the sell side (token0 -> token1):
+    activity.sellPriceA = processedOrders.sellPriceA.toString();
+    activity.sellPriceMarg = processedOrders.sellPriceMarg.toString();
+    activity.sellPriceB = processedOrders.sellPriceB.toString();
 
-    // Price information for token1 -> token0 (buy prices)
-    activity.buyPriceA = processed1.buyPriceA.mul(buyPriceScaleFactor).toString();
-    activity.buyPriceMarg = processed1.buyPriceMarg.mul(buyPriceScaleFactor).toString();
-    activity.buyPriceB = processed1.buyPriceB.mul(buyPriceScaleFactor).toString();
+    // For the buy side (token1 -> token0):
+    activity.buyPriceA = processedOrders.buyPriceA.toString();
+    activity.buyPriceMarg = processedOrders.buyPriceMarg.toString();
+    activity.buyPriceB = processedOrders.buyPriceB.toString();
 
-    // Transaction information
+    // Set transaction details.
     activity.timestamp = event.timestamp;
     activity.txhash = event.transactionHash;
     activity.blockNumber = event.block.id;
     activity.transactionIndex = event.transactionIndex;
     activity.logIndex = event.logIndex;
 
-    // Set creation wallet and current owner
+    // Set creation wallet and current owner.
     if (event instanceof StrategyCreatedEvent) {
       activity.creationWallet = event.owner;
       activity.currentOwner = event.owner;
@@ -449,7 +452,7 @@ export class ActivityV2Service {
       activity.currentOwner = previousState.currentOwner;
     }
 
-    // Set token relations
+    // Set token relationships and order data.
     activity.token0 = token0;
     activity.token0Id = token0.id;
     activity.token1 = token1;
@@ -457,47 +460,29 @@ export class ActivityV2Service {
     activity.order0 = event.order0;
     activity.order1 = event.order1;
 
-    // Calculate and assign budget changes
-    if (previousState) {
-      activity.buyBudgetChange = processed1.yNormalized.minus(prevProcessed1.yNormalized).toString();
-      activity.sellBudgetChange = processed0.yNormalized.minus(prevProcessed0.yNormalized).toString();
+    // Calculate budget and price delta changes if there is a previous state.
+    if (previousState && prevProcessed) {
+      // Budget deltas.
+      activity.sellBudgetChange = processedOrders.liquidity0.minus(prevProcessed.liquidity0).toString();
+      activity.buyBudgetChange = processedOrders.liquidity1.minus(prevProcessed.liquidity1).toString();
 
-      // Calculate price deltas
-      activity.buyPriceADelta = processed1.buyPriceA
-        .minus(prevProcessed1.buyPriceA)
-        .mul(buyPriceScaleFactor)
-        .toString();
-      activity.buyPriceMargDelta = processed1.buyPriceMarg
-        .minus(prevProcessed1.buyPriceMarg)
-        .mul(buyPriceScaleFactor)
-        .toString();
-      activity.buyPriceBDelta = processed1.buyPriceB
-        .minus(prevProcessed1.buyPriceB)
-        .mul(buyPriceScaleFactor)
-        .toString();
+      // Price deltas.
+      activity.sellPriceADelta = processedOrders.sellPriceA.minus(prevProcessed.sellPriceA).toString();
+      activity.sellPriceMargDelta = processedOrders.sellPriceMarg.minus(prevProcessed.sellPriceMarg).toString();
+      activity.sellPriceBDelta = processedOrders.sellPriceB.minus(prevProcessed.sellPriceB).toString();
 
-      activity.sellPriceADelta = processed0.sellPriceA
-        .minus(prevProcessed0.sellPriceA)
-        .mul(sellPriceScaleFactor)
-        .toString();
-      activity.sellPriceMargDelta = processed0.sellPriceMarg
-        .minus(prevProcessed0.sellPriceMarg)
-        .mul(sellPriceScaleFactor)
-        .toString();
-      activity.sellPriceBDelta = processed0.sellPriceB
-        .minus(prevProcessed0.sellPriceB)
-        .mul(sellPriceScaleFactor)
-        .toString();
+      activity.buyPriceADelta = processedOrders.buyPriceA.minus(prevProcessed.buyPriceA).toString();
+      activity.buyPriceMargDelta = processedOrders.buyPriceMarg.minus(prevProcessed.buyPriceMarg).toString();
+      activity.buyPriceBDelta = processedOrders.buyPriceB.minus(prevProcessed.buyPriceB).toString();
 
-      // Calculate trade-related fields if applicable
+      // For trade events (reason = 1), determine if the event reflects a trade (sell_high or buy_low).
       if (event instanceof StrategyUpdatedEvent && event.reason === 1) {
-        const y0Delta = processed0.yNormalized.minus(prevProcessed0.yNormalized);
-        const y1Delta = processed1.yNormalized.minus(prevProcessed1.yNormalized);
-
-        if (y0Delta.isNegative() && y1Delta.isPositive()) {
-          activity.action = 'sell_high'; // Sold token0, bought token1
-        } else if (y1Delta.isNegative() && y0Delta.isPositive()) {
-          activity.action = 'buy_low'; // Sold token1, bought token0
+        const liquidity0Delta = processedOrders.liquidity0.minus(prevProcessed.liquidity0);
+        const liquidity1Delta = processedOrders.liquidity1.minus(prevProcessed.liquidity1);
+        if (liquidity0Delta.isNegative() && liquidity1Delta.isPositive()) {
+          activity.action = 'sell_high'; // Sold token0, bought token1.
+        } else if (liquidity1Delta.isNegative() && liquidity0Delta.isPositive()) {
+          activity.action = 'buy_low'; // Sold token1, bought token0.
         }
       }
     }
@@ -596,26 +581,23 @@ export class ActivityV2Service {
     activity.order0 = state.order0;
     activity.order1 = state.order1;
 
-    // Process current orders
+    // Process orders using the updated processOrders function.
     const order0 = parseOrder(state.order0);
     const order1 = parseOrder(state.order1);
-    const processed0 = processOrder(order0, new Decimal(state.token0.decimals));
-    const processed1 = processOrder(order1, new Decimal(state.token1.decimals));
+    const processedOrders = processOrders(order0, order1, state.token0.decimals, state.token1.decimals);
 
-    // Budget information
-    activity.buyBudget = processed1.yNormalized.toString();
-    activity.sellBudget = processed0.yNormalized.toString();
+    // Budget information is now derived from the normalized liquidity values.
+    activity.sellBudget = processedOrders.liquidity0.toString();
+    activity.buyBudget = processedOrders.liquidity1.toString();
 
-    const sellPriceScaleFactor = new Decimal(10).pow(new Decimal(state.token1.decimals).minus(state.token0.decimals));
-    const buyPriceScaleFactor = new Decimal(10).pow(new Decimal(state.token0.decimals).minus(state.token1.decimals));
+    // Price information is taken directly from the processed order prices.
+    activity.sellPriceA = processedOrders.sellPriceA.toString();
+    activity.sellPriceMarg = processedOrders.sellPriceMarg.toString();
+    activity.sellPriceB = processedOrders.sellPriceB.toString();
 
-    // Price information
-    activity.sellPriceA = processed0.sellPriceA.mul(sellPriceScaleFactor).toString();
-    activity.sellPriceMarg = processed0.sellPriceMarg.mul(sellPriceScaleFactor).toString();
-    activity.sellPriceB = processed0.sellPriceB.mul(sellPriceScaleFactor).toString();
-    activity.buyPriceA = processed1.buyPriceA.mul(buyPriceScaleFactor).toString();
-    activity.buyPriceMarg = processed1.buyPriceMarg.mul(buyPriceScaleFactor).toString();
-    activity.buyPriceB = processed1.buyPriceB.mul(buyPriceScaleFactor).toString();
+    activity.buyPriceA = processedOrders.buyPriceA.toString();
+    activity.buyPriceMarg = processedOrders.buyPriceMarg.toString();
+    activity.buyPriceB = processedOrders.buyPriceB.toString();
 
     // Transfer specific information
     activity.oldOwner = event.from;
