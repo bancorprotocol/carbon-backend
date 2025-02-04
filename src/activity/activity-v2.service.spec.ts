@@ -114,7 +114,7 @@ describe('ActivityV2Service', () => {
     service = module.get<ActivityV2Service>(ActivityV2Service);
   });
 
-  describe('processEvents', () => {
+  describe('determine action type', () => {
     it('should assign create_strategy action for creation events', async () => {
       const createdEvent = {
         id: '1',
