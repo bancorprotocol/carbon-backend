@@ -327,9 +327,16 @@ export class ActivityV2Service {
           break;
         }
         case 'transfer': {
+          const transferEvent = event as VoucherTransferEvent;
+          // Filter out events with a zero address in either the 'from' or 'to' field
+          if (
+            transferEvent.to.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+            transferEvent.from.toLowerCase() === '0x0000000000000000000000000000000000000000'
+          ) {
+            break;
+          }
           const state = this.strategyStates.get(event.strategyId);
           if (state) {
-            const transferEvent = event as VoucherTransferEvent;
             const activity = this.createTransferActivity(transferEvent, state, deployment);
             activities.push(activity);
             state.currentOwner = transferEvent.to;
@@ -397,16 +404,17 @@ export class ActivityV2Service {
     // Process the orders using the updated processOrders function.
     const processedOrders = processOrders(order0, order1, decimals0, decimals1);
 
-    // Get previous state (if available) and process its orders for delta calculations.
-    const previousState = this.strategyStates.get(event.strategyId);
-    let prevProcessed;
-    if (previousState) {
-      prevProcessed = processOrders(
-        parseOrder(previousState.order0),
-        parseOrder(previousState.order1),
-        decimals0,
-        decimals1,
-      );
+    // If this is an update event that (by default) is returning 'edit_price',
+    // then check if all price fields are zero and if so mark it as paused
+    if (event instanceof StrategyUpdatedEvent && action === 'edit_price') {
+      if (
+        processedOrders.sellPriceA.equals(0) &&
+        processedOrders.sellPriceB.equals(0) &&
+        processedOrders.buyPriceA.equals(0) &&
+        processedOrders.buyPriceB.equals(0)
+      ) {
+        action = 'strategy_paused';
+      }
     }
 
     const activity = new ActivityV2();
@@ -448,7 +456,8 @@ export class ActivityV2Service {
     if (event instanceof StrategyCreatedEvent) {
       activity.creationWallet = event.owner;
       activity.currentOwner = event.owner;
-    } else if (previousState) {
+    } else if (this.strategyStates.has(event.strategyId)) {
+      const previousState = this.strategyStates.get(event.strategyId);
       activity.creationWallet = previousState.creationWallet;
       activity.currentOwner = previousState.currentOwner;
     }
@@ -462,7 +471,15 @@ export class ActivityV2Service {
     activity.order1 = event.order1;
 
     // Calculate budget and price delta changes if there is a previous state.
-    if (previousState && prevProcessed) {
+    const previousState = this.strategyStates.get(event.strategyId);
+    if (previousState) {
+      const prevProcessed = processOrders(
+        parseOrder(previousState.order0),
+        parseOrder(previousState.order1),
+        decimals0,
+        decimals1,
+      );
+
       // Calculate liquidity delta on each side.
       const liquidity0Delta = processedOrders.liquidity0.minus(prevProcessed.liquidity0);
       const liquidity1Delta = processedOrders.liquidity1.minus(prevProcessed.liquidity1);
@@ -479,24 +496,20 @@ export class ActivityV2Service {
 
       // For trade events (reason = 1) compute additional trade info.
       if (event instanceof StrategyUpdatedEvent && event.reason === 1) {
-        // If token0 was sold (liquidity decreased)...
         if (liquidity0Delta.isNegative() && liquidity1Delta.gte(0)) {
           activity.strategySold = liquidity0Delta.negated().toString();
           activity.tokenSold = event.token0.symbol;
           activity.strategyBought = liquidity1Delta.toString();
           activity.tokenBought = event.token1.symbol;
-          // avgPrice is expressed as token1 per token0.
           activity.avgPrice = liquidity0Delta.isZero()
             ? '0'
             : liquidity1Delta.div(liquidity0Delta.negated()).toString();
           activity.action = 'sell_high';
-          // If token1 was sold (liquidity decreased)...
         } else if (liquidity1Delta.isNegative() && liquidity0Delta.gt(0)) {
           activity.strategySold = liquidity1Delta.negated().toString();
           activity.tokenSold = event.token1.symbol;
           activity.strategyBought = liquidity0Delta.toString();
           activity.tokenBought = event.token0.symbol;
-          // avgPrice is expressed as token1 per token0; thus, take the inverse ratio.
           activity.avgPrice = liquidity0Delta.isZero()
             ? '0'
             : liquidity1Delta.negated().div(liquidity0Delta).toString();
