@@ -34,3 +34,5 @@ export interface ProcessedOrders {
   buyPriceMarg: Decimal;
   buyPriceB: Decimal;
 }
+
+export type StrategyStatesMap = Map<string, StrategyState>;

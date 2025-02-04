@@ -1,5 +1,12 @@
 import { OrderData, ProcessedOrders } from './activity.types';
 import { Decimal } from 'decimal.js';
+import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
+import { StrategyUpdatedEvent } from '../events/strategy-updated-event/strategy-updated-event.entity';
+import { StrategyDeletedEvent } from '../events/strategy-deleted-event/strategy-deleted-event.entity';
+import { Deployment } from '../deployment/deployment.service';
+import { ActivityV2 } from './activity-v2.entity';
+import { TokensByAddress } from '../token/token.service';
+import { StrategyStatesMap } from './activity.types';
 
 export function parseOrder(orderJson: string): OrderData {
   const order = JSON.parse(orderJson);
@@ -94,4 +101,141 @@ export function processOrders(
     buyPriceMarg,
     buyPriceB,
   };
+}
+
+export function createActivityFromEvent(
+  event: StrategyCreatedEvent | StrategyUpdatedEvent | StrategyDeletedEvent,
+  action: string,
+  deployment: Deployment,
+  tokens: TokensByAddress,
+  strategyStates: StrategyStatesMap,
+): ActivityV2 {
+  const token0 = tokens[event.token0.address];
+  const token1 = tokens[event.token1.address];
+
+  if (!token0 || !token1) {
+    throw new Error(`Token not found for addresses ${event.token0.address}, ${event.token1.address}`);
+  }
+
+  const decimals0 = new Decimal(token0.decimals);
+  const decimals1 = new Decimal(token1.decimals);
+
+  // Parse the orders from the event
+  const order0 = parseOrder(event.order0);
+  const order1 = parseOrder(event.order1);
+
+  // Process the orders using the updated processOrders function.
+  const processedOrders = processOrders(order0, order1, decimals0, decimals1);
+
+  // If this is an update event that (by default) is returning 'edit_price',
+  // then check if all price fields are zero and if so mark it as paused
+  if (event instanceof StrategyUpdatedEvent && action === 'edit_price') {
+    if (
+      processedOrders.sellPriceA.equals(0) &&
+      processedOrders.sellPriceB.equals(0) &&
+      processedOrders.buyPriceA.equals(0) &&
+      processedOrders.buyPriceB.equals(0)
+    ) {
+      action = 'strategy_paused';
+    }
+  }
+
+  const activity = new ActivityV2();
+  activity.blockchainType = deployment.blockchainType;
+  activity.exchangeId = deployment.exchangeId;
+  activity.strategyId = event.strategyId;
+  activity.action = action;
+  activity.baseQuote = `${event.token0.symbol}/${event.token1.symbol}`;
+
+  // Set token information.
+  activity.baseSellToken = event.token0.symbol;
+  activity.baseSellTokenAddress = event.token0.address;
+  activity.quoteBuyToken = event.token1.symbol;
+  activity.quoteBuyTokenAddress = event.token1.address;
+
+  // Budget information is now taken from the liquidity (normalized y) values.
+  activity.sellBudget = processedOrders.liquidity0.toString();
+  activity.buyBudget = processedOrders.liquidity1.toString();
+
+  // Price information comes directly from the processed order prices.
+  // For the sell side (token0 -> token1):
+  activity.sellPriceA = processedOrders.sellPriceA.toString();
+  activity.sellPriceMarg = processedOrders.sellPriceMarg.toString();
+  activity.sellPriceB = processedOrders.sellPriceB.toString();
+
+  // For the buy side (token1 -> token0):
+  activity.buyPriceA = processedOrders.buyPriceA.toString();
+  activity.buyPriceMarg = processedOrders.buyPriceMarg.toString();
+  activity.buyPriceB = processedOrders.buyPriceB.toString();
+
+  // Set transaction details.
+  activity.timestamp = event.timestamp;
+  activity.txhash = event.transactionHash;
+  activity.blockNumber = event.block.id;
+  activity.transactionIndex = event.transactionIndex;
+  activity.logIndex = event.logIndex;
+
+  // Set creation wallet and current owner.
+  if (event instanceof StrategyCreatedEvent) {
+    activity.creationWallet = event.owner;
+    activity.currentOwner = event.owner;
+  } else if (strategyStates.has(event.strategyId)) {
+    const previousState = strategyStates.get(event.strategyId);
+    activity.creationWallet = previousState.creationWallet;
+    activity.currentOwner = previousState.currentOwner;
+  }
+
+  // Set token relationships and order data.
+  activity.token0 = token0;
+  activity.token0Id = token0.id;
+  activity.token1 = token1;
+  activity.token1Id = token1.id;
+  activity.order0 = event.order0;
+  activity.order1 = event.order1;
+
+  // Calculate budget and price delta changes if there is a previous state.
+  const previousState = strategyStates.get(event.strategyId);
+  if (previousState) {
+    const prevProcessed = processOrders(
+      parseOrder(previousState.order0),
+      parseOrder(previousState.order1),
+      decimals0,
+      decimals1,
+    );
+
+    // Calculate liquidity delta on each side.
+    const liquidity0Delta = processedOrders.liquidity0.minus(prevProcessed.liquidity0);
+    const liquidity1Delta = processedOrders.liquidity1.minus(prevProcessed.liquidity1);
+    activity.sellBudgetChange = liquidity0Delta.toString();
+    activity.buyBudgetChange = liquidity1Delta.toString();
+
+    // Price deltas.
+    activity.sellPriceADelta = processedOrders.sellPriceA.minus(prevProcessed.sellPriceA).toString();
+    activity.sellPriceMargDelta = processedOrders.sellPriceMarg.minus(prevProcessed.sellPriceMarg).toString();
+    activity.sellPriceBDelta = processedOrders.sellPriceB.minus(prevProcessed.sellPriceB).toString();
+    activity.buyPriceADelta = processedOrders.buyPriceA.minus(prevProcessed.buyPriceA).toString();
+    activity.buyPriceMargDelta = processedOrders.buyPriceMarg.minus(prevProcessed.buyPriceMarg).toString();
+    activity.buyPriceBDelta = processedOrders.buyPriceB.minus(prevProcessed.buyPriceB).toString();
+
+    // For trade events (reason = 1) compute additional trade info.
+    if (event instanceof StrategyUpdatedEvent && event.reason === 1) {
+      if (liquidity0Delta.isNegative() && liquidity1Delta.gte(0)) {
+        activity.strategySold = liquidity0Delta.negated().toString();
+        activity.tokenSold = event.token0.symbol;
+        activity.strategyBought = liquidity1Delta.toString();
+        activity.tokenBought = event.token1.symbol;
+        activity.avgPrice = liquidity0Delta.isZero() ? '0' : liquidity1Delta.div(liquidity0Delta.negated()).toString();
+        activity.action = 'sell_high';
+      } else if (liquidity1Delta.isNegative() && liquidity0Delta.gt(0)) {
+        activity.strategySold = liquidity1Delta.negated().toString();
+        activity.tokenSold = event.token1.symbol;
+        activity.strategyBought = liquidity0Delta.toString();
+        activity.tokenBought = event.token0.symbol;
+        activity.avgPrice = liquidity0Delta.isZero() ? '0' : liquidity1Delta.negated().div(liquidity0Delta).toString();
+        activity.action = 'buy_low';
+      }
+    }
+  }
+
+  return activity;
 }
