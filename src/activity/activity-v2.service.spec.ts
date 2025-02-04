@@ -71,7 +71,7 @@ const mockPair = {
   updatedAt: new Date(),
 };
 
-const baseCreatedEvent = {
+const baseCreatedEvent: StrategyCreatedEvent = {
   id: '1',
   strategyId: '1',
   owner: '0xowner',
@@ -97,10 +97,9 @@ const baseCreatedEvent = {
   updatedAt: new Date(),
 };
 
-const baseUpdatedEvent = {
+const baseUpdatedEvent: StrategyUpdatedEvent = {
   id: 1,
   strategyId: '1',
-  owner: '0xowner',
   token0: mockTokens['0xtoken0'],
   token1: mockTokens['0xtoken1'],
   order0: JSON.stringify({ y: '100', A: '1', B: '1' }),
@@ -121,9 +120,10 @@ const baseUpdatedEvent = {
   exchangeId: mockDeployment.exchangeId,
   createdAt: new Date(),
   updatedAt: new Date(),
+  reason: 1,
 };
 
-const baseDeletedEvent = {
+const baseDeletedEvent: StrategyDeletedEvent = {
   ...baseUpdatedEvent,
 };
 
@@ -221,6 +221,108 @@ describe('ActivityV2Service', () => {
 
       const activities = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens);
       expect(activities[0].action).toBe('deleted');
+    });
+  });
+
+  describe('batching behavior', () => {
+    it('should maintain correct state across batches', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const updatedEvent1 = {
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: '200000000000000000000', A: '2', B: '2' }),
+        order1: JSON.stringify({ y: '200000000000000000000', A: '2', B: '2' }),
+        block: { ...baseCreatedEvent.block, id: 2 },
+        transactionHash: '0xtx2',
+      } as StrategyUpdatedEvent;
+      const updatedEvent2 = {
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: '300000000000000000000', A: '3', B: '3' }),
+        order1: JSON.stringify({ y: '300000000000000000000', A: '3', B: '3' }),
+        block: { ...baseCreatedEvent.block, id: 3 },
+        transactionHash: '0xtx3',
+      } as StrategyUpdatedEvent;
+
+      // First batch: Process creation and first update
+      const firstBatchActivities = service.processEvents(
+        [createdEvent],
+        [updatedEvent1],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+      );
+
+      // Second batch: Process second update
+      const secondBatchActivities = service.processEvents([], [updatedEvent2], [], [], mockDeployment, mockTokens);
+
+      // Verify first batch
+      expect(firstBatchActivities).toHaveLength(2);
+      expect(firstBatchActivities[0].action).toBe('create_strategy');
+      expect(firstBatchActivities[1].action).toBe('edit_price');
+      expect(firstBatchActivities[1].sellBudget).toBe('200');
+
+      // Verify second batch maintains state from first batch
+      expect(secondBatchActivities).toHaveLength(1);
+      expect(secondBatchActivities[0].action).toBe('edit_price');
+      expect(parseFloat(secondBatchActivities[0].sellBudget)).toBe(300);
+    });
+
+    it('should not miss events between batches', async () => {
+      const events = Array.from({ length: 5 }).map((_, i) => ({
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: `${100 * (i + 1)}000000000000000000`, A: '1', B: '1' }),
+        order1: JSON.stringify({ y: `${100 * (i + 1)}000000000000000000`, A: '1', B: '1' }),
+        block: { ...baseCreatedEvent.block, id: i + 1 },
+        transactionHash: `0xtx${i + 1}`,
+      })) as StrategyUpdatedEvent[];
+
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+
+      // Process events in batches of 2
+      const batch1 = service.processEvents([createdEvent], events.slice(0, 2), [], [], mockDeployment, mockTokens);
+      const batch2 = service.processEvents([], events.slice(2, 4), [], [], mockDeployment, mockTokens);
+      const batch3 = service.processEvents([], events.slice(4), [], [], mockDeployment, mockTokens);
+
+      // Verify all events were processed
+      expect(batch1).toHaveLength(3); // creation + 2 updates
+      expect(batch2).toHaveLength(2); // 2 updates
+      expect(batch3).toHaveLength(1); // 1 update
+
+      // Verify correct order and values
+      expect(batch1[0].action).toBe('create_strategy');
+      expect(parseFloat(batch1[1].sellBudget)).toBe(100);
+      expect(parseFloat(batch1[2].sellBudget)).toBe(200);
+      expect(parseFloat(batch2[0].sellBudget)).toBe(300);
+      expect(parseFloat(batch2[1].sellBudget)).toBe(400);
+      expect(parseFloat(batch3[0].sellBudget)).toBe(500);
+    });
+
+    it('should handle deletion events across batches', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const updatedEvent = {
+        ...baseUpdatedEvent,
+        block: { ...baseCreatedEvent.block, id: 2 },
+        transactionHash: '0xtx2',
+      } as StrategyUpdatedEvent;
+      const deletedEvent = {
+        ...baseDeletedEvent,
+        block: { ...baseCreatedEvent.block, id: 3 },
+        transactionHash: '0xtx3',
+      } as StrategyDeletedEvent;
+
+      // First batch: creation and update
+      const batch1 = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+
+      // Second batch: deletion
+      const batch2 = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens);
+
+      expect(batch1).toHaveLength(2);
+      expect(batch2).toHaveLength(1);
+      expect(batch2[0].action).toBe('deleted');
+
+      // Verify state is cleared after deletion
+      const batch3 = service.processEvents([], [updatedEvent], [], [], mockDeployment, mockTokens);
+      expect(batch3).toHaveLength(0); // Should not process updates for deleted strategy
     });
   });
 });
