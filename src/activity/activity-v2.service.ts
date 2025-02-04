@@ -522,7 +522,7 @@ export class ActivityV2Service {
     const B0Delta = newOrder0.B.minus(prevOrder0.B);
     const B1Delta = newOrder1.B.minus(prevOrder1.B);
 
-    // Define threshold for significant price changes (as used in the SQL query)
+    // Define threshold for significant price changes
     const threshold = new Decimal(0);
     const significantPriceChange =
       A0Delta.abs().gt(threshold) ||

@@ -28,7 +28,7 @@ export function processOrders(
   const liquidity1 = order1.y.div(denominator1);
   const capacity1 = order1.z.div(denominator1);
 
-  // For order0: compute B0_real and A0_real (like the SQL expressions using modulo and exponent)
+  // For order0: compute B0_real and A0_real
   const B0_remainder = order0.B.mod(two48);
   const B0_exponent = order0.B.div(two48).floor();
   const B0_real = B0_remainder.mul(new Decimal(2).pow(B0_exponent));
@@ -68,7 +68,7 @@ export function processOrders(
   const marginalRate1 = new Decimal(baseMarg1.div(two48)).pow(2).mul(multiplierBuy);
 
   // --- Final Price Calculations ---
-  // On the sell side, the SQL inverts the computed raw values:
+  // On the sell side invert the computed raw values:
   const sellPriceA = highestRate0.isZero() ? new Decimal(0) : new Decimal(1).div(highestRate0);
   const sellPriceMarg = marginalRate0.isZero() ? new Decimal(0) : new Decimal(1).div(marginalRate0);
   const sellPriceB = lowestRate0.isZero() ? new Decimal(0) : new Decimal(1).div(lowestRate0);
