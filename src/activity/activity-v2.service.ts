@@ -21,7 +21,7 @@ import { Decimal } from 'decimal.js';
 
 @Injectable()
 export class ActivityV2Service {
-  private readonly BATCH_SIZE = 1000000; // Number of blocks per batch
+  private readonly BATCH_SIZE = 300000; // Number of blocks per batch
   private readonly SAVE_BATCH_SIZE = 1000; // Number of activities to save at once
   private strategyStates = new Map<string, StrategyState>();
 
@@ -54,10 +54,8 @@ export class ActivityV2Service {
     for (let batchStart = lastProcessedBlock; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
-      console.log(`Processing blocks ${batchStart} to ${batchEnd}`);
-
       // Fetch events in parallel
-      const [createdEvents, updatedEvents, deletedEvents, tradedEvents] = await Promise.all([
+      const [createdEvents, updatedEvents, deletedEvents, transferEvents] = await Promise.all([
         this.strategyCreatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyUpdatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyDeletedEventService.get(batchStart, batchEnd, deployment),
@@ -65,11 +63,11 @@ export class ActivityV2Service {
       ]);
 
       // Process events into activities
-      const activities = await this.processEvents(
+      const activities = this.processEvents(
         createdEvents,
         updatedEvents,
         deletedEvents,
-        tradedEvents,
+        transferEvents,
         deployment,
         tokens,
       );
@@ -274,14 +272,14 @@ export class ActivityV2Service {
     };
   }
 
-  private async processEvents(
+  private processEvents(
     createdEvents: StrategyCreatedEvent[],
     updatedEvents: StrategyUpdatedEvent[],
     deletedEvents: StrategyDeletedEvent[],
     transferEvents: VoucherTransferEvent[],
     deployment: Deployment,
     tokens: TokensByAddress,
-  ): Promise<ActivityV2[]> {
+  ): ActivityV2[] {
     const activities: ActivityV2[] = [];
 
     // Process all events in chronological order
@@ -291,7 +289,7 @@ export class ActivityV2Service {
       switch (type) {
         case 'created': {
           const createdEvent = event as StrategyCreatedEvent;
-          const activity = await this.createActivityFromEvent(createdEvent, 'create_strategy', deployment, tokens);
+          const activity = this.createActivityFromEvent(createdEvent, 'create_strategy', deployment, tokens);
           activities.push(activity);
           this.strategyStates.set(createdEvent.strategyId, {
             currentOwner: createdEvent.owner,
@@ -308,7 +306,7 @@ export class ActivityV2Service {
           const state = this.strategyStates.get(event.strategyId);
           if (state) {
             const updatedEvent = event as StrategyUpdatedEvent;
-            const activity = await this.createActivityFromEvent(
+            const activity = this.createActivityFromEvent(
               updatedEvent,
               this.determineUpdateType(updatedEvent, state),
               deployment,
@@ -323,7 +321,7 @@ export class ActivityV2Service {
         }
         case 'deleted': {
           const deletedEvent = event as StrategyDeletedEvent;
-          const activity = await this.createActivityFromEvent(deletedEvent, 'deleted', deployment, tokens);
+          const activity = this.createActivityFromEvent(deletedEvent, 'deleted', deployment, tokens);
           activities.push(activity);
           this.strategyStates.delete(deletedEvent.strategyId);
           break;
@@ -332,7 +330,7 @@ export class ActivityV2Service {
           const state = this.strategyStates.get(event.strategyId);
           if (state) {
             const transferEvent = event as VoucherTransferEvent;
-            const activity = await this.createTransferActivity(transferEvent, state, deployment);
+            const activity = this.createTransferActivity(transferEvent, state, deployment);
             activities.push(activity);
             state.currentOwner = transferEvent.to;
             state.lastProcessedBlock = event.block.id;
@@ -376,20 +374,21 @@ export class ActivityV2Service {
     }));
   }
 
-  private async createActivityFromEvent(
+  private createActivityFromEvent(
     event: StrategyCreatedEvent | StrategyUpdatedEvent | StrategyDeletedEvent,
     action: string,
     deployment: Deployment,
     tokens: TokensByAddress,
-  ): Promise<ActivityV2> {
+  ): ActivityV2 {
     const token0 = tokens[event.token0.address];
     const token1 = tokens[event.token1.address];
-    const decimals0 = new Decimal(token0.decimals);
-    const decimals1 = new Decimal(token1.decimals);
 
     if (!token0 || !token1) {
       throw new Error(`Token not found for addresses ${event.token0.address}, ${event.token1.address}`);
     }
+
+    const decimals0 = new Decimal(token0.decimals);
+    const decimals1 = new Decimal(token1.decimals);
 
     // Parse the orders from the event
     const order0 = parseOrder(event.order0);
@@ -464,27 +463,44 @@ export class ActivityV2Service {
 
     // Calculate budget and price delta changes if there is a previous state.
     if (previousState && prevProcessed) {
-      // Budget deltas.
-      activity.sellBudgetChange = processedOrders.liquidity0.minus(prevProcessed.liquidity0).toString();
-      activity.buyBudgetChange = processedOrders.liquidity1.minus(prevProcessed.liquidity1).toString();
+      // Calculate liquidity delta on each side.
+      const liquidity0Delta = processedOrders.liquidity0.minus(prevProcessed.liquidity0);
+      const liquidity1Delta = processedOrders.liquidity1.minus(prevProcessed.liquidity1);
+      activity.sellBudgetChange = liquidity0Delta.toString();
+      activity.buyBudgetChange = liquidity1Delta.toString();
 
       // Price deltas.
       activity.sellPriceADelta = processedOrders.sellPriceA.minus(prevProcessed.sellPriceA).toString();
       activity.sellPriceMargDelta = processedOrders.sellPriceMarg.minus(prevProcessed.sellPriceMarg).toString();
       activity.sellPriceBDelta = processedOrders.sellPriceB.minus(prevProcessed.sellPriceB).toString();
-
       activity.buyPriceADelta = processedOrders.buyPriceA.minus(prevProcessed.buyPriceA).toString();
       activity.buyPriceMargDelta = processedOrders.buyPriceMarg.minus(prevProcessed.buyPriceMarg).toString();
       activity.buyPriceBDelta = processedOrders.buyPriceB.minus(prevProcessed.buyPriceB).toString();
 
-      // For trade events (reason = 1), determine if the event reflects a trade (sell_high or buy_low).
+      // For trade events (reason = 1) compute additional trade info.
       if (event instanceof StrategyUpdatedEvent && event.reason === 1) {
-        const liquidity0Delta = processedOrders.liquidity0.minus(prevProcessed.liquidity0);
-        const liquidity1Delta = processedOrders.liquidity1.minus(prevProcessed.liquidity1);
-        if (liquidity0Delta.isNegative() && liquidity1Delta.isPositive()) {
-          activity.action = 'sell_high'; // Sold token0, bought token1.
-        } else if (liquidity1Delta.isNegative() && liquidity0Delta.isPositive()) {
-          activity.action = 'buy_low'; // Sold token1, bought token0.
+        // If token0 was sold (liquidity decreased)...
+        if (liquidity0Delta.isNegative() && liquidity1Delta.gte(0)) {
+          activity.strategySold = liquidity0Delta.negated().toString();
+          activity.tokenSold = event.token0.symbol;
+          activity.strategyBought = liquidity1Delta.toString();
+          activity.tokenBought = event.token1.symbol;
+          // avgPrice is expressed as token1 per token0.
+          activity.avgPrice = liquidity0Delta.isZero()
+            ? '0'
+            : liquidity1Delta.div(liquidity0Delta.negated()).toString();
+          activity.action = 'sell_high';
+          // If token1 was sold (liquidity decreased)...
+        } else if (liquidity1Delta.isNegative() && liquidity0Delta.gt(0)) {
+          activity.strategySold = liquidity1Delta.negated().toString();
+          activity.tokenSold = event.token1.symbol;
+          activity.strategyBought = liquidity0Delta.toString();
+          activity.tokenBought = event.token0.symbol;
+          // avgPrice is expressed as token1 per token0; thus, take the inverse ratio.
+          activity.avgPrice = liquidity0Delta.isZero()
+            ? '0'
+            : liquidity1Delta.negated().div(liquidity0Delta).toString();
+          activity.action = 'buy_low';
         }
       }
     }
@@ -643,16 +659,7 @@ export class ActivityV2Service {
       .getMany();
 
     for (const activity of lastEvents) {
-      if (!activity.order0 || !activity.order1 || !activity.token0 || !activity.token1) {
-        console.warn(`Missing order data for strategy ${activity.strategyId}`);
-        continue;
-      }
-
       const creationEvent = creationEventsByStrategyId.get(activity.strategyId);
-      if (!creationEvent) {
-        console.warn(`Missing creation event for strategy ${activity.strategyId}`);
-        continue;
-      }
 
       this.strategyStates.set(activity.strategyId, {
         currentOwner: activity.currentOwner,
@@ -664,1073 +671,5 @@ export class ActivityV2Service {
         lastProcessedBlock: activity.blockNumber,
       });
     }
-  }
-
-  private getActivityQuery(batchStart: number, batchEnd: number, deployment: Deployment): string {
-    return `WITH selector_created AS (
-        SELECT
-          "strategyId",
-          "blockId",
-          "logIndex",
-          'created' AS current_state
-        FROM
-          "strategy-created-events"
-        WHERE
-          "blockchainType" = '${deployment.blockchainType}'
-          AND "exchangeId" = '${deployment.exchangeId}'
-      ),
-      selector_strategyupdated AS (
-        SELECT DISTINCT ON ("strategyId")
-          "strategyId",
-          "blockId",
-          "logIndex",
-          'updated' AS current_state
-        FROM
-          "strategy-updated-events"
-        WHERE
-          "blockchainType" = '${deployment.blockchainType}'
-          AND "exchangeId" = '${deployment.exchangeId}'
-        ORDER BY
-          "strategyId", "blockId" DESC, "logIndex" DESC
-      ),
-      selector_deleted AS (
-        SELECT DISTINCT ON ("strategyId")
-          "strategyId",
-          "blockId",
-          "logIndex",
-          'deleted' AS current_state
-        FROM
-          "strategy-deleted-events"
-        WHERE
-          "blockchainType" = '${deployment.blockchainType}'
-          AND "exchangeId" = '${deployment.exchangeId}'
-        ORDER BY
-          "strategyId", "blockId" DESC, "logIndex" DESC
-      ),
-      all_states AS (
-        SELECT
-          *
-        FROM
-          selector_created
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          selector_strategyupdated
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          selector_deleted
-      ),
-      all_states_marked AS (
-        SELECT DISTINCT ON ("strategyId")
-          *,
-          'latest' AS mark
-        FROM
-          all_states
-        ORDER BY
-          "strategyId", "blockId" DESC, "logIndex" DESC
-      ),
-      recently_updated_strategies AS ( 
-        SELECT
-          *
-        FROM
-          all_states_marked
-        WHERE
-          "blockId" > ${batchStart}
-      ),
-      -- For each strategy that needs updating we can get the prior state AND insert that into the original flow
-      prior_strategyupdated AS (
-        SELECT DISTINCT ON ("strategyId")
-          *
-        FROM
-          "strategy-updated-events"
-        WHERE
-          "blockId" < ${batchStart}
-          AND "blockchainType" = '${deployment.blockchainType}'
-          AND "exchangeId" = '${deployment.exchangeId}'
-        ORDER BY
-          "strategyId", "blockId" DESC, "logIndex" DESC
-      ),
-      updated_insert AS (
-        SELECT
-          1 AS sorting_order,
-          timestamp AS evt_block_time,
-          "blockId" AS evt_block_number,
-          s."strategyId" AS id,
-          order0,
-          order1,
-          t0.address AS token0,
-          t0.symbol AS symbol0,
-          t0.decimals AS decimals0,
-          t1.address AS token1,
-          t1.symbol AS symbol1,
-          t1.decimals AS decimals1,
-          reason,
-          s."transactionHash" AS txhash,
-          TRUE AS deleteme
-        FROM
-          prior_strategyupdated s
-          LEFT JOIN tokens t0 ON t0.id = s."token0Id"
-          LEFT JOIN tokens t1 ON t1.id = s."token1Id"
-        WHERE
-          "strategyId" IN (
-            SELECT
-              "strategyId"
-            FROM
-              recently_updated_strategies
-          )
-      ),
-      created_insert AS (
-        SELECT
-          0 AS sorting_order,
-          timestamp AS evt_block_time,
-          "blockId" AS evt_block_number,
-          s."strategyId" AS id,
-          order0,
-          order1,
-          t0.address AS token0,
-          t0.symbol AS symbol0,
-          t0.decimals AS decimals0,
-          t1.address AS token1,
-          t1.symbol AS symbol1,
-          t1.decimals AS decimals1,
-          2 AS reason,
-          s."transactionHash" AS txhash,
-          TRUE AS deleteme
-        FROM
-          "strategy-created-events" s
-          LEFT JOIN tokens t0 ON t0.id = s."token0Id"
-          LEFT JOIN tokens t1 ON t1.id = s."token1Id"
-        WHERE
-          s."strategyId" NOT IN (
-            SELECT
-              "strategyId"
-            FROM
-              "strategy-updated-events"
-            WHERE
-              "blockId" < ${batchStart}
-              AND "blockchainType" = '${deployment.blockchainType}'
-              AND "exchangeId" = '${deployment.exchangeId}'
-          )
-          AND s."blockchainType" = '${deployment.blockchainType}'
-          AND s."exchangeId" = '${deployment.exchangeId}'
-      ),
-      -- ORIGINAL QUERY STARTS HERE
-      created AS (
-        SELECT
-          0 AS sorting_order,
-          timestamp AS evt_block_time,
-          "blockId" AS evt_block_number,
-          s."strategyId" AS id,
-          order0,
-          order1,
-          t0.address AS token0,
-          t0.symbol AS symbol0,
-          t0.decimals AS decimals0,
-          t1.address AS token1,
-          t1.symbol AS symbol1,
-          t1.decimals AS decimals1,
-          2 AS reason,
-          s."transactionHash" AS txhash,
-          FALSE AS deleteme
-        FROM
-          "strategy-created-events" s
-          LEFT JOIN tokens t0 ON t0.id = s."token0Id"
-          LEFT JOIN tokens t1 ON t1.id = s."token1Id"
-        WHERE
-          "blockId" >= ${batchStart}
-          AND
-          "blockId" < ${batchEnd}
-          AND s."blockchainType" = '${deployment.blockchainType}'
-          AND s."exchangeId" = '${deployment.exchangeId}'
-      ),
-      updated AS (
-        SELECT
-          s."logIndex"+2 AS sorting_order,
-          timestamp AS evt_block_time,
-          "blockId" AS evt_block_number,
-          s."strategyId" AS id,
-          order0,
-          order1,
-          t0.address AS token0,
-          t0.symbol AS symbol0,
-          t0.decimals AS decimals0,
-          t1.address AS token1,
-          t1.symbol AS symbol1,
-          t1.decimals AS decimals1,
-          reason,
-          s."transactionHash" AS txhash,
-          FALSE AS deleteme
-        FROM
-          "strategy-updated-events" s
-          LEFT JOIN tokens t0 ON t0.id = s."token0Id"
-          LEFT JOIN tokens t1 ON t1.id = s."token1Id"
-        WHERE
-          "blockId" >= ${batchStart}
-          AND
-          "blockId" < ${batchEnd}
-          AND s."blockchainType" = '${deployment.blockchainType}'
-          AND s."exchangeId" = '${deployment.exchangeId}'
-      ),
-      deleted AS (
-        SELECT
-          999999999 AS sorting_order,
-          timestamp AS evt_block_time,
-          "blockId" AS evt_block_number,
-          s."strategyId" AS id,
-          order0,
-          order1,
-          t0.address AS token0,
-          t0.symbol AS symbol0,
-          t0.decimals AS decimals0,
-          t1.address AS token1,
-          t1.symbol AS symbol1,
-          t1.decimals AS decimals1,
-          4 AS reason,
-          s."transactionHash" AS txhash,
-          FALSE AS deleteme
-        FROM
-          "strategy-deleted-events" s
-          LEFT JOIN tokens t0 ON t0.id = s."token0Id"
-          LEFT JOIN tokens t1 ON t1.id = s."token1Id"
-        WHERE
-          "blockId" >= ${batchStart}
-          AND
-          "blockId" < ${batchEnd}
-          AND s."blockchainType" = '${deployment.blockchainType}'
-          AND s."exchangeId" = '${deployment.exchangeId}'
-      ),
-      all_txs AS (
-        SELECT
-          *
-        FROM
-          created
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          created_insert
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          updated_insert
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          updated
-        UNION
-        ALL
-        SELECT
-          *
-        FROM
-          deleted
-      ),
-      --- ADD A FILTER THAT TAKES OUT ANY DUPLICATE txhash THAT IS FLAGGED FOR DELETION
-      -- THIS PREVENTS MISCALCS DURING LAG()
-
-      filtered_txs AS (
-          SELECT DISTINCT ON (id, txhash, sorting_order) *
-          FROM all_txs
-          ORDER BY id, txhash, sorting_order, deleteme ASC
-      ),
-      ---------
-      current_orders3 AS (
-        SELECT
-          *,
-          (
-            CASE
-              WHEN (order0 :: json ->> 'y') IS NOT NULL THEN (order0 :: json ->> 'y') :: DOUBLE PRECISION
-              ELSE 0
-            END
-          ) AS y0,
-          (
-            CASE
-              WHEN (order1 :: json ->> 'y') IS NOT NULL THEN (order1 :: json ->> 'y') :: DOUBLE PRECISION
-              ELSE 0
-            END
-          ) AS y1,
-          (
-            CASE
-              WHEN (order0 :: json ->> 'z') IS NOT NULL THEN (order0 :: json ->> 'z') :: DOUBLE PRECISION
-              ELSE 0
-            END
-          ) AS z0,
-          (
-            CASE
-              WHEN (order1 :: json ->> 'z') IS NOT NULL THEN (order1 :: json ->> 'z') :: DOUBLE PRECISION
-              ELSE 0
-            END
-          ) AS z1,
-          (
-            CASE
-              WHEN (order0 :: json ->> 'A') IS NOT NULL THEN (order0 :: json ->> 'A') :: BIGINT
-              ELSE 0
-            END
-          ) AS A0,
-          (
-            CASE
-              WHEN (order1 :: json ->> 'A') IS NOT NULL THEN (order1 :: json ->> 'A') :: BIGINT
-              ELSE 0
-            END
-          ) AS A1,
-          (
-            CASE
-              WHEN (order0 :: json ->> 'B') IS NOT NULL THEN (order0 :: json ->> 'B') :: BIGINT
-              ELSE 0
-            END
-          ) AS B0,
-          (
-            CASE
-              WHEN (order1 :: json ->> 'B') IS NOT NULL THEN (order1 :: json ->> 'B') :: BIGINT
-              ELSE 0
-            END
-          ) AS B1
-        FROM
-          filtered_txs
-      ),
-      deletions_zero AS (
-        SELECT
-          sorting_order,
-          deleteme,
-          evt_block_time,
-          evt_block_number,
-          id,
-          token0,
-          token1,
-          reason,
-          symbol0,
-          decimals0,
-          symbol1,
-          decimals1,
-          txhash,
-          CASE
-            WHEN reason = 4 THEN 0
-            ELSE y0
-          END AS y0,
-          CASE
-            WHEN reason = 4 THEN 0
-            ELSE y1
-          END AS y1,
-          z0,
-          z1,
-          A0,
-          A1,
-          B0,
-          B1
-        FROM
-          current_orders3
-      ),
-      current_orders4 AS (
-        SELECT
-          c.sorting_order,
-          c.deleteme,
-          c.evt_block_time,
-          c.evt_block_number,
-          sce.owner AS creation_wallet,
-          c.id,
-          c.token0,
-          c.token1,
-          c.reason,
-          c.y0,
-          c.y1,
-          c.symbol0,
-          c.decimals0,
-          c.symbol1,
-          c.decimals1,
-          y0 / POW(10, decimals0) AS liquidity0,
-          y1 / POW(10, decimals1) AS liquidity1,
-          z0 / POW(10, decimals0) AS capacity0,
-          z1 / POW(10, decimals1) AS capacity1,
-          (
-            B0 % POW(2, 48) :: BIGINT * POW(2, FLOOR(B0 / POW(2, 48)))
-          ) AS B0_real,
-          (
-            B1 % POW(2, 48) :: BIGINT * POW(2, FLOOR(B1 / POW(2, 48)))
-          ) AS B1_real,
-          (
-            A0 % POW(2, 48) :: BIGINT * POW(2, FLOOR(A0 / POW(2, 48)))
-          ) AS A0_real,
-          (
-            A1 % POW(2, 48) :: BIGINT * POW(2, FLOOR(A1 / POW(2, 48)))
-          ) AS A1_real,
-          COALESCE(
-            (
-              B0 - LAG(B0, 1) OVER (
-                PARTITION BY c.id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS B0_delta,
-          COALESCE(
-            (
-              B1 - LAG(B1, 1) OVER (
-                PARTITION BY c.id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS B1_delta,
-          COALESCE(
-            (
-              A0 - LAG(A0, 1) OVER (
-                PARTITION BY c.id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS A0_delta,
-          COALESCE(
-            (
-              A1 - LAG(A1, 1) OVER (
-                PARTITION BY c.id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS A1_delta,
-          txhash
-        FROM
-          deletions_zero c
-          LEFT JOIN "strategy-created-events" sce ON sce."strategyId" = c.id
-          WHERE sce."blockchainType" = '${deployment.blockchainType}'
-          AND sce."exchangeId" = '${deployment.exchangeId}'    
-      ),
-      order_lifespan AS (
-        SELECT
-          *,
-          COALESCE(
-            (
-              y0 - LAG(y0, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ) / POW(10, decimals0),
-            0
-          ) AS y0_delta,
-          COALESCE(
-            (
-              y1 - LAG(y1, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ) / POW(10, decimals1),
-            0
-          ) AS y1_delta,
-          POW((B0_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals1 - decimals0)) AS lowestRate0,
-          CASE
-            WHEN liquidity0 = capacity0 THEN POW((B0_real + A0_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals1 - decimals0))
-            ELSE POW(
-              (B0_real + A0_real * liquidity0 / capacity0) / POW(2, 48) :: BIGINT,
-              2
-            ) * POW(10, (decimals1 - decimals0))
-          END AS marginalRate0,
-          POW((B0_real + A0_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals1 - decimals0)) AS highestRate0,
-          POW((B1_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals0 - decimals1)) AS lowestRate1,
-          CASE
-            WHEN liquidity1 = capacity1 THEN POW((B1_real + A1_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals0 - decimals1))
-            ELSE POW(
-              (B1_real + A1_real * liquidity1 / capacity1) / POW(2, 48) :: BIGINT,
-              2
-            ) * POW(10, (decimals0 - decimals1))
-          END AS marginalRate1,
-          POW((B1_real + A1_real) / POW(2, 48) :: BIGINT, 2) * POW(10, (decimals0 - decimals1)) AS highestRate1
-        FROM
-          current_orders4
-      ),
-      dep_with AS (
-        SELECT
-          *,
-          CASE
-            WHEN reason = 2 THEN liquidity0
-            ELSE 0
-          END + CASE
-            WHEN (
-              reason = 0
-              AND y0_delta > 0
-            ) THEN y0_delta
-            ELSE 0
-          END AS y0_deposited,
-          CASE
-            WHEN reason = 2 THEN liquidity1
-            ELSE 0
-          END + CASE
-            WHEN (
-              reason = 0
-              AND y1_delta > 0
-            ) THEN y1_delta
-            ELSE 0
-          END AS y1_deposited,
-          CASE
-            WHEN reason = 4 THEN - liquidity0
-            ELSE 0
-          END + CASE
-            WHEN (
-              reason = 0
-              AND y0_delta < 0
-            ) THEN y0_delta
-            ELSE 0
-          END AS y0_withdrawn,
-          CASE
-            WHEN reason = 4 THEN - liquidity1
-            ELSE 0
-          END + CASE
-            WHEN (
-              reason = 0
-              AND y1_delta < 0
-            ) THEN y1_delta
-            ELSE 0
-          END AS y1_withdrawn,
-          CAST(symbol0 AS VARCHAR) || '/' || CAST(symbol1 AS VARCHAR) AS base_quote,
-          CASE
-            WHEN highestRate0 = 0 THEN 0
-            ELSE 1 / highestRate0
-          END AS lowestRate0_norm,
-          CASE
-            WHEN marginalRate0 = 0 THEN 0
-            ELSE 1 / marginalRate0
-          END AS marginalRate0_norm,
-          CASE
-            WHEN lowestRate0 = 0 THEN 0
-            ELSE 1 / lowestRate0
-          END AS highestRate0_norm,
-          lowestRate1 AS lowestRate1_norm,
-          marginalRate1 AS marginalRate1_norm,
-          highestRate1 AS highestRate1_norm
-        FROM
-          order_lifespan
-      ),
-      add_price_delta AS (
-        SELECT
-          *,
-          COALESCE(
-            (
-              lowestRate0_norm - LAG(lowestRate0_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS lowestRate0_norm_delta,
-          COALESCE(
-            (
-              marginalRate0_norm - LAG(marginalRate0_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS marginalRate0_norm_delta,
-          COALESCE(
-            (
-              highestRate0_norm - LAG(highestRate0_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS highestRate0_norm_delta,
-          COALESCE(
-            (
-              lowestRate1_norm - LAG(lowestRate1_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS lowestRate1_norm_delta,
-          COALESCE(
-            (
-              marginalRate1_norm - LAG(marginalRate1_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS marginalRate1_norm_delta,
-          COALESCE(
-            (
-              highestRate1_norm - LAG(highestRate1_norm, 1) OVER (
-                PARTITION BY id
-                ORDER BY
-                  evt_block_number, sorting_order
-              )
-            ),
-            0
-          ) AS highestRate1_norm_delta
-        FROM
-          dep_with
-      ),
-      descriptions AS (
-        SELECT
-          *,
-          CASE
-            WHEN reason = 2 THEN 'Created'
-            WHEN reason = 0
-            AND (
-              ABS(B0_delta) > 1
-              OR ABS(B1_delta) > 1
-              OR ABS(A0_delta) > 1
-              OR ABS(A1_delta) > 1
-            )
-            AND (
-              (
-                y0_delta > 0
-                AND y1_delta = 0
-              )
-              OR (
-                y0_delta = 0
-                AND y1_delta > 0
-              )
-              OR (
-                y0_delta > 0
-                AND y1_delta > 0
-              )
-            ) THEN 'edit_deposit'
-            WHEN reason = 0
-            AND (
-              ABS(B0_delta) > 1
-              OR ABS(B1_delta) > 1
-              OR ABS(A0_delta) > 1
-              OR ABS(A1_delta) > 1
-            )
-            AND (
-              (
-                y0_delta < 0
-                AND y1_delta = 0
-              )
-              OR (
-                y0_delta = 0
-                AND y1_delta < 0
-              )
-              OR (
-                y0_delta < 0
-                AND y1_delta < 0
-              )
-            ) THEN 'edit_withdraw'
-            WHEN reason = 0
-            AND (
-              ABS(B0_delta) > 1
-              OR ABS(B1_delta) > 1
-              OR ABS(A0_delta) > 1
-              OR ABS(A1_delta) > 1
-            )
-            AND (
-              y0_delta != 0
-              OR y1_delta != 0
-            ) THEN 'edit_deposit_withdraw'
-            WHEN reason = 0
-            AND (
-              ABS(B0_delta) > 1
-              OR ABS(B1_delta) > 1
-              OR ABS(A0_delta) > 1
-              OR ABS(A1_delta) > 1
-            ) THEN 'Updated Price'
-            WHEN reason = 0
-            AND y0_delta > 0 THEN 'Deposited TKN0'
-            WHEN reason = 0
-            AND y1_delta > 0 THEN 'Deposited TKN1'
-            WHEN reason = 0
-            AND y0_delta < 0 THEN 'Withdrew TKN0'
-            WHEN reason = 0
-            AND y1_delta < 0 THEN 'Withdrew TKN1'
-            WHEN reason = 1 THEN 'Trade Occurred'
-            WHEN reason = 4 THEN 'deleted'
-            ELSE 'edit_price'
-          END AS descr
-        FROM
-          add_price_delta
-      ),
-      all_trades AS (
-        SELECT
-          sorting_order,
-          evt_block_number,
-          deleteme,
-          id,
-          CASE
-            WHEN (
-              y0_delta < 0
-              AND y1_delta >= 0
-            )
-            OR (
-              y0_delta = 0
-              AND y1_delta > 0
-            ) THEN - y0_delta
-            ELSE - y1_delta
-          END AS strategy_sold,
-          CASE
-            WHEN (
-              y0_delta < 0
-              AND y1_delta >= 0
-            )
-            OR (
-              y0_delta = 0
-              AND y1_delta > 0
-            ) THEN symbol0
-            ELSE symbol1
-          END AS token_sold,
-          CASE
-            WHEN (
-              y0_delta > 0
-              AND y1_delta <= 0
-            )
-            OR (
-              y0_delta = 0
-              AND y1_delta < 0
-            ) THEN y0_delta
-            ELSE y1_delta
-          END AS strategy_bought,
-          CASE
-            WHEN (
-              y0_delta > 0
-              AND y1_delta <= 0
-            )
-            OR (
-              y0_delta = 0
-              AND y1_delta < 0
-            ) THEN symbol0
-            ELSE symbol1
-          END AS token_bought,
-          txhash
-        FROM
-          order_lifespan
-        WHERE
-          reason = 1
-      ),
-      trade_info AS (
-        SELECT
-          d.*,
-          a.strategy_sold,
-          a.token_sold,
-          a.strategy_bought,
-          a.token_bought,
-          CASE
-            WHEN a.strategy_sold = 0 THEN 0
-            ELSE a.strategy_bought / a.strategy_sold
-          END AS effective_price,
-          a.token_sold || '/' || a.token_bought AS trade_base_quote,
-          CASE
-            WHEN a.strategy_bought = 0 THEN 0
-            ELSE a.strategy_sold / a.strategy_bought
-          END AS effective_price_inv,
-          a.token_bought || '/' || a.token_sold AS inv_trade_base_quote
-        FROM
-          descriptions d
-          LEFT JOIN all_trades a ON a.txhash = d.txhash
-          AND a.id = d.id
-          AND a.sorting_order = d.sorting_order
-          AND a.evt_block_number = d.evt_block_number
-      ),
-      voucher_transfers AS (
-        SELECT
-          *
-        FROM
-          "voucher-transfer-events" s
-        WHERE
-          s."from" != '0x0000000000000000000000000000000000000000'
-          AND s."to" != '0x0000000000000000000000000000000000000000'
-          AND s."blockchainType" = '${deployment.blockchainType}'
-          AND s."exchangeId" = '${deployment.exchangeId}'
-      ),
-      most_recent_transfer AS (
-        SELECT DISTINCT ON ("strategyId")
-          *
-        FROM
-          voucher_transfers
-        ORDER BY
-          "strategyId", "blockId" DESC
-      ),
-      voucher_minimal AS (
-        SELECT
-          "strategyId" AS id,
-          'transfer_strategy' AS action,
-          "from" AS old_owner,
-          "to" AS new_owner,
-          timestamp AS date,
-          "transactionHash" AS txhash,
-          "blockId" AS block_number
-        FROM
-          voucher_transfers
-      ),
-      complete_info AS (
-        SELECT
-          ti.*,
-          CASE
-            WHEN base_quote = trade_base_quote THEN effective_price
-            ELSE effective_price_inv
-          END AS avg_price,
-          CASE
-            WHEN descr = 'Trade Occurred'
-            AND token_sold = symbol0 THEN 'sell_high'
-            WHEN descr = 'Trade Occurred'
-            AND token_sold != symbol0 THEN 'buy_low'
-            WHEN descr = 'Created' THEN 'create_strategy'
-            WHEN descr = 'Deposited TKN0' THEN 'deposit'
-            WHEN descr = 'Deposited TKN1' THEN 'deposit'
-            WHEN descr = 'Withdrew TKN0' THEN 'withdraw'
-            WHEN descr = 'Withdrew TKN1' THEN 'withdraw'
-            WHEN descr = 'Updated Price'
-            AND NOT (
-              lowestRate0_norm != 0
-              OR highestRate0_norm != 0
-              OR lowestRate1_norm != 0
-              OR highestRate1_norm != 0
-            ) THEN 'strategy_paused'
-            WHEN descr = 'Updated Price' THEN 'edit_price'
-            ELSE descr
-          END AS action,
-          CASE
-            WHEN mrt."strategyId" IS NOT NULL THEN mrt."to"
-            ELSE ti.creation_wallet
-          END AS current_owner
-        FROM
-          trade_info ti
-          LEFT JOIN most_recent_transfer mrt ON ti.id = mrt."strategyId"
-      ),
-      complete_renamed AS (
-        SELECT
-          sorting_order,
-          deleteme,
-          evt_block_number AS block_number,
-          creation_wallet,
-          current_owner,
-          id,
-          action,
-          base_quote,
-          token0 AS base_sell_token_address,
-          symbol0 AS base_sell_token,
-          token1 AS quote_buy_token_address,
-          symbol1 AS quote_buy_token,
-          liquidity1 AS buy_budget,
-          liquidity0 AS sell_budget,
-          y1_delta AS buy_budget_change,
-          y0_delta AS sell_budget_change,
-          lowestrate1_norm AS buy_price_a,
-          marginalRate1_norm AS buy_price_marg,
-          highestrate1_norm AS buy_price_b,
-          lowestrate0_norm AS sell_price_a,
-          marginalRate0_norm AS sell_price_marg,
-          highestrate0_norm AS sell_price_b,
-          lowestrate1_norm_delta AS buy_price_a_delta,
-          marginalRate1_norm_delta AS buy_price_marg_delta,
-          highestrate1_norm_delta AS buy_price_b_delta,
-          lowestrate0_norm_delta AS sell_price_a_delta,
-          marginalRate0_norm_delta AS sell_price_marg_delta,
-          highestrate0_norm_delta AS sell_price_b_delta,
-          strategy_sold,
-          token_sold,
-          strategy_bought,
-          token_bought,
-          avg_price,
-          evt_block_time AS date,
-          txhash
-        FROM
-          complete_info
-      ),
-      prior_action AS (
-        SELECT DISTINCT ON (vm.id)
-          ci.*
-        FROM
-          voucher_minimal vm
-        LEFT JOIN
-          complete_renamed ci
-        ON
-          ci.id = vm.id
-          AND ci.block_number <= vm.block_number
-        ORDER BY
-          vm.id, ci.block_number DESC, ci.deleteme ASC
-      ),
-      transfer_action AS (
-        SELECT
-          sorting_order,
-          deleteme,
-          creation_wallet,
-          current_owner,
-          vm.id,
-          vm.action,
-          base_quote,
-          base_sell_token,
-          base_sell_token_address,
-          quote_buy_token,
-          quote_buy_token_address,
-          buy_budget,
-          sell_budget,
-          NULL :: DOUBLE PRECISION AS buy_budget_change,
-          NULL :: DOUBLE PRECISION AS sell_budget_change,
-          buy_price_a,
-          buy_price_marg,
-          buy_price_b,
-          sell_price_a,
-          sell_price_marg,
-          sell_price_b,
-          buy_price_a_delta,
-          buy_price_marg_delta,
-          buy_price_b_delta,
-          sell_price_a_delta,
-          sell_price_marg_delta,
-          sell_price_b_delta,
-          NULL :: DOUBLE PRECISION AS strategy_sold,
-          NULL AS token_sold,
-          NULL :: DOUBLE PRECISION AS strategy_bought,
-          NULL AS token_bought,
-          NULL :: DOUBLE PRECISION AS avg_price,
-          vm.date,
-          vm.txhash,
-          vm.old_owner,
-          vm.new_owner,
-          vm.block_number
-        FROM
-          voucher_minimal vm
-          LEFT JOIN prior_action pa ON pa.id = vm.id
-      ),
-      complete_actions AS (
-        SELECT
-          sorting_order,
-          deleteme,
-          creation_wallet,
-          current_owner,
-          NULL AS old_owner,
-          NULL AS new_owner,
-          id,
-          action,
-          base_quote,
-          base_sell_token,
-          base_sell_token_address,
-          quote_buy_token,
-          quote_buy_token_address,
-          buy_budget,
-          sell_budget,
-          buy_budget_change,
-          sell_budget_change,
-          buy_price_a,
-          buy_price_marg,
-          buy_price_b,
-          sell_price_a,
-          sell_price_marg,
-          sell_price_b,
-          buy_price_a_delta,
-          buy_price_marg_delta,
-          buy_price_b_delta,
-          sell_price_a_delta,
-          sell_price_marg_delta,
-          sell_price_b_delta,
-          strategy_sold,
-          token_sold,
-          strategy_bought,
-          token_bought,
-          avg_price,
-          date,
-          txhash,
-          block_number
-        FROM
-          complete_renamed
-        UNION
-        ALL
-        SELECT
-          sorting_order,
-          deleteme,
-          creation_wallet,
-          current_owner,
-          old_owner,
-          new_owner,
-          id,
-          action,
-          base_quote,
-          base_sell_token,
-          base_sell_token_address,
-          quote_buy_token,
-          quote_buy_token_address,
-          buy_budget,
-          sell_budget,
-          buy_budget_change,
-          sell_budget_change,
-          buy_price_a,
-          buy_price_marg,
-          buy_price_b,
-          sell_price_a,
-          sell_price_marg,
-          sell_price_b,
-          buy_price_a_delta,
-          buy_price_marg_delta,
-          buy_price_b_delta,
-          sell_price_a_delta,
-          sell_price_marg_delta,
-          sell_price_b_delta,
-          strategy_sold,
-          token_sold,
-          strategy_bought,
-          token_bought,
-          avg_price,
-          date,
-          txhash,
-          block_number
-        FROM
-          transfer_action
-      )
-      SELECT
-        creation_wallet,
-        current_owner,
-        old_owner,
-        new_owner,
-        id,
-        action,
-        base_quote,
-        base_sell_token,
-        base_sell_token_address,
-        quote_buy_token,
-        quote_buy_token_address,
-        buy_budget,
-        sell_budget,
-        buy_budget_change,
-        sell_budget_change,
-        buy_price_a,
-        buy_price_marg,
-        buy_price_b,
-        sell_price_a,
-        sell_price_marg,
-        sell_price_b,
-        buy_price_a_delta,
-        buy_price_marg_delta,
-        buy_price_b_delta,
-        sell_price_a_delta,
-        sell_price_marg_delta,
-        sell_price_b_delta,
-        strategy_sold,
-        token_sold,
-        strategy_bought,
-        token_bought,
-        avg_price,
-        date,
-        txhash,
-        block_number
-      FROM
-        complete_actions
-      WHERE
-        deleteme IS FALSE
-      ORDER BY
-        block_number,
-        sorting_order,
-        id;
-  `;
   }
 }
