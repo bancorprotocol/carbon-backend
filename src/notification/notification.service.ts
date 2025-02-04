@@ -17,6 +17,7 @@ export class NotificationService {
   private queueName: string;
   private location: string;
   private readonly eventServices = new Map<EventTypes, any>();
+  private shouldSendNotifications: boolean;
 
   constructor(
     private configService: ConfigService,
@@ -31,6 +32,7 @@ export class NotificationService {
     this.projectId = this.configService.get('GOOGLE_CLOUD_PROJECT');
     this.queueName = this.configService.get('QUEUE_NAME');
     this.location = this.configService.get('QUEUE_LOCATION');
+    this.shouldSendNotifications = this.configService.get('SEND_NOTIFICATIONS') === '1';
 
     // Register all event services
     this.registerEventServices();
@@ -46,7 +48,7 @@ export class NotificationService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
-    if (!deployment.notifications) return;
+    if (!deployment.notifications || !this.shouldSendNotifications) return;
 
     if (!this.queueName || !this.location) {
       throw new Error('QUEUE_NAME or QUEUE_LOCATION is not set');
