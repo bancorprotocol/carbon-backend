@@ -275,7 +275,7 @@ export class ActivityV2Service {
     };
   }
 
-  private processEvents(
+  processEvents(
     createdEvents: StrategyCreatedEvent[],
     updatedEvents: StrategyUpdatedEvent[],
     deletedEvents: StrategyDeletedEvent[],

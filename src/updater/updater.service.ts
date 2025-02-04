@@ -99,6 +99,10 @@ export class UpdaterService {
         }
       }
 
+      // const foo = await this.activityV2Service.getEthereumActivityDifferencesDetailed();
+      // console.log('foo', foo);
+      // return;
+
       // handle PairCreated events
       await this.pairCreatedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished pairs creation events for ${deployment.exchangeId}`);
