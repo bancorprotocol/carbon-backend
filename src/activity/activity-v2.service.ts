@@ -24,7 +24,6 @@ import { Activity } from './activity.entity';
 export class ActivityV2Service {
   private readonly BATCH_SIZE = 300000; // Number of blocks per batch
   private readonly SAVE_BATCH_SIZE = 1000; // Number of activities to save at once
-  strategyStates: StrategyStatesMap = new Map<string, StrategyState>();
 
   constructor(
     @InjectRepository(ActivityV2)
@@ -39,6 +38,7 @@ export class ActivityV2Service {
   ) {}
 
   async update(endBlock: number, deployment: Deployment, tokens: TokensByAddress): Promise<void> {
+    const strategyStates: StrategyStatesMap = new Map<string, StrategyState>();
     const key = `${deployment.blockchainType}-${deployment.exchangeId}-activities-v2`;
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
 
@@ -51,7 +51,7 @@ export class ActivityV2Service {
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
 
-    await this.initializeStrategyStates(lastProcessedBlock, deployment);
+    await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates);
 
     // Process blocks in batches
     for (let batchStart = lastProcessedBlock; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
@@ -73,6 +73,7 @@ export class ActivityV2Service {
         transferEvents,
         deployment,
         tokens,
+        strategyStates,
       );
 
       // Save activities in smaller batches
@@ -282,6 +283,7 @@ export class ActivityV2Service {
     transferEvents: VoucherTransferEvent[],
     deployment: Deployment,
     tokens: TokensByAddress,
+    strategyStates: StrategyStatesMap,
   ): ActivityV2[] {
     const activities: ActivityV2[] = [];
 
@@ -292,15 +294,9 @@ export class ActivityV2Service {
       switch (type) {
         case 'created': {
           const createdEvent = event as StrategyCreatedEvent;
-          const activity = createActivityFromEvent(
-            createdEvent,
-            'create_strategy',
-            deployment,
-            tokens,
-            this.strategyStates,
-          );
+          const activity = createActivityFromEvent(createdEvent, 'create_strategy', deployment, tokens, strategyStates);
           activities.push(activity);
-          this.strategyStates.set(createdEvent.strategyId, {
+          strategyStates.set(createdEvent.strategyId, {
             currentOwner: createdEvent.owner,
             creationWallet: createdEvent.owner,
             order0: createdEvent.order0,
@@ -312,7 +308,7 @@ export class ActivityV2Service {
           break;
         }
         case 'updated': {
-          const state = this.strategyStates.get(event.strategyId);
+          const state = strategyStates.get(event.strategyId);
           if (state) {
             const updatedEvent = event as StrategyUpdatedEvent;
             const activity = createActivityFromEvent(
@@ -320,7 +316,7 @@ export class ActivityV2Service {
               this.determineUpdateType(updatedEvent, state),
               deployment,
               tokens,
-              this.strategyStates,
+              strategyStates,
             );
             activities.push(activity);
             state.order0 = updatedEvent.order0;
@@ -331,9 +327,9 @@ export class ActivityV2Service {
         }
         case 'deleted': {
           const deletedEvent = event as StrategyDeletedEvent;
-          const activity = createActivityFromEvent(deletedEvent, 'deleted', deployment, tokens, this.strategyStates);
+          const activity = createActivityFromEvent(deletedEvent, 'deleted', deployment, tokens, strategyStates);
           activities.push(activity);
-          this.strategyStates.delete(deletedEvent.strategyId);
+          strategyStates.delete(deletedEvent.strategyId);
           break;
         }
         case 'transfer': {
@@ -345,7 +341,7 @@ export class ActivityV2Service {
           ) {
             break;
           }
-          const state = this.strategyStates.get(event.strategyId);
+          const state = strategyStates.get(event.strategyId);
           if (state) {
             const activity = this.createTransferActivity(transferEvent, state, deployment);
             activities.push(activity);
@@ -546,8 +542,12 @@ export class ActivityV2Service {
     return activity;
   }
 
-  private async initializeStrategyStates(lastProcessedBlock: number, deployment: Deployment): Promise<void> {
-    this.strategyStates.clear();
+  private async initializeStrategyStates(
+    lastProcessedBlock: number,
+    deployment: Deployment,
+    strategyStates: StrategyStatesMap,
+  ): Promise<void> {
+    strategyStates.clear();
 
     // Get all creation events using the all() method
     const creationEvents = await this.strategyCreatedEventService.all(deployment);
@@ -572,7 +572,7 @@ export class ActivityV2Service {
     for (const activity of lastEvents) {
       const creationEvent = creationEventsByStrategyId.get(activity.strategyId);
 
-      this.strategyStates.set(activity.strategyId, {
+      strategyStates.set(activity.strategyId, {
         currentOwner: activity.currentOwner,
         creationWallet: creationEvent.owner,
         order0: activity.order0,
