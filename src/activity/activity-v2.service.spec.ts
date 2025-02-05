@@ -318,6 +318,20 @@ describe('ActivityV2Service', () => {
       const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
       expect(activities[1].action).toBe('edit_price');
     });
+
+    it('should assign edit_price action for trade events when neither buy_low nor sell_high conditions are met', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const updatedEvent = {
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: '100', A: '2', B: '2' }), // Same y values
+        order1: JSON.stringify({ y: '100', A: '2', B: '2' }), // but different A/B
+        transactionHash: '0xtx2',
+        reason: 1, // Trade event
+      } as StrategyUpdatedEvent;
+
+      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      expect(activities[1].action).toBe('edit_price');
+    });
   });
 
   describe('batching behavior', () => {
