@@ -192,7 +192,8 @@ describe('ActivityV2Service', () => {
   describe('determine action type', () => {
     it('should assign create_strategy action for creation events', async () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
-      const activities = service.processEvents([createdEvent], [], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents([createdEvent], [], [], [], mockDeployment, mockTokens, strategyStates);
       expect(activities[0].action).toBe('create_strategy');
     });
 
@@ -200,13 +201,22 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '100', A: '0', B: '0' }), // Keep y, zero out A and B
-        order1: JSON.stringify({ y: '100', A: '0', B: '0' }), // Keep y, zero out A and B
+        order0: JSON.stringify({ y: '100', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '100', A: '0', B: '0' }),
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('strategy_paused');
     });
 
@@ -220,7 +230,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_deposit');
     });
 
@@ -234,7 +253,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_withdraw');
     });
 
@@ -248,7 +276,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_deposit_withdraw');
     });
 
@@ -262,7 +299,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_price');
     });
 
@@ -276,7 +322,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('deposit');
     });
 
@@ -290,7 +345,16 @@ describe('ActivityV2Service', () => {
         reason: 0,
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('withdraw');
     });
 
@@ -301,7 +365,8 @@ describe('ActivityV2Service', () => {
         order1: JSON.stringify({ y: '0', A: '0', B: '0' }),
       } as StrategyDeletedEvent;
 
-      const activities = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens, strategyStates);
       expect(activities[0].action).toBe('deleted');
     });
 
@@ -315,7 +380,16 @@ describe('ActivityV2Service', () => {
         reason: 1, // Trade event
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_price');
     });
 
@@ -329,18 +403,23 @@ describe('ActivityV2Service', () => {
         reason: 1, // Trade event
       } as StrategyUpdatedEvent;
 
-      const activities = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
       expect(activities[1].action).toBe('edit_price');
     });
   });
 
   describe('batching behavior', () => {
-    beforeEach(() => {
-      // Reset strategy states before each test
-      service.strategyStates.clear();
-    });
-
     it('should maintain correct state across batches', async () => {
+      const strategyStates = new Map();
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent1 = {
         ...baseUpdatedEvent,
@@ -365,6 +444,7 @@ describe('ActivityV2Service', () => {
         [],
         mockDeployment,
         mockTokens,
+        strategyStates,
       );
 
       // Verify first batch
@@ -374,8 +454,15 @@ describe('ActivityV2Service', () => {
       expect(firstBatchActivities[1].sellBudget).toBe('200');
 
       // Second batch: Process second update
-      // The state should already be set from the first batch
-      const secondBatchActivities = service.processEvents([], [updatedEvent2], [], [], mockDeployment, mockTokens);
+      const secondBatchActivities = service.processEvents(
+        [],
+        [updatedEvent2],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
 
       // Verify second batch maintains state from first batch
       expect(secondBatchActivities).toHaveLength(1);
@@ -393,11 +480,20 @@ describe('ActivityV2Service', () => {
       })) as StrategyUpdatedEvent[];
 
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const strategyStates = new Map();
 
       // Process events in batches of 2
-      const batch1 = service.processEvents([createdEvent], events.slice(0, 2), [], [], mockDeployment, mockTokens);
-      const batch2 = service.processEvents([], events.slice(2, 4), [], [], mockDeployment, mockTokens);
-      const batch3 = service.processEvents([], events.slice(4), [], [], mockDeployment, mockTokens);
+      const batch1 = service.processEvents(
+        [createdEvent],
+        events.slice(0, 2),
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
+      const batch2 = service.processEvents([], events.slice(2, 4), [], [], mockDeployment, mockTokens, strategyStates);
+      const batch3 = service.processEvents([], events.slice(4), [], [], mockDeployment, mockTokens, strategyStates);
 
       // Verify all events were processed
       expect(batch1).toHaveLength(3); // creation + 2 updates
@@ -426,18 +522,28 @@ describe('ActivityV2Service', () => {
         transactionHash: '0xtx3',
       } as StrategyDeletedEvent;
 
+      const strategyStates = new Map();
+
       // First batch: creation and update
-      const batch1 = service.processEvents([createdEvent], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const batch1 = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
 
       // Second batch: deletion
-      const batch2 = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens);
+      const batch2 = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens, strategyStates);
 
       expect(batch1).toHaveLength(2);
       expect(batch2).toHaveLength(1);
       expect(batch2[0].action).toBe('deleted');
 
       // Verify state is cleared after deletion
-      const batch3 = service.processEvents([], [updatedEvent], [], [], mockDeployment, mockTokens);
+      const batch3 = service.processEvents([], [updatedEvent], [], [], mockDeployment, mockTokens, strategyStates);
       expect(batch3).toHaveLength(0); // Should not process updates for deleted strategy
     });
   });
