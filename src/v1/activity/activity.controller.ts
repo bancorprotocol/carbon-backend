@@ -6,10 +6,14 @@ import { ActivityMetaDto } from './activity-meta.dto';
 import moment from 'moment';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-
+import { ActivityV2Service } from '../../activity/activity-v2.service';
 @Controller({ version: '1', path: ':exchangeId?/activity' })
 export class ActivityController {
-  constructor(private activityService: ActivityService, private deploymentService: DeploymentService) {}
+  constructor(
+    private activityService: ActivityService,
+    private activityV2Service: ActivityV2Service,
+    private deploymentService: DeploymentService,
+  ) {}
 
   private async getDeployment(exchangeId: ExchangeId): Promise<any> {
     return this.deploymentService.getDeploymentByExchangeId(exchangeId);
@@ -118,6 +122,30 @@ export class ActivityController {
     const deployment = await this.getDeployment(exchangeId);
     const _params = { ...params, deployment };
     const data = await this.activityService.getActivityMeta(_params, deployment);
+
+    // Collect meta information
+    const actions = [...new Set(data.actions.map((d) => this.formatAction(d)))];
+    return { ...data, actions };
+  }
+
+  @Get('v2')
+  @CacheTTL(1 * 60 * 1000)
+  @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
+  async activityV2(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityDto): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const _params = { ...params, limit: params.limit || 100, deployment };
+    const data = await this.activityV2Service.getFilteredActivities(_params, deployment);
+    return data.map((d) => this.mapData(d));
+  }
+
+  @Get('v2/meta')
+  @CacheTTL(1 * 60 * 1000)
+  @ApiExchangeIdParam()
+  async activityV2Meta(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityMetaDto): Promise<any> {
+    const deployment = await this.getDeployment(exchangeId);
+    const _params = { ...params, deployment };
+    const data = await this.activityV2Service.getActivityMeta(_params, deployment);
 
     // Collect meta information
     const actions = [...new Set(data.actions.map((d) => this.formatAction(d)))];
