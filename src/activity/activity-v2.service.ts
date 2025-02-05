@@ -436,20 +436,19 @@ export class ActivityV2Service {
         return 'edit_deposit_withdraw';
       }
 
-      // Case 4: Significant price change (with no y delta)
-      if (significantPriceChange) {
-        return 'edit_price';
-      }
-
-      // Case 5: No significant price change but deposit/withdraw activities
+      // Case 4: No significant price change but deposit/withdraw activities
       if (y0Delta.gt(0)) return 'deposit';
       if (y1Delta.gt(0)) return 'deposit';
       if (y0Delta.lt(0)) return 'withdraw';
       if (y1Delta.lt(0)) return 'withdraw';
 
-      // Case 0: If all A and B are set to 0 then Strategy Paused
+      // Case 5: If all A and B are set to 0 then Strategy Paused
       if (newOrder0.A.equals(0) && newOrder0.B.equals(0) && newOrder1.A.equals(0) && newOrder1.B.equals(0)) {
         return 'strategy_paused';
+      }
+      // Case 6: Significant price change (with no y delta)
+      if (significantPriceChange) {
+        return 'edit_price';
       }
 
       // Fallback: if no conditions met
@@ -597,53 +596,133 @@ export class ActivityV2Service {
       v2ActivitiesByKey.set(this.getCompositeKey(act), act);
     });
 
-    // Compare activities and collect differences
-    const differences = [];
-
+    // Define the numeric fields to compare.
+    const numericFields = [
+      'liquidity0',
+      'capacity0',
+      'liquidity1',
+      'capacity1',
+      'sellPriceA',
+      'sellPriceMarg',
+      'sellPriceB',
+      'buyPriceA',
+      'buyPriceMarg',
+      'buyPriceB',
+    ];
+  
+    // Tolerance for numeric comparisons.
+    const tolerance = 8; // Increasing further has rounding issues with WBTC
+  
+    // Helper function mimicking Jest's toBeCloseTo behavior.
+    // Jest uses: |a - b| < (10^-precision)/2.
+    const isCloseTo = (a: number, b: number, precision: number): boolean => {
+      return Math.abs(a - b) < Math.pow(10, -precision) / 2;
+    };
+  
+    const differences: any[] = [];
+  
+    // Loop over all old activities.
     for (const oldActivity of oldActivities) {
+      const activityDifferences = [];
       const key = this.getCompositeKey(oldActivity);
       const v2Activity = v2ActivitiesByKey.get(key);
-
+  
       if (!v2Activity) {
-        // Activity is missing entirely from v2
-        differences.push({
-          ...oldActivity,
-          differences: [
-            {
-              field: 'entire_record',
-              oldValue: {
-                blockNumber: oldActivity.blockNumber,
-                txhash: oldActivity.txhash,
-                timestamp: oldActivity.timestamp,
-              },
-              newValue: null,
-              status: 'missing',
-            },
-          ],
+        // v2 record is missing entirely.
+        activityDifferences.push({
+          field: 'entire_record',
+          oldValue: {
+            blockNumber: oldActivity.blockNumber,
+            txhash: oldActivity.txhash,
+            timestamp: oldActivity.timestamp,
+          },
+          newValue: null,
+          status: 'missing',
         });
-        continue;
+      } else {
+        // Compare the "action" field.
+        if (oldActivity.action !== v2Activity.action) {
+          activityDifferences.push({
+            field: 'action',
+            oldValue: oldActivity.action,
+            newValue: v2Activity.action,
+            status: 'different',
+          });
+        }
+  
+        // Compare each numeric field.
+        for (const field of numericFields) {
+          const oldRaw = oldActivity[field];
+          const newRaw = v2Activity[field];
+  
+          // If both values are undefined, skip this field.
+          if (oldRaw === undefined && newRaw === undefined) {
+            continue;
+          }
+  
+          // Check if this field is one of the ones to ignore when the action is "deleted".
+          // If so, and if either record has an action equal to "deleted", then skip logging differences.
+          // Handles an issue in the old query where marginal price calculations were incorrect for deleted actions
+          if (
+            (field === 'sellPriceMarg' || field === 'buyPriceMarg') &&
+            (oldActivity.action === 'deleted' || v2Activity.action === 'deleted')
+          ) {
+            continue;
+          }
+  
+          // If one is undefined, record that difference.
+          if (oldRaw === undefined || newRaw === undefined) {
+            activityDifferences.push({
+              field,
+              oldValue: oldRaw,
+              newValue: newRaw,
+              status: 'different',
+            });
+            continue;
+          }
+  
+          // Convert the values to numbers (using .toNumber() if available).
+          const oldVal =
+            typeof oldRaw.toNumber === 'function' ? oldRaw.toNumber() : Number(oldRaw);
+          const newVal =
+            typeof newRaw.toNumber === 'function' ? newRaw.toNumber() : Number(newRaw);
+  
+          // If conversion fails, record an error.
+          if (isNaN(oldVal) || isNaN(newVal)) {
+            activityDifferences.push({
+              field,
+              oldValue: oldRaw,
+              newValue: newRaw,
+              status: 'invalid number',
+            });
+            continue;
+          }
+  
+          // Compare the numbers using the tolerance.
+          if (!isCloseTo(oldVal, newVal, tolerance)) {
+            activityDifferences.push({
+              field,
+              oldValue: oldVal,
+              newValue: newVal,
+              status: 'different',
+            });
+          }
+        }
       }
-
-      // Only check for differences in action
-      if (oldActivity.action !== v2Activity.action) {
+  
+      // If any differences were recorded for this activity, add it to the differences list.
+      if (activityDifferences.length > 0) {
         differences.push({
           ...oldActivity,
-          differences: [
-            {
-              field: 'action',
-              oldValue: oldActivity.action,
-              newValue: v2Activity.action,
-              status: 'different',
-            },
-          ],
+          differences: activityDifferences,
         });
       }
     }
-
+  
     // Build summary report
     const reportLines: string[] = [];
     reportLines.push(`Total records with differences: ${differences.length}`);
-
+  
     return {
       differences,
       report: reportLines.join('\n'),
