@@ -99,10 +99,6 @@ export class UpdaterService {
         }
       }
 
-      // const foo = await this.activityV2Service.getEthereumActivityDifferencesDetailed();
-      // console.log('foo', foo);
-      // return;
-
       // handle PairCreated events
       await this.pairCreatedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished pairs creation events for ${deployment.exchangeId}`);
@@ -173,6 +169,11 @@ export class UpdaterService {
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;
       await this.redis.client.set(`${CARBON_IS_UPDATING}:${deploymentKey}`, 0);
+
+      // const foo = await this.activityV2Service.getEthereumActivityDifferencesDetailed();
+      // console.log('foo', foo);
+      // return;
+
     } catch (error) {
       console.log(`error in carbon updater for ${deploymentKey}`, error, Date.now() - t);
       this.isUpdating[deploymentKey] = false;

@@ -413,6 +413,7 @@ export class ActivityV2Service {
       B0Delta.abs().gt(threshold) ||
       B1Delta.abs().gt(threshold);
 
+      // Reason as 0 corresponds to a User Update
     if (event.reason === 0) {
       // Case 1: Significant price change with deposit-like conditions:
       // Either token0 increases while token1 remains unchanged, token1 increases while token0 is unchanged,
@@ -450,10 +451,42 @@ export class ActivityV2Service {
       if (y0Delta.lt(0)) return 'withdraw';
       if (y1Delta.lt(0)) return 'withdraw';
 
+      // Case 0: If all A and B are set to 0 then Strategy Paused
+      if (newOrder0.A.equals(0) && 
+          newOrder0.B.equals(0) && 
+          newOrder1.A.equals(0) && 
+          newOrder1.B.equals(0)
+        ) {
+        return 'strategy_paused';
+      }
+      
       // Fallback: if no conditions met
       return 'edit_price';
-    } else {
-      // For non-zero reasons (e.g. trade events with reason = 1) default to 'edit_price'.
+    } 
+
+      // Reason as 1 corresponds to Trade Occurred
+    if (event.reason === 1) {
+
+      // If token0 liquidity increases or token1 liquidity decreases then its sell high
+      if (
+        (y0Delta.gt(0) && y1Delta.lt(0)) ||     // common case
+        (y0Delta.equals(0) && y1Delta.lt(0)) || // edge case
+        (y0Delta.gt(0) && y1Delta.equals(0))    // edge case
+      ) {
+        return 'sell_high'
+      }
+      // If token0 liquidity decreases or token 1 liquidity increases then its buy low
+      if (
+        (y0Delta.lt(0) && y1Delta.gt(0)) ||     // common case
+        (y0Delta.equals(0) && y1Delta.gt(0)) || // edge case
+        (y0Delta.lt(0) && y1Delta.equals(0))    // edge case
+      ) {
+        return 'buy_low'
+      }
+    }
+
+    else {
+      // For non-zero reasons default to 'edit_price'.
       return 'edit_price';
     }
   }
@@ -624,9 +657,10 @@ export class ActivityV2Service {
 
   private getCompositeKey(activity: Partial<Activity | ActivityV2>): string {
     const blockNumber = activity.blockNumber ? String(activity.blockNumber) : '';
+    const strategyId = activity.strategyId;
     const txhash = (activity.txhash || '').toLowerCase();
     const timestamp = activity.timestamp ? activity.timestamp.getTime().toString() : '';
-    return [blockNumber, txhash, timestamp].join('|');
+    return [blockNumber, strategyId, txhash, timestamp].join('|');
   }
 
   private getActivityQuery(batchStart: number, batchEnd: number, deployment: Deployment): string {
