@@ -156,15 +156,15 @@ export class UpdaterService {
       await this.activityService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
 
-      await this.activityV2Service.update(endBlock, deployment, tokens);
-      console.log(`CARBON SERVICE - Finished updating activities-v2 for ${deployment.exchangeId}`);
-
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
       // handle notifications
       await this.notificationService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished notifications for ${deployment.exchangeId}`);
+
+      await this.activityV2Service.update(endBlock, deployment, tokens);
+      console.log(`CARBON SERVICE - Finished updating activities-v2 for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;
@@ -173,7 +173,6 @@ export class UpdaterService {
       // const foo = await this.activityV2Service.getEthereumActivityDifferencesDetailed();
       // console.log('foo', foo);
       // return;
-
     } catch (error) {
       console.log(`error in carbon updater for ${deploymentKey}`, error, Date.now() - t);
       this.isUpdating[deploymentKey] = false;
