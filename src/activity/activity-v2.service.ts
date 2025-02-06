@@ -452,7 +452,7 @@ export class ActivityV2Service {
       }
 
       // Fallback: if no conditions met
-      return 'edit_price';
+      return 'unknown_user_update';
     }
 
     // Reason as 1 corresponds to Trade Occurred
@@ -473,11 +473,11 @@ export class ActivityV2Service {
       ) {
         return 'buy_low';
       }
-      // Default to edit_price for trade events that don't match buy/sell patterns
-      return 'edit_price';
+      // Default to trade_occurred for trade events that don't match buy/sell patterns
+      return 'trade_occurred';
     } else {
-      // For non-zero reasons default to 'edit_price'.
-      return 'edit_price';
+      // For any unknown reasons default to 'unrecognized_action'.
+      return 'unrecognized_action';
     }
   }
 
