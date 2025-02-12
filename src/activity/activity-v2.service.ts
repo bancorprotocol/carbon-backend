@@ -20,6 +20,22 @@ import { TokensByAddress } from '../token/token.service';
 import { Decimal } from 'decimal.js';
 import { Activity } from './activity.entity';
 
+function deepEqual(obj1: any, obj2: any): boolean {
+  const keys1 = Object.keys(obj1);
+  const keys2 = Object.keys(obj2);
+  if (keys1.length !== keys2.length) {
+      return false;
+  }
+  return keys1.every(key => {
+      const val1 = obj1[key];
+      const val2 = obj2[key];
+      if (val1 instanceof Decimal && val2 instanceof Decimal) {
+          return val1.equals(val2);
+      }
+      return val1 === val2;
+  });
+}
+
 @Injectable()
 export class ActivityV2Service {
   private readonly BATCH_SIZE = 300000; // Number of blocks per batch
@@ -396,6 +412,8 @@ export class ActivityV2Service {
     // Calculate raw deltas from orders
     const y0Delta = newOrder0.y.minus(prevOrder0.y);
     const y1Delta = newOrder1.y.minus(prevOrder1.y);
+    const z0Delta = newOrder0.z.minus(prevOrder0.z);
+    const z1Delta = newOrder1.z.minus(prevOrder1.z);
     const A0Delta = newOrder0.A.minus(prevOrder0.A);
     const A1Delta = newOrder1.A.minus(prevOrder1.A);
     const B0Delta = newOrder0.B.minus(prevOrder0.B);
@@ -408,6 +426,11 @@ export class ActivityV2Service {
       A1Delta.abs().gt(threshold) ||
       B0Delta.abs().gt(threshold) ||
       B1Delta.abs().gt(threshold);
+
+    // Case 0: No change at all
+    if (deepEqual(prevOrder0, newOrder0) && deepEqual(prevOrder1, newOrder1)) {
+      return 'no_change';
+    }
 
     // Reason as 0 corresponds to a User Update
     if (event.reason === 0) {
@@ -446,9 +469,23 @@ export class ActivityV2Service {
       if (newOrder0.A.equals(0) && newOrder0.B.equals(0) && newOrder1.A.equals(0) && newOrder1.B.equals(0)) {
         return 'strategy_paused';
       }
+
       // Case 6: Significant price change (with no y delta)
       if (significantPriceChange) {
         return 'edit_price';
+      }
+
+      // Case 7: Z changes (with no y delta) are equivalent to no change. Requires that the above are already handled
+      if (
+        (newOrder0.y.equals(0) && y0Delta.equals(0) && (z0Delta.gt(0) || z0Delta.lt(0))) ||  // z can only change alone, if y is 0, otherwise it concentrates the liquidity
+        (newOrder1.y.equals(0) && y1Delta.equals(0) && (z1Delta.gt(0) || z1Delta.lt(0)))     // z can only change alone, if y is 0, otherwise it concentrates the liquidity
+      ) {
+        return 'no_change';
+      }
+
+      // Case when z0Delta is not zero or z1Delta is not zero
+      if (z0Delta.gt(0) || z0Delta.lt(0) || z1Delta.gt(0) || z1Delta.lt(0)) {
+        return 'liquidity_concentration_changed';
       }
 
       // Fallback: if no conditions met
