@@ -15,7 +15,6 @@ import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-upda
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
-import { ActivityService } from '../activity/activity.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
@@ -45,7 +44,6 @@ export class UpdaterService {
     private coingeckoService: CoingeckoService,
     private tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
-    private activityService: ActivityService,
     private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
     private dexScreenerService: DexScreenerService,
@@ -153,7 +151,7 @@ export class UpdaterService {
       await this.voucherTransferEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating voucher transfer events for ${deployment.exchangeId}`);
 
-      await this.activityService.update(endBlock, deployment);
+      await this.activityV2Service.update(endBlock, deployment, tokens);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
 
       await this.tvlService.update(endBlock, deployment);
@@ -163,16 +161,9 @@ export class UpdaterService {
       await this.notificationService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished notifications for ${deployment.exchangeId}`);
 
-      await this.activityV2Service.update(endBlock, deployment, tokens);
-      console.log(`CARBON SERVICE - Finished updating activities-v2 for ${deployment.exchangeId}`);
-
       console.log(`CARBON SERVICE - Finished update iteration for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdating[deploymentKey] = false;
       await this.redis.client.set(`${CARBON_IS_UPDATING}:${deploymentKey}`, 0);
-
-      // const foo = await this.activityV2Service.getEthereumActivityDifferencesDetailed();
-      // console.log('foo', foo);
-      // return;
     } catch (error) {
       console.log(`error in carbon updater for ${deploymentKey}`, error, Date.now() - t);
       this.isUpdating[deploymentKey] = false;

@@ -239,3 +239,19 @@ export function createActivityFromEvent(
 
   return activity;
 }
+
+export function ordersEqual(obj1: any, obj2: any): boolean {
+  const keys1 = Object.keys(obj1);
+  const keys2 = Object.keys(obj2);
+  if (keys1.length !== keys2.length) {
+    return false;
+  }
+  return keys1.every((key) => {
+    const val1 = obj1[key];
+    const val2 = obj2[key];
+    if (val1 instanceof Decimal && val2 instanceof Decimal) {
+      return val1.equals(val2);
+    }
+    return val1 === val2;
+  });
+}

@@ -1,6 +1,5 @@
-import { Controller, Get, Header, Query, Param } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
-import { ActivityService } from '../../activity/activity.service';
 import { ActivityDto } from './activity.dto';
 import { ActivityMetaDto } from './activity-meta.dto';
 import moment from 'moment';
@@ -9,11 +8,7 @@ import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.dec
 import { ActivityV2Service } from '../../activity/activity-v2.service';
 @Controller({ version: '1', path: ':exchangeId?/activity' })
 export class ActivityController {
-  constructor(
-    private activityService: ActivityService,
-    private activityV2Service: ActivityV2Service,
-    private deploymentService: DeploymentService,
-  ) {}
+  constructor(private activityV2Service: ActivityV2Service, private deploymentService: DeploymentService) {}
 
   private async getDeployment(exchangeId: ExchangeId): Promise<any> {
     return this.deploymentService.getDeploymentByExchangeId(exchangeId);
@@ -111,7 +106,7 @@ export class ActivityController {
   async activity(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityDto): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const _params = { ...params, limit: params.limit || 100, deployment };
-    const data = await this.activityService.getFilteredActivities(_params, deployment);
+    const data = await this.activityV2Service.getFilteredActivities(_params, deployment);
     return data.map((d) => this.mapData(d));
   }
 
@@ -121,7 +116,7 @@ export class ActivityController {
   async activityMeta(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: ActivityMetaDto): Promise<any> {
     const deployment = await this.getDeployment(exchangeId);
     const _params = { ...params, deployment };
-    const data = await this.activityService.getActivityMeta(_params, deployment);
+    const data = await this.activityV2Service.getActivityMeta(_params, deployment);
 
     // Collect meta information
     const actions = [...new Set(data.actions.map((d) => this.formatAction(d)))];
