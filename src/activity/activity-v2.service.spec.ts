@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ActivityV2Service } from './activity-v2.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ActivityV2 } from './activity-v2.entity';
-import { Activity } from './activity.entity';
 import { Repository } from 'typeorm';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
@@ -130,7 +129,6 @@ const baseDeletedEvent: StrategyDeletedEvent = {
 describe('ActivityV2Service', () => {
   let service: ActivityV2Service;
   let mockActivityRepository: Partial<Repository<ActivityV2>>;
-  let mockOldActivityRepository: Partial<Repository<Activity>>;
 
   beforeEach(async () => {
     mockActivityRepository = {
@@ -144,21 +142,12 @@ describe('ActivityV2Service', () => {
       }),
     };
 
-    mockOldActivityRepository = {
-      create: jest.fn(),
-      save: jest.fn(),
-    };
-
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         ActivityV2Service,
         {
           provide: getRepositoryToken(ActivityV2),
           useValue: mockActivityRepository,
-        },
-        {
-          provide: getRepositoryToken(Activity),
-          useValue: mockOldActivityRepository,
         },
         {
           provide: LastProcessedBlockService,
@@ -202,7 +191,7 @@ describe('ActivityV2Service', () => {
       const updatedEvent = {
         ...baseUpdatedEvent,
         order0: JSON.stringify({ y: '10_000000000000000000', A: '0', B: '0' }), // Set both B values to 0
-        order1: JSON.stringify({ y: '2000_000000', A: '0', B: '0' }),           
+        order1: JSON.stringify({ y: '2000_000000', A: '0', B: '0' }),
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
@@ -224,8 +213,13 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '10_000000000000000000', z: '10_000000000000000000', A: '0', B: '4409572391052980' }),
-        order1: JSON.stringify({ y: '2000_000000', z: '2000_000000', A: '0', B: '12397686690' }),      
+        order0: JSON.stringify({
+          y: '10_000000000000000000',
+          z: '10_000000000000000000',
+          A: '0',
+          B: '4409572391052980',
+        }),
+        order1: JSON.stringify({ y: '2000_000000', z: '2000_000000', A: '0', B: '12397686690' }),
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
@@ -240,15 +234,20 @@ describe('ActivityV2Service', () => {
         mockTokens,
         strategyStates,
       );
-      expect(activities[1].action).toBe('no_change');
+      expect(activities[1].action).toBe('edit_price');
     });
 
     it('should assign liquidity_concentration_changed action when the state doesnt change', async () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '10_000000000000000000', z: '10_000000000000000000', A: '0', B: '4409572391052980' }),
-        order1: JSON.stringify({ y: '2000_000000', z: '4000_000000', A: '0', B: '12397686690' }),    
+        order0: JSON.stringify({
+          y: '10_000000000000000000',
+          z: '10_000000000000000000',
+          A: '0',
+          B: '4409572391052980',
+        }),
+        order1: JSON.stringify({ y: '2000_000000', z: '4000_000000', A: '0', B: '12397686690' }),
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
@@ -263,14 +262,14 @@ describe('ActivityV2Service', () => {
         mockTokens,
         strategyStates,
       );
-      expect(activities[1].action).toBe('liquidity_concentration_changed');
+      expect(activities[1].action).toBe('edit_price');
     });
 
     it('should assign edit_deposit action when prices change with deposit', async () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4416648363926356' }),  // Increased y and changed prices
+        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4416648363926356' }), // Increased y and changed prices
         order1: JSON.stringify({ y: '2000_000000', A: '0', B: '12397686690' }),
         transactionHash: '0xtx2',
         reason: 0,
@@ -293,7 +292,7 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '9_000000000000000000', A: '0', B: '4416648363926356' }),  // Decreased y and changed prices
+        order0: JSON.stringify({ y: '9_000000000000000000', A: '0', B: '4416648363926356' }), // Decreased y and changed prices
         order1: JSON.stringify({ y: '2000_000000', A: '0', B: '12397686690' }),
         transactionHash: '0xtx2',
         reason: 0,
@@ -316,8 +315,8 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4416648363926356' }),  // Increased y and changed prices
-        order1: JSON.stringify({ y: '1600_000000', A: '0', B: '12397686690' }),                 // Decrease y
+        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4416648363926356' }), // Increased y and changed prices
+        order1: JSON.stringify({ y: '1600_000000', A: '0', B: '12397686690' }), // Decrease y
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
@@ -339,8 +338,8 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '10_000000000000000000', A: '0', B: '4416648363926356' }),  // Same y and changed prices
-        order1: JSON.stringify({ y: '2000_000000', A: '0', B: '12397686690' }),                 
+        order0: JSON.stringify({ y: '10_000000000000000000', A: '0', B: '4416648363926356' }), // Same y and changed prices
+        order1: JSON.stringify({ y: '2000_000000', A: '0', B: '12397686690' }),
         transactionHash: '0xtx2',
         reason: 0,
       } as StrategyUpdatedEvent;
@@ -420,8 +419,8 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4409572391052980' }),  // Increased y, same prices
-        order1: JSON.stringify({ y: '1600_000000', A: '0', B: '12397686690' }),                 // Decreased y, same prices
+        order0: JSON.stringify({ y: '11_000000000000000000', A: '0', B: '4409572391052980' }), // Increased y, same prices
+        order1: JSON.stringify({ y: '1600_000000', A: '0', B: '12397686690' }), // Decreased y, same prices
         transactionHash: '0xtx2',
         reason: 1, // Trade event
       } as StrategyUpdatedEvent;
@@ -443,8 +442,8 @@ describe('ActivityV2Service', () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
         ...baseUpdatedEvent,
-        order0: JSON.stringify({ y: '9_000000000000000000', A: '0', B: '4409572391052980' }),  // Decreased y, same prices
-        order1: JSON.stringify({ y: '2200_000000', A: '0', B: '12397686690' }),                // Increased y, same prices
+        order0: JSON.stringify({ y: '9_000000000000000000', A: '0', B: '4409572391052980' }), // Decreased y, same prices
+        order1: JSON.stringify({ y: '2200_000000', A: '0', B: '12397686690' }), // Increased y, same prices
         transactionHash: '0xtx2',
         reason: 1, // Trade event
       } as StrategyUpdatedEvent;
