@@ -77,8 +77,8 @@ const baseCreatedEvent: StrategyCreatedEvent = {
   owner: '0xowner',
   token0: mockTokens['0xtoken0'],
   token1: mockTokens['0xtoken1'],
-  order0: JSON.stringify({ y: '10_000000000000000000', A: '0', B: '4409572391052980' }),
-  order1: JSON.stringify({ y: '2000_000000', A: '0', B: '12397686690' }),
+  order0: JSON.stringify({ y: '10_000000000000000000', z: '10_000000000000000000', A: '0', B: '4409572391052980' }),
+  order1: JSON.stringify({ y: '2000_000000', z: '2000_000000', A: '0', B: '12397686690' }),
   block: {
     id: 1,
     blockchainType: mockDeployment.blockchainType,
@@ -218,6 +218,52 @@ describe('ActivityV2Service', () => {
         strategyStates,
       );
       expect(activities[1].action).toBe('strategy_paused');
+    });
+
+    it('should assign no_change action when the updated event is the same', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const updatedEvent = {
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: '10_000000000000000000', z: '10_000000000000000000', A: '0', B: '4409572391052980' }),
+        order1: JSON.stringify({ y: '2000_000000', z: '2000_000000', A: '0', B: '12397686690' }),      
+        transactionHash: '0xtx2',
+        reason: 0,
+      } as StrategyUpdatedEvent;
+
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
+      expect(activities[1].action).toBe('no_change');
+    });
+
+    it('should assign liquidity_concentration_changed action when the state doesnt change', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const updatedEvent = {
+        ...baseUpdatedEvent,
+        order0: JSON.stringify({ y: '10_000000000000000000', z: '10_000000000000000000', A: '0', B: '4409572391052980' }),
+        order1: JSON.stringify({ y: '2000_000000', z: '4000_000000', A: '0', B: '12397686690' }),    
+        transactionHash: '0xtx2',
+        reason: 0,
+      } as StrategyUpdatedEvent;
+
+      const strategyStates = new Map();
+      const activities = service.processEvents(
+        [createdEvent],
+        [updatedEvent],
+        [],
+        [],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
+      expect(activities[1].action).toBe('liquidity_concentration_changed');
     });
 
     it('should assign edit_deposit action when prices change with deposit', async () => {
