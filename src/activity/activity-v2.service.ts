@@ -15,26 +15,9 @@ import { StrategyUpdatedEventService } from '../events/strategy-updated-event/st
 import { StrategyDeletedEventService } from '../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { StrategyState, StrategyStatesMap } from './activity.types';
-import { createActivityFromEvent, parseOrder, processOrders } from './activity.utils';
+import { createActivityFromEvent, ordersEqual, parseOrder, processOrders } from './activity.utils';
 import { TokensByAddress } from '../token/token.service';
 import { Decimal } from 'decimal.js';
-
-function deepEqual(obj1: any, obj2: any): boolean {
-  const keys1 = Object.keys(obj1);
-  const keys2 = Object.keys(obj2);
-  if (keys1.length !== keys2.length) {
-    return false;
-  }
-  return keys1.every((key) => {
-    const val1 = obj1[key];
-    const val2 = obj2[key];
-    if (val1 instanceof Decimal && val2 instanceof Decimal) {
-      return val1.equals(val2);
-    }
-    return val1 === val2;
-  });
-}
-
 @Injectable()
 export class ActivityV2Service {
   private readonly BATCH_SIZE = 300000; // Number of blocks per batch
@@ -440,7 +423,7 @@ export class ActivityV2Service {
       B1Delta.abs().gt(threshold);
 
     // Case 0: No change at all
-    if (deepEqual(prevOrder0, newOrder0) && deepEqual(prevOrder1, newOrder1)) {
+    if (ordersEqual(prevOrder0, newOrder0) && ordersEqual(prevOrder1, newOrder1)) {
       return 'edit_price';
     }
 
