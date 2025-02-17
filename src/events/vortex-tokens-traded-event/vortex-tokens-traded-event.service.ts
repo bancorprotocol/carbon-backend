@@ -35,7 +35,7 @@ export class VortexTokensTradedEventService {
     return this.repository
       .createQueryBuilder('vortexTokensTradedEvents')
       .leftJoinAndSelect('vortexTokensTradedEvents.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('vortexTokensTradedEvents.blockchainType = :blockchainType', {
         blockchainType: deployment.blockchainType,

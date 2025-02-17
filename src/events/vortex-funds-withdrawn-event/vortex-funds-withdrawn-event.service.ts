@@ -30,7 +30,7 @@ export class VortexFundsWithdrawnEventService {
     return this.repository
       .createQueryBuilder('vortexFundsWithdrawnEvents')
       .leftJoinAndSelect('vortexFundsWithdrawnEvents.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('vortexFundsWithdrawnEvents.blockchainType = :blockchainType', {
         blockchainType: deployment.blockchainType,

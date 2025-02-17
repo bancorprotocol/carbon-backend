@@ -42,7 +42,7 @@ export class VoucherTransferEventService {
     return this.repository
       .createQueryBuilder('v')
       .leftJoinAndSelect('v.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('v.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('v.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })

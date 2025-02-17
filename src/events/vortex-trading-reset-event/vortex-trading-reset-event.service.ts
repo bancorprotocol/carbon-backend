@@ -36,7 +36,7 @@ export class VortexTradingResetEventService {
     return this.repository
       .createQueryBuilder('vortexTradingResetEvents')
       .leftJoinAndSelect('vortexTradingResetEvents.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('vortexTradingResetEvents.blockchainType = :blockchainType', {
         blockchainType: deployment.blockchainType,
