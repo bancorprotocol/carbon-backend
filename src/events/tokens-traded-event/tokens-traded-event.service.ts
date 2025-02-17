@@ -142,7 +142,7 @@ export class TokensTradedEventService {
       .leftJoinAndSelect('tokensTradedEvents.pair', 'pair')
       .leftJoinAndSelect('tokensTradedEvents.sourceToken', 'sourceToken')
       .leftJoinAndSelect('tokensTradedEvents.targetToken', 'targetToken')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('tokensTradedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('tokensTradedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })

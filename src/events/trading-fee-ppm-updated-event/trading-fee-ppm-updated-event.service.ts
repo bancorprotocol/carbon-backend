@@ -48,7 +48,7 @@ export class TradingFeePpmUpdatedEventService {
       .leftJoinAndSelect('tradingFeePpmUpdatedEvents.pair', 'pair')
       .leftJoinAndSelect('pair.token0', 'token0')
       .leftJoinAndSelect('pair.token1', 'token1')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('tradingFeePpmUpdatedEvents.blockchainType = :blockchainType', {
         blockchainType: deployment.blockchainType,

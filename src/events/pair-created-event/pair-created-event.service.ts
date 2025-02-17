@@ -30,7 +30,7 @@ export class PairCreatedEventService {
     return this.repository
       .createQueryBuilder('pairCreatedEvent')
       .leftJoinAndSelect('pairCreatedEvent.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('pairCreatedEvent.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('pairCreatedEvent.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })

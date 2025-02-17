@@ -56,7 +56,7 @@ export class StrategyCreatedEventService {
       .leftJoinAndSelect('strategyCreatedEvents.pair', 'pair')
       .leftJoinAndSelect('strategyCreatedEvents.token0', 'token0')
       .leftJoinAndSelect('strategyCreatedEvents.token1', 'token1')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('strategyCreatedEvents.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('strategyCreatedEvents.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })

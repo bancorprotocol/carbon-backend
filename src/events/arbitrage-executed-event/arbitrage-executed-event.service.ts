@@ -42,7 +42,7 @@ export class ArbitrageExecutedEventService {
     return this.repository
       .createQueryBuilder('arbitrageExecutedEvents')
       .leftJoinAndSelect('arbitrageExecutedEvents.block', 'block')
-      .where('block.id > :startBlock', { startBlock })
+      .where('block.id >= :startBlock', { startBlock })
       .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('arbitrageExecutedEvents.blockchainType = :blockchainType', {
         blockchainType: deployment.blockchainType,
