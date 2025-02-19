@@ -9,7 +9,7 @@ import { toTimestamp } from '../../utilities';
 import { PairTradingFeePpmUpdatedEventService } from '../../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
-import { BlockchainType, Deployment } from '../../deployment/deployment.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class SimulatorService {

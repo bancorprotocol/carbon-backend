@@ -361,6 +361,10 @@ export class HistoricQuoteService implements OnModuleInit {
     const candlesByAddress: { [key: string]: Candlestick[] } = {};
 
     result.forEach((row: any) => {
+      if (!row.open) {
+        return;
+      }
+
       const timestamp = moment(row.bucket).utc();
 
       if (timestamp.isSameOrAfter(startQ)) {
@@ -414,7 +418,7 @@ export class HistoricQuoteService implements OnModuleInit {
       const quote = data[tokenB][i];
 
       // Skip if either close price is null
-      if (base.close === null || quote.close === null) {
+      if (!base || !quote || base.close === null || quote.close === null) {
         return;
       }
 
