@@ -23,7 +23,7 @@ import { VortexTradingResetEventService } from '../events/vortex-trading-reset-e
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 import { NotificationService } from '../notification/notification.service';
 import { ActivityV2Service } from '../activity/activity-v2.service';
-
+import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
@@ -54,6 +54,7 @@ export class UpdaterService {
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     private notificationService: NotificationService,
+    private protectionRemovedEventService: ProtectionRemovedEventService,
     private activityV2Service: ActivityV2Service,
     @Inject('REDIS') private redis: any,
   ) {
@@ -112,6 +113,10 @@ export class UpdaterService {
       // handle VortexTradingReset events
       await this.vortexTradingResetEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating vortex trading reset events for ${deployment.exchangeId}`);
+
+      // handle ProtectionRemoved events
+      await this.protectionRemovedEventService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating protection removed events for ${deployment.exchangeId}`);
 
       // TODO: REQUIRES HANDLING THE ABI TYPE MISMATCH
       // handle VortexFundsWithdrawn events

@@ -21,7 +21,7 @@ import { BigNumber } from '@ethersproject/bignumber';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { ConfigService } from '@nestjs/config';
 import { sleep } from '../utilities';
-
+import { LiquidityProtectionStore } from '../abis/LiquidityProtectionStore.abi';
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
 };
@@ -33,6 +33,7 @@ export enum ContractsNames {
   CarbonVortex = 'CarbonVortex',
   CarbonVoucher = 'CarbonVoucher',
   BancorArbitrage = 'BancorArbitrage',
+  LiquidityProtectionStore = 'LiquidityProtectionStore',
 }
 
 const Contracts = {
@@ -42,6 +43,7 @@ const Contracts = {
   [ContractsNames.CarbonVortex]: CarbonVortex,
   [ContractsNames.CarbonVoucher]: CarbonVoucher,
   [ContractsNames.BancorArbitrage]: BancorArbitrage,
+  [ContractsNames.LiquidityProtectionStore]: LiquidityProtectionStore,
 };
 
 export interface ConstantField {

@@ -9,7 +9,7 @@ import { Deployment } from '../deployment/deployment.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 import { EventTypes } from '../events/event-types';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
-
+import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 @Injectable()
 export class NotificationService {
   private tasksClient: any;
@@ -28,6 +28,7 @@ export class NotificationService {
     private strategyCreatedEventService: StrategyCreatedEventService,
     private lastProcessedBlockService: LastProcessedBlockService,
     private tokensTradedEventService: TokensTradedEventService,
+    private protectionRemovedEventService: ProtectionRemovedEventService,
   ) {
     this.projectId = this.configService.get('GOOGLE_CLOUD_PROJECT');
     this.queueName = this.configService.get('QUEUE_NAME');
@@ -45,6 +46,7 @@ export class NotificationService {
     this.eventServices.set(EventTypes.VortexFundsWithdrawnEvent, this.vortexFundsWithdrawnEventService);
     this.eventServices.set(EventTypes.StrategyCreatedEvent, this.strategyCreatedEventService);
     this.eventServices.set(EventTypes.TokensTradedEvent, this.tokensTradedEventService);
+    this.eventServices.set(EventTypes.ProtectionRemovedEvent, this.protectionRemovedEventService);
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {

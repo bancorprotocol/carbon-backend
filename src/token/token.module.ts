@@ -10,7 +10,7 @@ import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event
 import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
 import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
-
+import { ProtectionRemovedEventModule } from '../events/protection-removed-event/protection-removed-event.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([Token]),
@@ -22,6 +22,7 @@ import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdraw
     VortexTokensTradedEventModule,
     VortexTradingResetEventModule,
     VortexFundsWithdrawnEventModule,
+    ProtectionRemovedEventModule,
   ],
   providers: [TokenService],
   exports: [TokenService, TypeOrmModule.forFeature([Token])],

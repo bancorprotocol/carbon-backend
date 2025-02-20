@@ -13,7 +13,7 @@ import { Deployment } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
 import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
-
+import { ProtectionRemovedEvent } from '../events/protection-removed-event/protection-removed-event.entity';
 const TransferAbi = ['event Transfer (address indexed from, address indexed to, uint256 value)'];
 
 @Injectable()
@@ -75,6 +75,10 @@ export class TelegramService {
         break;
       case EventTypes.VortexTokensTradedEvent:
         message = await this.formatVortexTokenTradedMessage(event, tokens, quotes, deployment);
+        threadId = deployment.notifications.telegram.threads.vortexId;
+        break;
+      case EventTypes.ProtectionRemovedEvent:
+        message = await this.formatProtectionRemovedMessage(event, tokens, quotes, deployment);
         threadId = deployment.notifications.telegram.threads.vortexId;
         break;
     }
@@ -271,6 +275,30 @@ Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceTok
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
 ⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
+  }
+
+  private async formatProtectionRemovedMessage(
+    event: ProtectionRemovedEvent,
+    tokens: TokensByAddress,
+    quotes: QuotesByAddress,
+    deployment: Deployment,
+  ): Promise<string> {
+    const reserveTokenInfo = tokens[event.reserveToken];
+    const reserveAmount = event.reserveAmount;
+
+    const usdRate = await this.getUsdRate(reserveTokenInfo.address, quotes, deployment);
+    const formattedTokenAmount = this.amountToken(reserveAmount, 6, reserveTokenInfo);
+    const formattedUsdAmount = this.amountUSD(reserveAmount, 4, usdRate.toString(), reserveTokenInfo);
+
+    const message = `🚨🚨 <b>Protection Removed</b> 🚨🚨
+    
+🏊‍♂️ Pool: ${reserveTokenInfo.symbol}BNT
+Amount: <b>${formattedTokenAmount} ${reserveTokenInfo.symbol} (${formattedUsdAmount})</b>
+
+🗓️ ${new Date(event.timestamp).toLocaleString()}
+⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
+
+    return message;
   }
 
   private async getUsdRate(

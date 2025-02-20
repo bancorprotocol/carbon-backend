@@ -1,4 +1,4 @@
-import { Controller, Post, Body } from '@nestjs/common';
+import { Controller, Post, Body, Get } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
 import { EventTypes } from '../events/event-types';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
@@ -10,6 +10,7 @@ import { TokenService } from '../token/token.service';
 import { QuoteService } from '../quote/quote.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
+import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 import { ApiExcludeController } from '@nestjs/swagger';
 
 interface EventService {
@@ -32,6 +33,7 @@ export class NotificationController {
     private quoteService: QuoteService,
     private strategyCreatedEventService: StrategyCreatedEventService,
     private tokensTradedEventService: TokensTradedEventService,
+    private protectionRemovedEventService: ProtectionRemovedEventService,
   ) {
     this.eventServiceMap = new Map<EventTypes, EventService>([
       [EventTypes.ArbitrageExecutedEvent, arbitrageExecutedEventService],
@@ -40,10 +42,12 @@ export class NotificationController {
       [EventTypes.VortexFundsWithdrawnEvent, vortexFundsWithdrawnEventService],
       [EventTypes.StrategyCreatedEvent, strategyCreatedEventService],
       [EventTypes.TokensTradedEvent, tokensTradedEventService],
+      [EventTypes.ProtectionRemovedEvent, protectionRemovedEventService],
     ]);
   }
 
   @Post('telegram')
+  @Get('telegram')
   async sendTelegramNotification(@Body() data: any) {
     const { eventType, eventId } = data;
 
