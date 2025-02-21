@@ -13,7 +13,7 @@ import { TokenModule } from '../token/token.module';
 import { QuoteModule } from '../quote/quote.module';
 import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
 import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-traded-event.module';
-
+import { ProtectionRemovedEventModule } from '../events/protection-removed-event/protection-removed-event.module';
 @Module({
   imports: [
     ConfigModule,
@@ -27,6 +27,7 @@ import { TokensTradedEventModule } from '../events/tokens-traded-event/tokens-tr
     QuoteModule,
     StrategyCreatedEventModule,
     TokensTradedEventModule,
+    ProtectionRemovedEventModule,
   ],
   controllers: [NotificationController],
   providers: [NotificationService, TelegramService],

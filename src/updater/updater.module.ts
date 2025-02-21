@@ -29,6 +29,7 @@ import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-ev
 import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
 import { NotificationModule } from '../notification/notification.module';
+import { ProtectionRemovedEventModule } from '../events/protection-removed-event/protection-removed-event.module';
 @Module({
   imports: [
     BlockModule,
@@ -60,6 +61,7 @@ import { NotificationModule } from '../notification/notification.module';
     VortexTradingResetEventModule,
     VortexFundsWithdrawnEventModule,
     NotificationModule,
+    ProtectionRemovedEventModule,
   ],
   providers: [UpdaterService],
 })

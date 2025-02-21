@@ -5,4 +5,5 @@ export enum EventTypes {
   VortexFundsWithdrawnEvent = 'VortexFundsWithdrawnEvent',
   StrategyCreatedEvent = 'StrategyCreatedEvent',
   TokensTradedEvent = 'TokensTradedEvent',
+  ProtectionRemovedEvent = 'ProtectionRemovedEvent',
 }

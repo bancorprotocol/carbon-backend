@@ -58,10 +58,12 @@ export interface Deployment {
     title: string;
     telegram: {
       botToken: string;
+      bancorProtectionToken?: string;
       threads: {
         carbonThreadId: number;
         fastlaneId: number;
         vortexId: number;
+        bancorProtectionId?: number;
       };
     };
   };
@@ -105,6 +107,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0x41Eeba3355d7D6FF628B7982F3F9D055c39488cB',
           },
+          LiquidityProtectionStore: {
+            address: '0xf5FAB5DBD2f3bf675dE4cB76517d4767013cfB55',
+          },
         },
         notifications: {
           explorerUrl: this.configService.get('ETHEREUM_EXPLORER_URL'),
@@ -112,10 +117,12 @@ export class DeploymentService {
           title: 'Ethereum',
           telegram: {
             botToken: this.configService.get('ETHEREUM_TELEGRAM_BOT_TOKEN'),
+            bancorProtectionToken: this.configService.get('ETHEREUM_BANCOR_PROTECTION_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('ETHEREUM_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('ETHEREUM_FASTLANE_THREAD_ID'),
               vortexId: this.configService.get('ETHEREUM_VORTEX_THREAD_ID'),
+              bancorProtectionId: this.configService.get('ETHEREUM_BANCOR_PROTECTION_THREAD_ID'),
             },
           },
         },

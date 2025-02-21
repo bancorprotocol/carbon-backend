@@ -12,7 +12,7 @@ import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-e
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
-
+import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 export interface TokensByAddress {
   [address: string]: Token;
 }
@@ -34,6 +34,7 @@ export class TokenService {
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
+    private protectionRemovedEventService: ProtectionRemovedEventService,
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
@@ -80,6 +81,13 @@ export class TokenService {
         deployment,
       );
 
+      // fetch protection removed events
+      const newProtectionRemovedEvents = await this.protectionRemovedEventService.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
       // Create array of AddressData objects with both address and blockId
       const addressesData: AddressData[] = [
         ...newPairCreatedEvents.map((e) => ({ address: e.token0, blockId: e.block.id })),
@@ -95,6 +103,8 @@ export class TokenService {
         ...newVortexFundsWithdrawnEvents
           .map((e) => e.tokens.map((token) => ({ address: token, blockId: e.block.id })))
           .flat(),
+        ...newProtectionRemovedEvents.map((e) => ({ address: e.poolToken, blockId: e.block.id })),
+        ...newProtectionRemovedEvents.map((e) => ({ address: e.reserveToken, blockId: e.block.id })),
       ];
 
       // Sort by blockId to ensure we process in chronological order
