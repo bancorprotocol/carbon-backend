@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get } from '@nestjs/common';
+import { Controller, Post, Body } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
 import { EventTypes } from '../events/event-types';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
@@ -47,7 +47,6 @@ export class NotificationController {
   }
 
   @Post('telegram')
-  @Get('telegram')
   async sendTelegramNotification(@Body() data: any) {
     const { eventType, eventId } = data;
 
