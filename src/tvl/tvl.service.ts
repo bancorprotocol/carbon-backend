@@ -578,6 +578,10 @@ export class TvlService {
         .orderBy('tvl.evt_block_number', 'ASC')
         .limit(1)
         .getOne();
+
+      if (!firstTvlUpdate) {
+        return;
+      }
       lastProcessedTimestamp = moment(firstTvlUpdate.evt_block_time).format('YYYY-MM-DD HH:mm:ss');
     }
 

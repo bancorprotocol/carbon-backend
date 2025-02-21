@@ -41,6 +41,7 @@ export class QuoteService implements OnModuleInit {
     [BlockchainType.Base]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
   };
 
   constructor(
