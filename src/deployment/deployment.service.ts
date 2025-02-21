@@ -14,6 +14,7 @@ export enum BlockchainType {
   Fantom = 'fantom',
   Mantle = 'mantle',
   Linea = 'linea',
+  Berachain = 'berachain',
 }
 
 export enum ExchangeId {
@@ -27,6 +28,7 @@ export enum ExchangeId {
   MantleSupernova = 'mantle-supernova',
   LineaXFai = 'linea-xfai',
   BaseAlienBase = 'base-alienbase',
+  BerachainGraphene = 'berachain-graphene',
 }
 
 export interface GasToken {
@@ -496,6 +498,29 @@ export class DeploymentService {
           },
         },
       },
+      // {
+      //   exchangeId: ExchangeId.BerachainGraphene,
+      //   blockchainType: BlockchainType.Berachain,
+      //   rpcEndpoint: this.configService.get('BERACHAIN_RPC_ENDPOINT'),
+      //   harvestEventsBatchSize: 2000,
+      //   harvestConcurrency: 10,
+      //   multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      //   startBlock: 1377587,
+      //   gasToken: {
+      //     name: 'Ether',
+      //     symbol: 'ETH',
+      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      //   },
+      //   nativeTokenAlias: '0x6969696969696969696969696969696969696969',
+      //   contracts: {
+      //     CarbonController: {
+      //       address: '0x10fa549e70ede76c258c0808b289e4ac3c9ab2e2',
+      //     },
+      //     CarbonVoucher: {
+      //       address: '0x2f3B0d35830B921FE7FcD08401C6CBBe29a72DC9',
+      //     },
+      //   },
+      // },
     ];
   }
 
