@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { MarketRateDto } from './market-rate.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
@@ -7,6 +7,7 @@ import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.dec
 import { CodexService } from '../../codex/codex.service';
 import { CoinGeckoService } from '../../quote/coingecko.service';
 import { BlockchainProviderConfig } from '../../historic-quote/historic-quote.service';
+import { QuoteService } from '../../quote/quote.service';
 
 @Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
@@ -28,6 +29,7 @@ export class MarketRateController {
     private deploymentService: DeploymentService,
     private codexService: CodexService,
     private coinGeckoService: CoinGeckoService,
+    private quoteService: QuoteService,
   ) {}
 
   @Get('')
@@ -38,6 +40,14 @@ export class MarketRateController {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { address, convert } = params;
     const currencies = convert.split(',');
+
+    // check if we currencies requested are the same as the ones we already have
+    if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
+      const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
+      if (existingQuote) {
+        return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
+      }
+    }
 
     const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
 
@@ -71,7 +81,11 @@ export class MarketRateController {
     }
 
     if (!data || Object.keys(data).length === 0) {
-      throw new Error(`No price data available for token: ${address}`);
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Unsupported token address',
+      });
     }
 
     const result = {
