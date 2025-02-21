@@ -517,7 +517,7 @@ export class DeploymentService {
       //       address: '0x10fa549e70ede76c258c0808b289e4ac3c9ab2e2',
       //     },
       //     CarbonVoucher: {
-      //       address: '0x2f3B0d35830B921FE7FcD08401C6CBBe29a72DC9',
+      //       address: '0x248594Be9BE605905B8912cf575f03fE42d89054',
       //     },
       //   },
       // },
