@@ -27,8 +27,8 @@ export class TelegramService {
     quotes: QuotesByAddress,
     deployment: Deployment,
   ) {
-    const bot = new Telegraf(deployment.notifications.telegram.botToken);
-    const { message, threadId } = await this.formatEventMessage(eventType, event, tokens, quotes, deployment);
+    const { message, threadId, botId } = await this.formatEventMessage(eventType, event, tokens, quotes, deployment);
+    const bot = new Telegraf(botId);
     const chatId = this.configService.get('TELEGRAM_CHAT_ID');
 
     await bot.telegram.sendMessage(chatId, message, {
@@ -56,6 +56,7 @@ export class TelegramService {
   ) {
     let message = '';
     let threadId = 0;
+    let botId = deployment.notifications.telegram.botToken;
     switch (eventType) {
       case EventTypes.ArbitrageExecutedEvent:
         message = await this.formatArbitrageExecutedMessage(event, tokens, quotes, deployment);
@@ -79,11 +80,12 @@ export class TelegramService {
         break;
       case EventTypes.ProtectionRemovedEvent:
         message = await this.formatProtectionRemovedMessage(event, tokens, quotes, deployment);
-        threadId = deployment.notifications.telegram.threads.vortexId;
+        threadId = deployment.notifications.telegram.threads.bancorProtectionId;
+        botId = deployment.notifications.telegram.bancorProtectionToken;
         break;
     }
 
-    return { message, threadId };
+    return { message, threadId, botId };
   }
 
   private async formatArbitrageExecutedMessage(
