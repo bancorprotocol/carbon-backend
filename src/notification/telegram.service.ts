@@ -29,15 +29,24 @@ export class TelegramService {
   ) {
     const { message, threadId, botId } = await this.formatEventMessage(eventType, event, tokens, quotes, deployment);
     const bot = new Telegraf(botId);
-    const chatId = this.configService.get('TELEGRAM_CHAT_ID');
 
-    await bot.telegram.sendMessage(chatId, message, {
-      message_thread_id: threadId,
+    // Check if the event should be sent to a regular group
+    const isRegularGroup = deployment.notifications?.regularGroupEvents?.includes(eventType) || false;
+
+    // Configure message parameters based on group type
+    const chatId = isRegularGroup ? threadId : this.configService.get('TELEGRAM_CHAT_ID');
+
+    const options: any = {
       parse_mode: 'HTML',
-      link_preview_options: {
-        is_disabled: true,
-      },
-    });
+      link_preview_options: { is_disabled: true },
+    };
+
+    // Only add message_thread_id for non-regular groups
+    if (!isRegularGroup) {
+      options.message_thread_id = threadId;
+    }
+
+    await bot.telegram.sendMessage(chatId, message, options);
   }
 
   private async formatAmount(amount: string, token: Token, usdRate: number | null): Promise<string> {

@@ -57,6 +57,7 @@ export interface Deployment {
     explorerUrl: string;
     carbonWalletUrl: string;
     disabledEvents?: EventTypes[];
+    regularGroupEvents?: EventTypes[];
     title: string;
     telegram: {
       botToken: string;
@@ -117,6 +118,7 @@ export class DeploymentService {
           explorerUrl: this.configService.get('ETHEREUM_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('ETHEREUM_CARBON_WALLET_URL'),
           title: 'Ethereum',
+          regularGroupEvents: [EventTypes.ProtectionRemovedEvent],
           telegram: {
             botToken: this.configService.get('ETHEREUM_TELEGRAM_BOT_TOKEN'),
             bancorProtectionToken: this.configService.get('ETHEREUM_BANCOR_PROTECTION_TOKEN'),
