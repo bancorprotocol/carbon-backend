@@ -433,10 +433,11 @@ export class HistoricQuoteService implements OnModuleInit {
     return this.createDailyCandlestick(prices);
   }
 
-  async createDailyCandlestick(prices) {
+  createDailyCandlestick(prices) {
     const candlesticks = [];
     let dailyData = null;
     let currentDay = null;
+    let lastValidClose = null;
 
     prices.forEach((price) => {
       const day = moment.unix(price.timestamp).startOf('day').unix();
@@ -450,6 +451,9 @@ export class HistoricQuoteService implements OnModuleInit {
           close: price.usd !== null ? new Decimal(price.usd) : null,
           provider: price.provider,
         };
+        if (price.usd !== null) {
+          lastValidClose = new Decimal(price.usd);
+        }
       } else if (day !== currentDay) {
         if (dailyData !== null) {
           candlesticks.push({
@@ -460,11 +464,17 @@ export class HistoricQuoteService implements OnModuleInit {
             close: dailyData.close,
             provider: dailyData.provider,
           });
+
+          // Update lastValidClose only if the current close is not null
+          if (dailyData.close !== null) {
+            lastValidClose = dailyData.close;
+          }
         }
 
         currentDay = day;
         dailyData = {
-          open: price.usd !== null ? new Decimal(price.usd) : null,
+          // Always use lastValidClose for continuity, fall back to first price if needed
+          open: lastValidClose !== null ? lastValidClose : price.usd !== null ? new Decimal(price.usd) : null,
           high: price.usd !== null ? new Decimal(price.usd) : null,
           low: price.usd !== null ? new Decimal(price.usd) : null,
           close: price.usd !== null ? new Decimal(price.usd) : null,
@@ -472,13 +482,18 @@ export class HistoricQuoteService implements OnModuleInit {
         };
       } else {
         if (price.usd !== null) {
-          if (dailyData.high === null || price.usd > dailyData.high) {
-            dailyData.high = new Decimal(price.usd);
+          const priceDecimal = new Decimal(price.usd);
+
+          if (dailyData.high === null || priceDecimal.greaterThan(dailyData.high)) {
+            dailyData.high = priceDecimal;
           }
-          if (dailyData.low === null || price.usd < dailyData.low) {
-            dailyData.low = new Decimal(price.usd);
+          if (dailyData.low === null || priceDecimal.lessThan(dailyData.low)) {
+            dailyData.low = priceDecimal;
           }
-          dailyData.close = new Decimal(price.usd);
+          dailyData.close = priceDecimal;
+          lastValidClose = priceDecimal;
+        } else {
+          dailyData.close = null;
         }
       }
     });
