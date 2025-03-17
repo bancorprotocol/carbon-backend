@@ -24,6 +24,7 @@ export class MarketRateController {
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Iota]: [],
   };
 
   constructor(
