@@ -14,6 +14,7 @@ export const NETWORK_IDS = {
   [BlockchainType.Blast]: 81457,
   [BlockchainType.Linea]: 59144,
   [BlockchainType.Berachain]: 80094,
+  // [BlockchainType.Iota]: 1360, // TODO: Add IOTA network ID
 };
 
 @Injectable()
