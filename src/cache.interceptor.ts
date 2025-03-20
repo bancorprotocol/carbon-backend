@@ -9,9 +9,15 @@ export class SubdomainCacheInterceptor extends CacheInterceptor {
     }
 
     const request = context.switchToHttp().getRequest();
+    const url = request.url;
+
+    // Skip caching for notifications controller
+    if (url.includes('/notifications')) {
+      return null;
+    }
+
     const host = request.headers.host || '';
     const subdomain = host.split('.')[0]; // Extract subdomain
-    const url = request.url;
     return `${subdomain}-${url}`; // Combine subdomain with URL to create unique cache key
   }
 }
