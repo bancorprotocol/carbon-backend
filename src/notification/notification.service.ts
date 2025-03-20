@@ -96,7 +96,7 @@ export class NotificationService {
       const tasks = events.map((event) => ({
         httpRequest: {
           httpMethod: 'POST',
-          url: `${this.configService.get('API_URL')}/notifications/telegram`,
+          url: `${this.configService.get('TELEGRAM_CALLBACK_URL')}`,
           body: Buffer.from(
             JSON.stringify({
               eventType,
