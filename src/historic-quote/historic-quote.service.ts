@@ -297,6 +297,8 @@ export class HistoricQuoteService implements OnModuleInit {
     start: number,
     end: number,
     bucket = '1 day',
+    offset = 0,
+    limit = 10000,
   ): Promise<{ [key: string]: Candlestick[] }> {
     const today = moment().utc().startOf('day');
     const startQ = moment.unix(start).utc().startOf('day');
@@ -355,7 +357,8 @@ export class HistoricQuoteService implements OnModuleInit {
         bpq."tokenAddress" = sp."tokenAddress" 
         AND sp.provider_rank = 1
       GROUP BY bpq."tokenAddress", bucket, sp.provider
-      ORDER BY bpq."tokenAddress", bucket;`;
+      ORDER BY bucket, bpq."tokenAddress"
+      LIMIT ${limit} OFFSET ${offset};`;
 
     const result = await this.repository.query(query);
 
@@ -388,8 +391,9 @@ export class HistoricQuoteService implements OnModuleInit {
     });
 
     // Check if tokens exist at all in candlesByAddress
+    // This check may need to be relaxed if pagination can result in empty token results
     const nonExistentTokens = addresses.filter((address) => !candlesByAddress[address]);
-    if (nonExistentTokens.length > 0) {
+    if (nonExistentTokens.length > 0 && offset === 0) {
       throw new BadRequestException({
         message: [
           `No price data available for token${nonExistentTokens.length > 1 ? 's' : ''}: ${nonExistentTokens.join(
@@ -410,8 +414,18 @@ export class HistoricQuoteService implements OnModuleInit {
     tokenB: string,
     start: number,
     end: number,
+    offset = 0,
+    limit = 10000,
   ): Promise<Candlestick[]> {
-    const data = await this.getHistoryQuotesBuckets(blockchainType, [tokenA, tokenB], start, end, '1 hour');
+    const data = await this.getHistoryQuotesBuckets(
+      blockchainType,
+      [tokenA, tokenB],
+      start,
+      end,
+      '1 hour',
+      offset,
+      limit,
+    );
 
     const prices = [];
     data[tokenA].forEach((_, i) => {

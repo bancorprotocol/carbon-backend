@@ -17,14 +17,6 @@ export class HistoricQuoteController {
   async prices(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: HistoricQuoteDto) {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
 
-    if (!isValidStart(params.start)) {
-      throw new BadRequestException({
-        message: ['start must be within the last 12 months'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
     if (params.end <= params.start) {
       throw new BadRequestException({
         message: ['End date must be after the start date'],
@@ -42,6 +34,8 @@ export class HistoricQuoteController {
       params.quoteToken,
       params.start,
       params.end,
+      params.offset || 0,
+      params.limit || 10000,
     );
 
     const result = [];
@@ -59,8 +53,3 @@ export class HistoricQuoteController {
     return result;
   }
 }
-
-const isValidStart = (start: number): boolean => {
-  const twelveMonthsAgo = moment().subtract(12, 'months').startOf('day').unix();
-  return start >= twelveMonthsAgo;
-};
