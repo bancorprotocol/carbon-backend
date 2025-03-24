@@ -14,6 +14,7 @@ import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-e
 import { VortexTradingResetEvent } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.entity';
 import { VortexTokensTradedEvent } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.entity';
 import { ProtectionRemovedEvent } from '../events/protection-removed-event/protection-removed-event.entity';
+import { SocksProxyAgent } from 'socks-proxy-agent';
 const TransferAbi = ['event Transfer (address indexed from, address indexed to, uint256 value)'];
 
 @Injectable()
@@ -28,7 +29,23 @@ export class TelegramService {
     deployment: Deployment,
   ) {
     const { message, threadId, botId } = await this.formatEventMessage(eventType, event, tokens, quotes, deployment);
-    const bot = new Telegraf(botId);
+
+    // Get proxy configuration from environment variables
+    const proxyAddress = this.configService.get('TELEGRAM_SOCKS5_PROXY');
+
+    let bot;
+    if (proxyAddress) {
+      // Create a SOCKS5 proxy agent if proxy is configured
+      const socksAgent = new SocksProxyAgent(`socks5://${proxyAddress}`);
+      bot = new Telegraf(botId, {
+        telegram: {
+          agent: socksAgent,
+        },
+      });
+    } else {
+      // Use direct connection if no proxy is configured
+      bot = new Telegraf(botId);
+    }
 
     // Check if the event should be sent to a regular group
     const isRegularGroup = deployment.notifications?.regularGroupEvents?.includes(eventType) || false;

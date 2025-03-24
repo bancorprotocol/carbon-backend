@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Logger } from '@nestjs/common';
+import { Controller, Post, Body } from '@nestjs/common';
 import { TelegramService } from './telegram.service';
 import { EventTypes } from '../events/event-types';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
@@ -21,7 +21,6 @@ interface EventService {
 @Controller('notifications')
 export class NotificationController {
   private eventServiceMap: Map<EventTypes, EventService>;
-  private logger = new Logger(NotificationController.name);
 
   constructor(
     private telegramService: TelegramService,
@@ -51,23 +50,16 @@ export class NotificationController {
   async sendTelegramNotification(@Body() data: any) {
     const { eventType, eventId } = data;
 
-    try {
-      const eventService = this.eventServiceMap.get(eventType);
-      if (!eventService) {
-        throw new Error(`Unsupported event type: ${eventType}`);
-      }
-
-      const event = await eventService.getOne(eventId);
-      const deployment = await this.deploymentService.getDeploymentByExchangeId(event.exchangeId);
-      const tokens = await this.tokenService.allByAddress(deployment);
-      const quotes = await this.quoteService.allByAddress(deployment);
-
-      await this.telegramService.sendEventNotification(eventType, event, tokens, quotes, deployment);
-
-      return { success: true, message: `Notification sent for event ${eventId}` };
-    } catch (error) {
-      this.logger.error(`Error sending notification for event ${eventId}:`, error);
-      throw error;
+    const eventService = this.eventServiceMap.get(eventType);
+    if (!eventService) {
+      throw new Error(`Unsupported event type: ${eventType}`);
     }
+
+    const event = await eventService.getOne(eventId);
+    const deployment = await this.deploymentService.getDeploymentByExchangeId(event.exchangeId);
+    const tokens = await this.tokenService.allByAddress(deployment);
+    const quotes = await this.quoteService.allByAddress(deployment);
+
+    await this.telegramService.sendEventNotification(eventType, event, tokens, quotes, deployment);
   }
 }
