@@ -23,14 +23,6 @@ export class SimulatorController {
   async simulator(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: SimulatorDto) {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
 
-    if (!isValidStart(params.start)) {
-      throw new BadRequestException({
-        message: ['start must be within the last 12 months'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
-
     if (params.end < params.start) {
       throw new BadRequestException({
         message: ['End date must be after the start date'],
@@ -52,20 +44,22 @@ export class SimulatorController {
 
     const data = await this.simulatorService.generateSimulation(params, usdPrices, deployment);
 
+    const resultData = data.dates.map((d, i) => ({
+      date: d,
+      price: data.prices[i],
+      sell: data.ask[i],
+      buy: data.bid[i],
+      baseBalance: data.RISK.balance[i],
+      basePortion: data.portfolio_risk[i],
+      quoteBalance: data.CASH.balance[i],
+      quotePortion: data.portfolio_cash[i],
+      portfolioValueInQuote: data.portfolio_value[i],
+      hodlValueInQuote: data.hodl_value[i],
+      portfolioOverHodlInPercent: data.portfolio_over_hodl[i],
+    }));
+
     return {
-      data: data.dates.map((d, i) => ({
-        date: d,
-        price: data.prices[i],
-        sell: data.ask[i],
-        buy: data.bid[i],
-        baseBalance: data.RISK.balance[i],
-        basePortion: data.portfolio_risk[i],
-        quoteBalance: data.CASH.balance[i],
-        quotePortion: data.portfolio_cash[i],
-        portfolioValueInQuote: data.portfolio_value[i],
-        hodlValueInQuote: data.hodl_value[i],
-        portfolioOverHodlInPercent: data.portfolio_over_hodl[i],
-      })),
+      data: resultData,
       roiInPercent: data.portfolio_over_hodl[data.portfolio_over_hodl.length - 1],
       gainsInQuote: new Decimal(
         new Decimal(data.portfolio_value[data.portfolio_value.length - 1]).minus(
@@ -82,8 +76,3 @@ export class SimulatorController {
     };
   }
 }
-
-const isValidStart = async (start: number): Promise<boolean> => {
-  const twelveMonthsAgo = moment().subtract(12, 'months').startOf('day').unix();
-  return start >= twelveMonthsAgo;
-};

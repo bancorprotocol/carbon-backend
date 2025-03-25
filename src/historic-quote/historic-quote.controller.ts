@@ -1,7 +1,6 @@
 import { CacheTTL } from '@nestjs/cache-manager';
-import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricQuoteDto } from './historic-quote.dto';
-import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
 import { Deployment, DeploymentService, ExchangeId } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
@@ -16,14 +15,6 @@ export class HistoricQuoteController {
   @ApiExchangeIdParam()
   async prices(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: HistoricQuoteDto) {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-
-    if (!isValidStart(params.start)) {
-      throw new BadRequestException({
-        message: ['start must be within the last 12 months'],
-        error: 'Bad Request',
-        statusCode: 400,
-      });
-    }
 
     if (params.end <= params.start) {
       throw new BadRequestException({
@@ -59,8 +50,3 @@ export class HistoricQuoteController {
     return result;
   }
 }
-
-const isValidStart = (start: number): boolean => {
-  const twelveMonthsAgo = moment().subtract(12, 'months').startOf('day').unix();
-  return start >= twelveMonthsAgo;
-};
