@@ -134,30 +134,61 @@ export class CodexService {
 
   private async fetchTokens(networkId: number, addresses?: string[]) {
     const limit = 200;
-    let offset = 0;
     let allTokens = [];
-    let fetched = [];
 
-    do {
-      try {
-        const result = await this.sdk.queries.filterTokens({
-          filters: {
-            network: [networkId],
-          },
-          tokens: addresses || undefined, // Use addresses if provided, otherwise fetch all
-          limit,
-          offset,
-        });
-
-        fetched = result.filterTokens.results;
-        allTokens = [...allTokens, ...fetched];
-        offset += limit;
-      } catch (error) {
-        console.error('Error fetching tokens:', error);
-        throw error;
+    if (addresses && addresses.length > 0) {
+      // Handle the case where addresses are provided
+      // Process in batches of 200 addresses
+      const addressBatches = [];
+      for (let i = 0; i < addresses.length; i += limit) {
+        addressBatches.push(addresses.slice(i, i + limit));
       }
-    } while (fetched.length === limit);
 
-    return allTokens;
+      // Fetch each batch of addresses
+      for (const batch of addressBatches) {
+        try {
+          const result = await this.sdk.queries.filterTokens({
+            filters: {
+              network: [networkId],
+            },
+            tokens: batch,
+            limit,
+            offset: 0,
+          });
+
+          allTokens = [...allTokens, ...result.filterTokens.results];
+        } catch (error) {
+          console.error('Error fetching tokens:', error);
+          throw error;
+        }
+      }
+
+      return allTokens;
+    } else {
+      // Handle the case where no addresses are provided (fetching all tokens)
+      let offset = 0;
+      let fetched = [];
+
+      do {
+        try {
+          const result = await this.sdk.queries.filterTokens({
+            filters: {
+              network: [networkId],
+            },
+            limit,
+            offset,
+          });
+
+          fetched = result.filterTokens.results;
+          allTokens = [...allTokens, ...fetched];
+          offset += limit;
+        } catch (error) {
+          console.error('Error fetching tokens:', error);
+          throw error;
+        }
+      } while (fetched.length === limit);
+
+      return allTokens;
+    }
   }
 }

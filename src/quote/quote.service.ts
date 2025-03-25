@@ -138,24 +138,59 @@ export class QuoteService implements OnModuleInit {
   }
 
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>, deployment: Deployment): Promise<void> {
-    const existingQuotes = await this.quoteRepository.find();
-    const quoteEntities: Quote[] = [];
+    try {
+      // Create a map of token IDs to their associated quotes for quick lookup
+      const existingQuotesMap = new Map<number, Quote>();
 
-    for (const token of tokens) {
-      const priceWithTimestamp = newPrices[token.address.toLowerCase()];
+      // Get all existing quotes for this blockchain type
+      const existingQuotes = await this.quoteRepository.find({
+        where: { blockchainType: deployment.blockchainType },
+        relations: ['token'],
+      });
 
-      if (priceWithTimestamp) {
-        const quote = existingQuotes.find((q) => q.token.id === token.id) || new Quote();
-        quote.provider = priceWithTimestamp.provider;
-        quote.token = token;
-        quote.blockchainType = deployment.blockchainType; // Set the blockchain type here
-        quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
-        quote.usd = priceWithTimestamp.usd;
-        quoteEntities.push(quote);
+      // Populate the map with token ID as key and quote entity as value
+      existingQuotes.forEach((quote) => {
+        if (quote.token && quote.token.id) {
+          existingQuotesMap.set(quote.token.id, quote);
+        }
+      });
+
+      this.logger.log(`Found ${existingQuotes.length} existing quotes for ${deployment.blockchainType}`);
+
+      const quoteEntities: Quote[] = [];
+
+      for (const token of tokens) {
+        const priceWithTimestamp = newPrices[token.address.toLowerCase()];
+
+        if (priceWithTimestamp) {
+          // Look up existing quote by token ID
+          let quote = existingQuotesMap.get(token.id);
+
+          if (!quote) {
+            // Only create a new Quote if one doesn't exist
+            quote = new Quote();
+          }
+
+          // Update the quote properties
+          quote.provider = priceWithTimestamp.provider;
+          quote.token = token;
+          quote.blockchainType = deployment.blockchainType;
+          quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
+          quote.usd = priceWithTimestamp.usd;
+          quoteEntities.push(quote);
+        }
       }
-    }
 
-    await this.quoteRepository.save(quoteEntities);
+      if (quoteEntities.length > 0) {
+        this.logger.log(`Saving ${quoteEntities.length} quotes for ${deployment.blockchainType}`);
+        await this.quoteRepository.save(quoteEntities);
+      } else {
+        this.logger.log(`No quotes to update for ${deployment.blockchainType}`);
+      }
+    } catch (error) {
+      this.logger.error(`Error in updateQuotes for ${deployment.blockchainType}: ${error.message}`);
+      throw error; // Re-throw to be caught by the calling function
+    }
   }
 
   async getLatestPrice(deployment: Deployment, address: string, currencies: string[]): Promise<any> {

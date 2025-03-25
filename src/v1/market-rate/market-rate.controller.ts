@@ -24,6 +24,7 @@ export class MarketRateController {
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Coti]: [],
   };
 
   constructor(
@@ -50,7 +51,19 @@ export class MarketRateController {
       }
     }
 
-    const enabledProviders = this.priceProviders[deployment.blockchainType].filter((p) => p.enabled);
+    const addressLower = address.toLowerCase();
+    let tokenAddress = addressLower;
+    let tokenDeployment = deployment;
+
+    // Check if the address is mapped in the mapEthereumTokens object
+    if (deployment.mapEthereumTokens && deployment.mapEthereumTokens[addressLower]) {
+      // Use the mapped Ethereum address and Ethereum deployment
+      tokenAddress = deployment.mapEthereumTokens[addressLower].toLowerCase();
+      tokenDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+    }
+
+    // Use the appropriate providers based on the deployment
+    const enabledProviders = this.priceProviders[tokenDeployment.blockchainType].filter((p) => p.enabled);
 
     let data = null;
     let usedProvider = null;
@@ -59,19 +72,18 @@ export class MarketRateController {
       try {
         switch (provider.name) {
           case 'codex':
-            data = await this.codexService.getLatestPrices(deployment, [address]);
+            data = await this.codexService.getLatestPrices(tokenDeployment, [tokenAddress]);
             break;
           case 'coingecko':
-            data = await this.coinGeckoService.fetchLatestPrice(deployment, address, currencies);
+            data = await this.coinGeckoService.fetchLatestPrice(tokenDeployment, tokenAddress, currencies);
             break;
         }
 
-        const addressLower = address.toLowerCase();
-        const hasValidPriceData = Object.keys(data[addressLower]).some(
+        const hasValidPriceData = Object.keys(data[tokenAddress]).some(
           (key) => key !== 'provider' && key !== 'last_updated_at',
         );
 
-        if (data && Object.keys(data).length > 0 && data[addressLower] && hasValidPriceData) {
+        if (data && Object.keys(data).length > 0 && data[tokenAddress] && hasValidPriceData) {
           usedProvider = provider.name;
           break;
         }
@@ -95,8 +107,8 @@ export class MarketRateController {
     };
 
     currencies.forEach((c) => {
-      if (data[address.toLowerCase()] && data[address.toLowerCase()][c.toLowerCase()]) {
-        result.data[c.toUpperCase()] = data[address.toLowerCase()][c.toLowerCase()];
+      if (data[tokenAddress] && data[tokenAddress][c.toLowerCase()]) {
+        result.data[c.toUpperCase()] = data[tokenAddress][c.toLowerCase()];
       }
     });
 
