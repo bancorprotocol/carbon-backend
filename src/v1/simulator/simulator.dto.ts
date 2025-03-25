@@ -43,25 +43,4 @@ export class SimulatorDto {
   @Transform(({ value }) => parseFloat(value))
   @IsNumber()
   buyMin: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Transform(({ value }) => Number(value))
-  @ApiPropertyOptional({
-    type: Number,
-    description: 'Offset for pagination',
-  })
-  offset?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Transform(({ value }) => Number(value))
-  @Min(0)
-  @Max(10000)
-  @ApiPropertyOptional({
-    type: Number,
-    description: 'Limit for pagination',
-    default: 10000,
-  })
-  limit?: number;
 }

@@ -1,7 +1,6 @@
 import { CacheTTL } from '@nestjs/cache-manager';
-import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricQuoteDto } from './historic-quote.dto';
-import moment from 'moment';
 import { HistoricQuoteService } from './historic-quote.service';
 import { Deployment, DeploymentService, ExchangeId } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
@@ -34,8 +33,6 @@ export class HistoricQuoteController {
       params.quoteToken,
       params.start,
       params.end,
-      params.offset || 0,
-      params.limit || 10000,
     );
 
     const result = [];

@@ -40,8 +40,6 @@ export class SimulatorController {
       params.quoteToken,
       params.start,
       params.end,
-      params.offset || 0,
-      params.limit || 10000,
     );
 
     const data = await this.simulatorService.generateSimulation(params, usdPrices, deployment);
