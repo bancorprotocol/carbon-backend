@@ -1,12 +1,19 @@
-import { BadRequestException, Controller, Get, Header, Param, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { SimulatorDto } from './simulator.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { SimulatorService } from './simulator.service';
-import moment from 'moment';
+
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
-import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
+import {
+  BlockchainType,
+  Deployment,
+  DeploymentService,
+  ExchangeId,
+  NATIVE_TOKEN,
+} from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { cotiMap } from 'src/utilities';
 
 @Controller({ version: '1', path: ':exchangeId?/simulator' })
 export class SimulatorController {
@@ -34,15 +41,40 @@ export class SimulatorController {
     params.baseToken = params.baseToken.toLowerCase();
     params.quoteToken = params.quoteToken.toLowerCase();
 
+    // TEMPORARY HACK: Use Ethereum deployment for COTI
+    const effectiveDeployment =
+      deployment.blockchainType === BlockchainType.Coti
+        ? {
+            ...this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum),
+            nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
+          }
+        : deployment;
+
+    if (deployment.blockchainType === BlockchainType.Coti && params.baseToken === NATIVE_TOKEN.toLowerCase()) {
+      params.baseToken = effectiveDeployment.nativeTokenAlias.toLowerCase();
+    }
+
+    if (deployment.blockchainType === BlockchainType.Coti && params.quoteToken === NATIVE_TOKEN.toLowerCase()) {
+      params.quoteToken = effectiveDeployment.nativeTokenAlias.toLowerCase();
+    }
+
+    if (deployment.blockchainType === BlockchainType.Coti && cotiMap[params.baseToken.toLowerCase()]) {
+      params.baseToken = cotiMap[params.baseToken.toLowerCase()];
+    }
+
+    if (deployment.blockchainType === BlockchainType.Coti && cotiMap[params.quoteToken.toLowerCase()]) {
+      params.quoteToken = cotiMap[params.quoteToken.toLowerCase()];
+    }
+
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      deployment.blockchainType,
+      effectiveDeployment.blockchainType,
       params.baseToken,
       params.quoteToken,
       params.start,
       params.end,
     );
 
-    const data = await this.simulatorService.generateSimulation(params, usdPrices, deployment);
+    const data = await this.simulatorService.generateSimulation(params, usdPrices, effectiveDeployment);
 
     const resultData = data.dates.map((d, i) => ({
       date: d,
