@@ -4,7 +4,7 @@ import { HistoricQuoteDto } from './historic-quote.dto';
 import { HistoricQuoteService } from './historic-quote.service';
 import { Deployment, DeploymentService, ExchangeId, BlockchainType } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
-
+import { cotiMap } from '../utilities';
 @Controller({ version: '1', path: ':exchangeId?/history/prices' })
 export class HistoricQuoteController {
   constructor(private historicQuoteService: HistoricQuoteService, private deploymentService: DeploymentService) {}

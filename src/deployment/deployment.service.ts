@@ -16,6 +16,7 @@ export enum BlockchainType {
   Linea = 'linea',
   Berachain = 'berachain',
   Coti = 'coti',
+  Coti = 'coti',
 }
 
 export enum ExchangeId {
@@ -30,6 +31,7 @@ export enum ExchangeId {
   LineaXFai = 'linea-xfai',
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
+  OGCoti = 'coti',
   OGCoti = 'coti',
 }
 
@@ -535,7 +537,7 @@ export class DeploymentService {
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 3,
         multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
-        startBlock: 1,
+        startBlock: 47878,
         gasToken: {
           name: 'COTI',
           symbol: 'COTI',

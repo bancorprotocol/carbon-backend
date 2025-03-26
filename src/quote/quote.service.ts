@@ -42,6 +42,7 @@ export class QuoteService implements OnModuleInit {
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
+    [BlockchainType.Coti]: [],
   };
 
   constructor(
@@ -87,6 +88,10 @@ export class QuoteService implements OnModuleInit {
   }
 
   async pollForDeployment(deployment: Deployment): Promise<void> {
+    if (deployment.blockchainType === BlockchainType.Coti) {
+      return;
+    }
+
     try {
       const tokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
       const addresses = tokens.map((t) => t.address);
