@@ -138,13 +138,35 @@ export class CodexService {
     let allTokens = [];
     let fetched = [];
 
+    if (addresses) {
+      // If addresses are provided, batch them in chunks of 200
+      for (let i = 0; i < addresses.length; i += limit) {
+        const addressBatch = addresses.slice(i, i + limit);
+        try {
+          const result = await this.sdk.queries.filterTokens({
+            filters: {
+              network: [networkId],
+            },
+            tokens: addressBatch,
+            limit,
+            offset: 0,
+          });
+          allTokens = [...allTokens, ...result.filterTokens.results];
+        } catch (error) {
+          console.error('Error fetching tokens:', error);
+          throw error;
+        }
+      }
+      return allTokens;
+    }
+
+    // If no addresses provided, fetch all tokens with pagination
     do {
       try {
         const result = await this.sdk.queries.filterTokens({
           filters: {
             network: [networkId],
           },
-          tokens: addresses || undefined, // Use addresses if provided, otherwise fetch all
           limit,
           offset,
         });

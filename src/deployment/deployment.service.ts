@@ -15,6 +15,7 @@ export enum BlockchainType {
   Mantle = 'mantle',
   Linea = 'linea',
   Berachain = 'berachain',
+  Coti = 'coti',
 }
 
 export enum ExchangeId {
@@ -29,6 +30,7 @@ export enum ExchangeId {
   LineaXFai = 'linea-xfai',
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
+  OGCoti = 'coti',
 }
 
 export interface GasToken {
@@ -520,6 +522,32 @@ export class DeploymentService {
           },
           CarbonVoucher: {
             address: '0x248594Be9BE605905B8912cf575f03fE42d89054',
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.OGCoti,
+        blockchainType: BlockchainType.Coti,
+        rpcEndpoint: this.configService.get('COTI_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 3,
+        multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
+        startBlock: 47878,
+        gasToken: {
+          name: 'COTI',
+          symbol: 'COTI',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
+        contracts: {
+          CarbonController: {
+            address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
+          },
+          CarbonVoucher: {
+            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+          },
+          BancorArbitrage: {
+            address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
         },
       },
