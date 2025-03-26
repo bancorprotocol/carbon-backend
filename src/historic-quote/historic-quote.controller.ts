@@ -4,7 +4,7 @@ import { HistoricQuoteDto } from './historic-quote.dto';
 import { HistoricQuoteService } from './historic-quote.service';
 import { Deployment, DeploymentService, ExchangeId, BlockchainType } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
-import { cotiMap } from '../utilities';
+
 @Controller({ version: '1', path: ':exchangeId?/history/prices' })
 export class HistoricQuoteController {
   constructor(private historicQuoteService: HistoricQuoteService, private deploymentService: DeploymentService) {}
@@ -38,10 +38,7 @@ export class HistoricQuoteController {
     // Check if tokens are mapped to Ethereum tokens
     if (deployment.mapEthereumTokens) {
       // Convert mapEthereumTokens keys to lowercase for case-insensitive matching
-      const lowercaseTokenMap = Object.entries(deployment.mapEthereumTokens).reduce((acc, [key, value]) => {
-        acc[key.toLowerCase()] = value;
-        return acc;
-      }, {});
+      const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
 
       // Check if base token is mapped
       if (lowercaseTokenMap[baseTokenAddress]) {

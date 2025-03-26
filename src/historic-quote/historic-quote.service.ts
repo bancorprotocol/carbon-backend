@@ -92,15 +92,15 @@ export class HistoricQuoteService implements OnModuleInit {
     this.isPolling = true;
 
     try {
+      // Process Ethereum token mappings for all deployments
+      await this.seedAllEthereumMappedTokens();
+
       await Promise.all([
         await this.updateCoinMarketCapQuotes(),
         await this.updateCodexQuotes(BlockchainType.Sei),
         await this.updateCodexQuotes(BlockchainType.Celo),
         // await this.updateCodexQuotes(BlockchainType.Base, BASE_NETWORK_ID),
       ]);
-
-      // Process Ethereum token mappings for all deployments
-      await this.seedAllEthereumMappedTokens();
 
       // Update any mapped Ethereum tokens that might not have been updated
       await this.updateMappedEthereumTokens();
@@ -294,6 +294,7 @@ export class HistoricQuoteService implements OnModuleInit {
         where: {
           blockchainType: BlockchainType.Ethereum,
           tokenAddress: ethereumTokenAddress,
+          provider: 'codex',
         },
       });
 

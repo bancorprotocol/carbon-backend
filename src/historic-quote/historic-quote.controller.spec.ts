@@ -14,6 +14,16 @@ describe('HistoricQuoteController', () => {
 
   const mockDeploymentService = {
     getDeploymentByExchangeId: jest.fn(),
+    getLowercaseTokenMap: jest.fn((deployment) => {
+      if (!deployment.mapEthereumTokens) {
+        return {};
+      }
+
+      return Object.entries(deployment.mapEthereumTokens).reduce((acc, [key, value]) => {
+        acc[key.toLowerCase()] = (value as string).toLowerCase();
+        return acc;
+      }, {});
+    }),
   };
 
   beforeEach(async () => {

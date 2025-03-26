@@ -25,7 +25,6 @@ export class MarketRateController {
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Coti]: [],
-    [BlockchainType.Coti]: [],
   };
 
   constructor(
@@ -41,44 +40,28 @@ export class MarketRateController {
   @ApiExchangeIdParam()
   async marketRate(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: MarketRateDto): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    let address = params.address.toLowerCase();
+    const address = params.address.toLowerCase();
     const { convert } = params;
     const currencies = convert.split(',');
 
-    // TEMPORARY HACK: Use Ethereum deployment for COTI
-    const effectiveDeployment =
-      deployment.blockchainType === BlockchainType.Coti
-        ? {
-            ...this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum),
-            nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
-          }
-        : deployment;
-
-    if (deployment.blockchainType === BlockchainType.Coti && address === NATIVE_TOKEN.toLowerCase()) {
-      address = effectiveDeployment.nativeTokenAlias;
-    } else if (deployment.blockchainType === BlockchainType.Coti && cotiMap[address]) {
-      address = cotiMap[address];
-    }
-
     // check if we currencies requested are the same as the ones we already have
     if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
-      const existingQuote = await this.quoteService.getRecentQuotesForAddress(
-        effectiveDeployment.blockchainType,
-        address,
-      );
+      const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
       if (existingQuote) {
         return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
       }
     }
 
-    const addressLower = address.toLowerCase();
-    let tokenAddress = addressLower;
+    let tokenAddress = address;
     let tokenDeployment = deployment;
 
+    // Convert mapEthereumTokens keys to lowercase for case-insensitive matching
+    const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+
     // Check if the address is mapped in the mapEthereumTokens object
-    if (deployment.mapEthereumTokens && deployment.mapEthereumTokens[addressLower]) {
+    if (deployment.mapEthereumTokens && lowercaseTokenMap[address]) {
       // Use the mapped Ethereum address and Ethereum deployment
-      tokenAddress = deployment.mapEthereumTokens[addressLower].toLowerCase();
+      tokenAddress = lowercaseTokenMap[address];
       tokenDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
     }
 
