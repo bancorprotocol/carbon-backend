@@ -16,7 +16,6 @@ export enum BlockchainType {
   Linea = 'linea',
   Berachain = 'berachain',
   Coti = 'coti',
-  Coti = 'coti',
 }
 
 export enum ExchangeId {
@@ -31,7 +30,6 @@ export enum ExchangeId {
   LineaXFai = 'linea-xfai',
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
-  OGCoti = 'coti',
   OGCoti = 'coti',
 }
 
