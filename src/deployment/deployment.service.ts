@@ -552,6 +552,7 @@ export class DeploymentService {
         mapEthereumTokens: {
           '0xDDB3422497E61e13543BeA06989C0789117555c5': '0xDDB3422497E61e13543BeA06989C0789117555c5',
           '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': '0xDDB3422497E61e13543BeA06989C0789117555c5',
+          '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d',
         },
       },
     ];
