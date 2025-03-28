@@ -416,21 +416,29 @@ export class HistoricQuoteService implements OnModuleInit {
     const data = await this.getHistoryQuotesBuckets(blockchainType, [tokenA, tokenB], start, end, '1 hour');
 
     const prices = [];
-    data[tokenA].forEach((_, i) => {
-      const base = data[tokenA][i];
-      const quote = data[tokenB][i];
+    // Create map of timestamps to candles for each token
+    const tokenAByTimestamp = new Map(data[tokenA].map((candle) => [candle.timestamp, candle]));
+    const tokenBByTimestamp = new Map(data[tokenB].map((candle) => [candle.timestamp, candle]));
 
-      // Skip if either close price is null
+    // Get all timestamps where both tokens have data
+    const allTimestamps = [...new Set([...tokenAByTimestamp.keys(), ...tokenBByTimestamp.keys()])].sort();
+
+    // Iterate through all timestamps
+    for (const timestamp of allTimestamps) {
+      const base = tokenAByTimestamp.get(timestamp);
+      const quote = tokenBByTimestamp.get(timestamp);
+
+      // Skip if either token doesn't have data for this timestamp or close price is null
       if (!base || !quote || base.close === null || quote.close === null) {
-        return;
+        continue;
       }
 
       prices.push({
-        timestamp: base.timestamp,
+        timestamp,
         usd: new Decimal(base.close).div(quote.close),
         provider: base.provider === quote.provider ? base.provider : `${base.provider}/${quote.provider}`,
       });
-    });
+    }
 
     return this.createDailyCandlestick(prices);
   }
