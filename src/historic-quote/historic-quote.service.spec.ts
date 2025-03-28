@@ -6,7 +6,7 @@ import { CoinMarketCapService } from '../coinmarketcap/coinmarketcap.service';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CodexService } from '../codex/codex.service';
-import { DeploymentService } from '../deployment/deployment.service';
+import { BlockchainType, DeploymentService } from '../deployment/deployment.service';
 import { Repository } from 'typeorm';
 import moment from 'moment';
 import Decimal from 'decimal.js';
@@ -292,6 +292,109 @@ describe('HistoricQuoteService', () => {
       expect(candlesticks[0].high.toString()).toBe('105'); // Highest price
       expect(candlesticks[0].low.toString()).toBe('95'); // Lowest price
       expect(candlesticks[0].close.toString()).toBe('95'); // Last price of the day
+    });
+  });
+
+  describe('getUsdBuckets', () => {
+    it('should correctly align price data by timestamp and generate candlesticks', async () => {
+      // Mock the getHistoryQuotesBuckets method
+      const now = moment().unix();
+      const tokenA = '0xTokenA';
+      const tokenB = '0xTokenB';
+      const blockchainType = BlockchainType.Ethereum;
+
+      // Token A has more historical data than Token B
+      const tokenACandles = [
+        { timestamp: now - 7200, open: '10', close: '11', high: '12', low: '9', provider: 'test' },
+        { timestamp: now - 3600, open: '11', close: '12', high: '13', low: '10', provider: 'test' },
+        { timestamp: now, open: '12', close: '13', high: '14', low: '11', provider: 'test' },
+      ];
+
+      // Token B starts later
+      const tokenBCandles = [
+        { timestamp: now - 3600, open: '1', close: '1.1', high: '1.2', low: '0.9', provider: 'test' },
+        { timestamp: now, open: '1.1', close: '1.2', high: '1.3', low: '1.0', provider: 'test' },
+      ];
+
+      const mockHistoryData = {
+        [tokenA]: tokenACandles,
+        [tokenB]: tokenBCandles,
+      };
+
+      jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
+      jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
+
+      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 7200, now);
+
+      // Should have called getHistoryQuotesBuckets with right params
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
+        blockchainType,
+        [tokenA, tokenB],
+        now - 7200,
+        now,
+        '1 hour',
+      );
+
+      // Should have called createDailyCandlestick
+      expect(service.createDailyCandlestick).toHaveBeenCalled();
+
+      // We expect only data points where both tokens have values
+      // This should skip the earliest timestamp (now - 7200) since tokenB doesn't have data for it
+      const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
+
+      expect(pricesPassedToCreateDailyCandlestick).toHaveLength(2);
+      expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now - 3600);
+      expect(pricesPassedToCreateDailyCandlestick[0].usd.toString()).toBe('10.909090909090909091');
+      expect(pricesPassedToCreateDailyCandlestick[1].timestamp).toBe(now);
+      expect(pricesPassedToCreateDailyCandlestick[1].usd.toString()).toBe('10.833333333333333333');
+    });
+
+    it('should handle different price providers correctly', async () => {
+      const now = moment().unix();
+      const tokenA = '0xTokenA';
+      const tokenB = '0xTokenB';
+      const blockchainType = BlockchainType.Ethereum;
+
+      const mockHistoryData = {
+        [tokenA]: [{ timestamp: now, open: '100', close: '110', high: '120', low: '90', provider: 'provider1' }],
+        [tokenB]: [{ timestamp: now, open: '10', close: '11', high: '12', low: '9', provider: 'provider2' }],
+      };
+
+      jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
+      jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
+
+      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+
+      const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
+      expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
+      expect(pricesPassedToCreateDailyCandlestick[0].provider).toBe('provider1/provider2');
+    });
+
+    it('should skip timestamps where either token has null close prices', async () => {
+      const now = moment().unix();
+      const tokenA = '0xTokenA';
+      const tokenB = '0xTokenB';
+      const blockchainType = BlockchainType.Ethereum;
+
+      const mockHistoryData = {
+        [tokenA]: [
+          { timestamp: now - 3600, open: '10', close: null, high: '12', low: '9', provider: 'test' },
+          { timestamp: now, open: '11', close: '12', high: '14', low: '10', provider: 'test' },
+        ],
+        [tokenB]: [
+          { timestamp: now - 3600, open: '1', close: '1.1', high: '1.2', low: '0.9', provider: 'test' },
+          { timestamp: now, open: '1.1', close: '1.2', high: '1.3', low: '1.0', provider: 'test' },
+        ],
+      };
+
+      jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
+      jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
+
+      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+
+      const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
+      expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1); // Should skip the timestamp with null close
+      expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
     });
   });
 });
