@@ -690,4 +690,85 @@ describe('HistoricQuoteService', () => {
       expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
     });
   });
+
+  describe('getHistoryQuotesBuckets', () => {
+    it('should select provider with significantly more data over default provider order', async () => {
+      const tokenA = '0xtokena'; // lowercase to match normalization in the method
+      const tokenB = '0xtokenb'; // lowercase to match normalization in the method
+      const blockchainType = BlockchainType.Ethereum;
+      const start = moment().subtract(1, 'year').unix();
+      const end = moment().unix();
+      const startDay = moment.unix(start).utc().startOf('day');
+
+      // Mock data to return for tokenA and tokenB
+      const queryResult = [
+        // TokenA with codex provider (selected due to having significantly more data)
+        {
+          tokenAddress: tokenA,
+          bucket: startDay.toISOString(),
+          open: '10',
+          close: '11',
+          high: '12',
+          low: '9',
+          selected_provider: 'codex',
+        },
+        {
+          tokenAddress: tokenA,
+          bucket: startDay.add(1, 'day').toISOString(),
+          open: '11',
+          close: '12',
+          high: '13',
+          low: '10',
+          selected_provider: 'codex',
+        },
+
+        // TokenB with coinmarketcap provider (default provider order)
+        {
+          tokenAddress: tokenB,
+          bucket: startDay.clone().subtract(1, 'day').toISOString(),
+          open: '1',
+          close: '1.1',
+          high: '1.2',
+          low: '0.9',
+          selected_provider: 'coinmarketcap',
+        },
+        {
+          tokenAddress: tokenB,
+          bucket: startDay.clone().toISOString(),
+          open: '1.1',
+          close: '1.2',
+          high: '1.3',
+          low: '1',
+          selected_provider: 'coinmarketcap',
+        },
+      ];
+
+      // Reset the mock
+      mockRepository.query.mockReset();
+
+      // Add a specific implementation for this test
+      mockRepository.query.mockImplementation((sql) => {
+        // Only respond to the specific query that contains the provider selection logic
+        if (sql.includes('TokenStats') && sql.includes('max_points > 5 * COALESCE')) {
+          return Promise.resolve(queryResult);
+        }
+
+        // For any other query, just return an empty array
+        return Promise.resolve([]);
+      });
+
+      const result = await service.getHistoryQuotesBuckets(blockchainType, [tokenA, tokenB], start, end, '1 day');
+
+      // Check that repository.query was called
+      expect(mockRepository.query).toHaveBeenCalled();
+
+      // Verify that the results have the expected providers based on our mock
+      expect(result[tokenA]).toBeDefined();
+      expect(result[tokenB]).toBeDefined();
+
+      // Provider selection should match what we mocked
+      expect(result[tokenA][0].provider).toBe('codex');
+      expect(result[tokenB][0].provider).toBe('coinmarketcap');
+    });
+  });
 });

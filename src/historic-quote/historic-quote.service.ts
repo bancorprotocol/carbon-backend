@@ -416,17 +416,11 @@ export class HistoricQuoteService implements OnModuleInit {
       .join(',');
 
     const query = `
-      WITH TokenProviders AS (
+      WITH RawCounts AS (
         SELECT 
           "tokenAddress",
           provider,
-          CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END as has_data,
-          ROW_NUMBER() OVER (
-            PARTITION BY "tokenAddress"
-            ORDER BY 
-              CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END DESC,
-              array_position(ARRAY[${enabledProviders}]::text[], provider)
-          ) as provider_rank
+          COUNT(*) as data_points
         FROM "historic-quotes"
         WHERE
           timestamp >= '${startPaddedQ}'
@@ -435,6 +429,34 @@ export class HistoricQuoteService implements OnModuleInit {
           AND "blockchainType" = '${blockchainType}'
           AND provider = ANY(ARRAY[${enabledProviders}]::text[])
         GROUP BY "tokenAddress", provider
+      ),
+      TokenStats AS (
+        SELECT
+          "tokenAddress",
+          MAX(data_points) as max_points,
+          MIN(CASE WHEN data_points > 0 THEN data_points ELSE NULL END) as min_nonzero_points
+        FROM RawCounts
+        GROUP BY "tokenAddress"
+      ),
+      TokenProviders AS (
+        SELECT 
+          rc."tokenAddress",
+          rc.provider,
+          rc.data_points,
+          ROW_NUMBER() OVER (
+            PARTITION BY rc."tokenAddress"
+            ORDER BY 
+              CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
+              -- If one provider has significantly more data (>5x), prioritize it
+              -- Otherwise use the configured provider order
+              CASE 
+                WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) AND ts.max_points = rc.data_points
+                THEN 0  -- Provider with most data comes first when significant difference exists
+                ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
+              END
+          ) as provider_rank
+        FROM RawCounts rc
+        JOIN TokenStats ts ON rc."tokenAddress" = ts."tokenAddress"
       ),
       BestProviderQuotes AS (
         SELECT hq.*
