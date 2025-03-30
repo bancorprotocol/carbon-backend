@@ -531,7 +531,7 @@ export class DeploymentService {
       {
         exchangeId: ExchangeId.OGCoti,
         blockchainType: BlockchainType.Coti,
-        rpcEndpoint: 'https://mainnet.coti.io/rpc',
+        rpcEndpoint: this.configService.get('COTI_RPC_ENDPOINT'),
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 3,
         multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
