@@ -13,7 +13,6 @@ import {
   NATIVE_TOKEN,
 } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-import { cotiMap } from 'src/utilities';
 
 @Controller({ version: '1', path: ':exchangeId?/simulator' })
 export class SimulatorController {
@@ -38,41 +37,67 @@ export class SimulatorController {
       });
     }
 
-    params.baseToken = params.baseToken.toLowerCase();
-    params.quoteToken = params.quoteToken.toLowerCase();
+    // Convert tokens to lowercase once
+    const baseTokenAddress = params.baseToken.toLowerCase();
+    const quoteTokenAddress = params.quoteToken.toLowerCase();
 
-    // TEMPORARY HACK: Use Ethereum deployment for COTI
-    const effectiveDeployment =
-      deployment.blockchainType === BlockchainType.Coti
-        ? {
-            ...this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum),
-            nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
-          }
-        : deployment;
+    // Initialize variables for the tokens and blockchain to use
+    let usedBaseToken = baseTokenAddress;
+    let usedQuoteToken = quoteTokenAddress;
+    let blockchainType = deployment.blockchainType;
+    let mappedBaseToken = null;
+    let mappedQuoteToken = null;
 
-    if (deployment.blockchainType === BlockchainType.Coti && params.baseToken === NATIVE_TOKEN.toLowerCase()) {
-      params.baseToken = effectiveDeployment.nativeTokenAlias.toLowerCase();
+    // Always set lowercase token values in params
+    params.baseToken = baseTokenAddress;
+    params.quoteToken = quoteTokenAddress;
+
+    // Handle native token aliases first
+    if (deployment.nativeTokenAlias && usedBaseToken === NATIVE_TOKEN.toLowerCase()) {
+      usedBaseToken = deployment.nativeTokenAlias.toLowerCase();
+      params.baseToken = usedBaseToken;
     }
 
-    if (deployment.blockchainType === BlockchainType.Coti && params.quoteToken === NATIVE_TOKEN.toLowerCase()) {
-      params.quoteToken = effectiveDeployment.nativeTokenAlias.toLowerCase();
+    if (deployment.nativeTokenAlias && usedQuoteToken === NATIVE_TOKEN.toLowerCase()) {
+      usedQuoteToken = deployment.nativeTokenAlias.toLowerCase();
+      params.quoteToken = usedQuoteToken;
     }
 
-    if (deployment.blockchainType === BlockchainType.Coti && cotiMap[params.baseToken.toLowerCase()]) {
-      params.baseToken = cotiMap[params.baseToken.toLowerCase()];
-    }
+    // Check if tokens are mapped to Ethereum tokens
+    if (deployment.mapEthereumTokens) {
+      // Convert mapEthereumTokens keys to lowercase for case-insensitive matching
+      const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
 
-    if (deployment.blockchainType === BlockchainType.Coti && cotiMap[params.quoteToken.toLowerCase()]) {
-      params.quoteToken = cotiMap[params.quoteToken.toLowerCase()];
+      // Check if base token is mapped
+      if (lowercaseTokenMap[usedBaseToken]) {
+        mappedBaseToken = lowercaseTokenMap[usedBaseToken];
+        usedBaseToken = mappedBaseToken;
+        params.baseToken = mappedBaseToken;
+        blockchainType = BlockchainType.Ethereum;
+      }
+
+      // Check if quote token is mapped
+      if (lowercaseTokenMap[usedQuoteToken]) {
+        mappedQuoteToken = lowercaseTokenMap[usedQuoteToken];
+        usedQuoteToken = mappedQuoteToken;
+        params.quoteToken = mappedQuoteToken;
+        blockchainType = BlockchainType.Ethereum;
+      }
     }
 
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      effectiveDeployment.blockchainType,
-      params.baseToken,
-      params.quoteToken,
+      blockchainType,
+      usedBaseToken,
+      usedQuoteToken,
       params.start,
       params.end,
     );
+
+    // If using mapped Ethereum tokens, use the Ethereum deployment
+    const effectiveDeployment =
+      mappedBaseToken || mappedQuoteToken
+        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
+        : deployment;
 
     const data = await this.simulatorService.generateSimulation(params, usdPrices, effectiveDeployment);
 

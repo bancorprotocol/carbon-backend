@@ -50,6 +50,9 @@ export interface Deployment {
   gasToken: GasToken;
   startBlock: number;
   nativeTokenAlias?: string;
+  mapEthereumTokens?: {
+    [deploymentTokenAddress: string]: string;
+  };
   contracts: {
     [contractName: string]: {
       address: string;
@@ -550,6 +553,11 @@ export class DeploymentService {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
         },
+        mapEthereumTokens: {
+          '0xDDB3422497E61e13543BeA06989C0789117555c5': '0xDDB3422497E61e13543BeA06989C0789117555c5', // coti
+          '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
+          '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
+        },
       },
     ];
   }
@@ -569,8 +577,19 @@ export class DeploymentService {
   getDeploymentByBlockchainType(blockchainType: BlockchainType): Deployment {
     const deployment = this.deployments.find((d) => d.blockchainType === blockchainType);
     if (!deployment) {
-      throw new Error(`Deployment for blockchainType ${blockchainType} not found`);
+      throw new Error(`Deployment not found for blockchain type: ${blockchainType}`);
     }
     return deployment;
+  }
+
+  getLowercaseTokenMap(deployment: Deployment): { [lowercaseAddress: string]: string } {
+    if (!deployment.mapEthereumTokens) {
+      return {};
+    }
+
+    return Object.entries(deployment.mapEthereumTokens).reduce((acc, [key, value]) => {
+      acc[key.toLowerCase()] = value.toLowerCase();
+      return acc;
+    }, {});
   }
 }

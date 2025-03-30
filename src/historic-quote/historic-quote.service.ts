@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CoinMarketCapService } from '../coinmarketcap/coinmarketcap.service';
 import { HistoricQuote } from './historic-quote.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -33,6 +33,7 @@ export type BlockchainProviderConfig = {
 
 @Injectable()
 export class HistoricQuoteService implements OnModuleInit {
+  private readonly logger = new Logger(HistoricQuoteService.name);
   private isPolling = false;
   private readonly intervalDuration: number;
   private shouldPollQuotes: boolean;
@@ -72,24 +73,44 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  private async seedAllEthereumMappedTokens() {
+    try {
+      const deployments = this.deploymentService.getDeployments();
+      for (const deployment of deployments) {
+        if (deployment.mapEthereumTokens && Object.keys(deployment.mapEthereumTokens).length > 0) {
+          this.logger.log(`Seeding price history from Ethereum tokens for ${deployment.exchangeId}...`);
+          await this.seedFromEthereumTokens(deployment);
+        }
+      }
+    } catch (error) {
+      this.logger.error('Error seeding price history from Ethereum tokens:', error);
+    }
+  }
+
   async pollForUpdates(): Promise<void> {
     if (this.isPolling) return;
     this.isPolling = true;
 
     try {
+      // Process Ethereum token mappings for all deployments
+      await this.seedAllEthereumMappedTokens();
+
       await Promise.all([
         await this.updateCoinMarketCapQuotes(),
         await this.updateCodexQuotes(BlockchainType.Sei),
         await this.updateCodexQuotes(BlockchainType.Celo),
         // await this.updateCodexQuotes(BlockchainType.Base, BASE_NETWORK_ID),
       ]);
+
+      // Update any mapped Ethereum tokens that might not have been updated
+      await this.updateMappedEthereumTokens();
     } catch (error) {
-      console.error('Error updating historic quotes:', error);
+      this.logger.error('Error updating historic quotes:', error);
       this.isPolling = false;
     }
 
     this.isPolling = false;
-    console.log('Historic quotes updated');
+    this.logger.log('Historic quotes updated');
   }
 
   private async updateCoinMarketCapQuotes(): Promise<void> {
@@ -109,7 +130,7 @@ export class HistoricQuoteService implements OnModuleInit {
 
     const batches = _.chunk(newQuotes, 1000);
     await Promise.all(batches.map((batch) => this.repository.save(batch)));
-    console.log('CoinMarketCap quotes updated');
+    this.logger.log('CoinMarketCap quotes updated');
   }
 
   private async updateCodexQuotes(blockchainType: BlockchainType): Promise<void> {
@@ -151,7 +172,7 @@ export class HistoricQuoteService implements OnModuleInit {
 
     const batches = _.chunk(newQuotes, 1000);
     await Promise.all(batches.map((batch) => this.repository.save(batch)));
-    console.log('Codex quotes updated');
+    this.logger.log('Codex quotes updated');
   }
 
   async seed(): Promise<void> {
@@ -185,7 +206,7 @@ export class HistoricQuoteService implements OnModuleInit {
 
         const batches = _.chunk(newQuotes, 1000);
         await Promise.all(batches.map((batch) => this.repository.save(batch)));
-        console.log(`History quote seeding, finished ${++i} of ${tokens.length}%`, new Date());
+        this.logger.log(`History quote seeding, finished ${++i} of ${tokens.length}%`, new Date());
       }
     }
   }
@@ -244,8 +265,92 @@ export class HistoricQuoteService implements OnModuleInit {
 
       const batches = _.chunk(newQuotes, 1000);
       await Promise.all(batches.map((batch) => this.repository.save(batch)));
-      console.log(`History quote seeding, finished ${++i} of ${addresses.length}`, new Date());
+      this.logger.log(`History quote seeding, finished ${++i} of ${addresses.length}`, new Date());
     }
+  }
+
+  async seedFromEthereumTokens(deployment: Deployment): Promise<void> {
+    if (!deployment.mapEthereumTokens || Object.keys(deployment.mapEthereumTokens).length === 0) {
+      this.logger.log(`No Ethereum token mappings found for ${deployment.exchangeId}, skipping.`);
+      return;
+    }
+
+    const start = moment().subtract(1, 'year').unix();
+    const end = moment().unix();
+    let i = 0;
+
+    // We only need unique Ethereum token addresses
+    const ethereumTokenAddresses = [...new Set(Object.values(deployment.mapEthereumTokens))].map((addr) =>
+      addr.toLowerCase(),
+    );
+    const total = ethereumTokenAddresses.length;
+    this.logger.log(`Found ${total} unique Ethereum token addresses to process`);
+
+    const ethereumDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+
+    for (const ethereumTokenAddress of ethereumTokenAddresses) {
+      // Check if the Ethereum token already has data in the database
+      const existingEthereumData = await this.repository.findOne({
+        where: {
+          blockchainType: BlockchainType.Ethereum,
+          tokenAddress: ethereumTokenAddress,
+          provider: 'codex',
+        },
+      });
+
+      // If the Ethereum token already has data, skip seeding
+      if (existingEthereumData) {
+        this.logger.log(`Ethereum token ${ethereumTokenAddress} already has price data, skipping.`);
+        continue;
+      }
+
+      // If no Ethereum data exists, seed it from Codex
+      this.logger.log(`No Ethereum data found for ${ethereumTokenAddress}, seeding from Codex...`);
+      try {
+        // Get historical data from Codex for this token
+        const codexData = await this.codexService.getHistoricalQuotes(
+          ethereumDeployment,
+          [ethereumTokenAddress],
+          start,
+          end,
+        );
+
+        if (!codexData[ethereumTokenAddress] || codexData[ethereumTokenAddress].length === 0) {
+          this.logger.log(`No Codex data available for Ethereum token ${ethereumTokenAddress}, skipping.`);
+          continue;
+        }
+
+        // Create new quotes with blockchainType: Ethereum
+        const newQuotes = [];
+        codexData[ethereumTokenAddress].forEach((q) => {
+          if (q.usd && q.timestamp) {
+            newQuotes.push(
+              this.repository.create({
+                tokenAddress: ethereumTokenAddress,
+                usd: q.usd,
+                timestamp: moment.unix(q.timestamp).utc().toISOString(),
+                provider: 'codex',
+                blockchainType: BlockchainType.Ethereum, // Store as Ethereum data
+              }),
+            );
+          }
+        });
+
+        if (newQuotes.length > 0) {
+          const batches = _.chunk(newQuotes, 1000);
+          await Promise.all(batches.map((batch) => this.repository.save(batch)));
+          this.logger.log(
+            `Token ${++i} of ${total}: Seeded ${
+              newQuotes.length
+            } price points for Ethereum token ${ethereumTokenAddress} from Codex`,
+          );
+        }
+      } catch (error) {
+        this.logger.error(`Error seeding Ethereum token ${ethereumTokenAddress} from Codex:`, error);
+      }
+    }
+
+    this.logger.log(`Completed seeding Ethereum token price history for ${deployment.exchangeId}`);
   }
 
   async getLatest(blockchainType: BlockchainType): Promise<{ [key: string]: HistoricQuote }> {
@@ -287,7 +392,7 @@ export class HistoricQuoteService implements OnModuleInit {
 
       return quotesByAddress;
     } catch (error) {
-      console.error(`Error fetching historical quotes for addresses between ${start} and ${end}:`, error);
+      this.logger.error(`Error fetching historical quotes for addresses between ${start} and ${end}:`, error);
       throw new Error(`Error fetching historical quotes for addresses`);
     }
   }
@@ -311,17 +416,11 @@ export class HistoricQuoteService implements OnModuleInit {
       .join(',');
 
     const query = `
-      WITH TokenProviders AS (
+      WITH RawCounts AS (
         SELECT 
           "tokenAddress",
           provider,
-          CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END as has_data,
-          ROW_NUMBER() OVER (
-            PARTITION BY "tokenAddress"
-            ORDER BY 
-              CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END DESC,
-              array_position(ARRAY[${enabledProviders}]::text[], provider)
-          ) as provider_rank
+          COUNT(*) as data_points
         FROM "historic-quotes"
         WHERE
           timestamp >= '${startPaddedQ}'
@@ -330,6 +429,34 @@ export class HistoricQuoteService implements OnModuleInit {
           AND "blockchainType" = '${blockchainType}'
           AND provider = ANY(ARRAY[${enabledProviders}]::text[])
         GROUP BY "tokenAddress", provider
+      ),
+      TokenStats AS (
+        SELECT
+          "tokenAddress",
+          MAX(data_points) as max_points,
+          MIN(CASE WHEN data_points > 0 THEN data_points ELSE NULL END) as min_nonzero_points
+        FROM RawCounts
+        GROUP BY "tokenAddress"
+      ),
+      TokenProviders AS (
+        SELECT 
+          rc."tokenAddress",
+          rc.provider,
+          rc.data_points,
+          ROW_NUMBER() OVER (
+            PARTITION BY rc."tokenAddress"
+            ORDER BY 
+              CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
+              -- If one provider has significantly more data (>5x), prioritize it
+              -- Otherwise use the configured provider order
+              CASE 
+                WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) AND ts.max_points = rc.data_points
+                THEN 0  -- Provider with most data comes first when significant difference exists
+                ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
+              END
+          ) as provider_rank
+        FROM RawCounts rc
+        JOIN TokenStats ts ON rc."tokenAddress" = ts."tokenAddress"
       ),
       BestProviderQuotes AS (
         SELECT hq.*
@@ -570,5 +697,73 @@ export class HistoricQuoteService implements OnModuleInit {
       usd: parseFloat(row.usd),
       provider: row.provider,
     }));
+  }
+
+  private async updateMappedEthereumTokens(): Promise<void> {
+    const deployments = this.deploymentService.getDeployments();
+    const latestEthereumQuotes = await this.getLatest(BlockchainType.Ethereum);
+    const ethereumDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+
+    // Collect all unique Ethereum token addresses from all deployments
+    const allEthereumAddresses = new Set<string>();
+
+    for (const deployment of deployments) {
+      if (!deployment.mapEthereumTokens || Object.keys(deployment.mapEthereumTokens).length === 0) {
+        continue;
+      }
+
+      Object.values(deployment.mapEthereumTokens).forEach((addr) => {
+        allEthereumAddresses.add(addr.toLowerCase());
+      });
+    }
+
+    if (allEthereumAddresses.size === 0) {
+      return;
+    }
+
+    this.logger.log(`Processing ${allEthereumAddresses.size} unique Ethereum token addresses for updates`);
+    const newQuotes = [];
+
+    for (const ethereumAddress of allEthereumAddresses) {
+      try {
+        // Get latest data from Codex for this Ethereum token
+        const codexData = await this.codexService.getLatestPrices(ethereumDeployment, [ethereumAddress]);
+
+        if (codexData && codexData[ethereumAddress] && codexData[ethereumAddress].usd) {
+          const newUsdValue = codexData[ethereumAddress].usd;
+          const newTimestamp = moment.unix(codexData[ethereumAddress].last_updated_at).utc().toISOString();
+
+          // Check if we have an existing quote and if the values are different
+          const existingQuote = latestEthereumQuotes[ethereumAddress];
+          const shouldUpdate =
+            !existingQuote ||
+            (existingQuote.usd !== newUsdValue && new Date(newTimestamp) > new Date(existingQuote.timestamp));
+
+          if (shouldUpdate) {
+            // Create a new quote for the Ethereum token
+            newQuotes.push(
+              this.repository.create({
+                tokenAddress: ethereumAddress,
+                usd: newUsdValue,
+                timestamp: newTimestamp,
+                provider: 'codex',
+                blockchainType: BlockchainType.Ethereum, // Store as Ethereum data
+              }),
+            );
+            this.logger.log(`Added new Ethereum price data for ${ethereumAddress} from Codex`);
+          } else {
+            this.logger.log(`Skipping update for ${ethereumAddress} - values haven't changed`);
+          }
+        }
+      } catch (error) {
+        this.logger.error(`Error fetching Ethereum token ${ethereumAddress} data from Codex:`, error);
+      }
+    }
+
+    if (newQuotes.length > 0) {
+      const batches = _.chunk(newQuotes, 1000);
+      await Promise.all(batches.map((batch) => this.repository.save(batch)));
+      this.logger.log(`Updated ${newQuotes.length} Ethereum token prices`);
+    }
   }
 }
