@@ -140,9 +140,8 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGSei,
         blockchainType: BlockchainType.Sei,
         rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
+        harvestEventsBatchSize: 500,
         harvestConcurrency: 1,
-        harvestSleep: 1000,
         multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
         startBlock: 79146720,
         gasToken: {
