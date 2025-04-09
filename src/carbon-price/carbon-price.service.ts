@@ -158,16 +158,20 @@ export class CarbonPriceService {
    * Pure function to calculate token price based on trade event
    */
   calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent, isToken0Known: boolean): Decimal {
+    // Normalize amounts using the correct decimal places from their respective tokens
+    const normalizedSourceAmount = new Decimal(event.sourceAmount).div(new Decimal(10).pow(event.sourceToken.decimals));
+    const normalizedTargetAmount = new Decimal(event.targetAmount).div(new Decimal(10).pow(event.targetToken.decimals));
+
     if (isToken0Known) {
       // Known token is token0, target token is token1
       return event.type === 'sell'
-        ? new Decimal(knownTokenQuote.usd).mul(new Decimal(event.sourceAmount)).div(new Decimal(event.targetAmount))
-        : new Decimal(knownTokenQuote.usd).mul(new Decimal(event.targetAmount)).div(new Decimal(event.sourceAmount));
+        ? new Decimal(knownTokenQuote.usd).mul(normalizedSourceAmount).div(normalizedTargetAmount)
+        : new Decimal(knownTokenQuote.usd).mul(normalizedTargetAmount).div(normalizedSourceAmount);
     } else {
       // Known token is token1, target token is token0
       return event.type === 'sell'
-        ? new Decimal(knownTokenQuote.usd).mul(new Decimal(event.targetAmount)).div(new Decimal(event.sourceAmount))
-        : new Decimal(knownTokenQuote.usd).mul(new Decimal(event.sourceAmount)).div(new Decimal(event.targetAmount));
+        ? new Decimal(knownTokenQuote.usd).mul(normalizedTargetAmount).div(normalizedSourceAmount)
+        : new Decimal(knownTokenQuote.usd).mul(normalizedSourceAmount).div(normalizedTargetAmount);
     }
   }
 }

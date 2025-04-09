@@ -109,12 +109,18 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '20',
         targetAmount: '543',
+        sourceToken: { decimals: 18 },
+        targetToken: { decimals: 6 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
 
-      // Expected: 20 * 0.53 / 543 = 0.0195
-      expect(result.toString()).toEqual(new Decimal('20').mul('0.53').div('543').toString());
+      // Expected calculation with decimal normalization
+      const normalizedSourceAmount = new Decimal('20').div(new Decimal(10).pow(18));
+      const normalizedTargetAmount = new Decimal('543').div(new Decimal(10).pow(6));
+      const expected = new Decimal('0.53').mul(normalizedSourceAmount).div(normalizedTargetAmount);
+
+      expect(result.toString()).toEqual(expected.toString());
     });
 
     // Case 2: Token0 is known, buying token0 with token1
@@ -123,12 +129,18 @@ describe('CarbonPriceService', () => {
         type: 'buy',
         sourceAmount: '543',
         targetAmount: '20',
+        sourceToken: { decimals: 6 },
+        targetToken: { decimals: 18 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
 
-      // Expected: 20 * 0.53 / 543 = 0.0195
-      expect(result.toString()).toEqual(new Decimal('20').mul('0.53').div('543').toString());
+      // Expected calculation with decimal normalization
+      const normalizedSourceAmount = new Decimal('543').div(new Decimal(10).pow(6));
+      const normalizedTargetAmount = new Decimal('20').div(new Decimal(10).pow(18));
+      const expected = new Decimal('0.53').mul(normalizedTargetAmount).div(normalizedSourceAmount);
+
+      expect(result.toString()).toEqual(expected.toString());
     });
 
     // Case 3: Token1 is known, selling token0 for token1
@@ -137,12 +149,18 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '543',
         targetAmount: '20',
+        sourceToken: { decimals: 18 },
+        targetToken: { decimals: 6 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
 
-      // Expected: 20 * 0.53 / 543 = 0.0195
-      expect(result.toString()).toEqual(new Decimal('20').mul('0.53').div('543').toString());
+      // Expected calculation with decimal normalization
+      const normalizedSourceAmount = new Decimal('543').div(new Decimal(10).pow(18));
+      const normalizedTargetAmount = new Decimal('20').div(new Decimal(10).pow(6));
+      const expected = new Decimal('0.53').mul(normalizedTargetAmount).div(normalizedSourceAmount);
+
+      expect(result.toString()).toEqual(expected.toString());
     });
 
     // Case 4: Token1 is known, buying token0 with token1
@@ -151,12 +169,18 @@ describe('CarbonPriceService', () => {
         type: 'buy',
         sourceAmount: '20',
         targetAmount: '543',
+        sourceToken: { decimals: 6 },
+        targetToken: { decimals: 18 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
 
-      // Expected: 20 * 0.53 / 543 = 0.0195
-      expect(result.toString()).toEqual(new Decimal('20').mul('0.53').div('543').toString());
+      // Expected calculation with decimal normalization
+      const normalizedSourceAmount = new Decimal('20').div(new Decimal(10).pow(6));
+      const normalizedTargetAmount = new Decimal('543').div(new Decimal(10).pow(18));
+      const expected = new Decimal('0.53').mul(normalizedSourceAmount).div(normalizedTargetAmount);
+
+      expect(result.toString()).toEqual(expected.toString());
     });
 
     // Edge case: Very large numbers
@@ -169,6 +193,8 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '1000000000000000000',
         targetAmount: '1',
+        sourceToken: { decimals: 18 },
+        targetToken: { decimals: 18 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(largeQuote, mockEvent, true);
@@ -185,6 +211,8 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '0.0000000000001',
         targetAmount: '1000000000000000',
+        sourceToken: { decimals: 18 },
+        targetToken: { decimals: 18 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(smallQuote, mockEvent, true);
@@ -201,6 +229,8 @@ describe('CarbonPriceService', () => {
       type: 'sell',
       sourceAmount: '20',
       targetAmount: '543',
+      sourceToken: { decimals: 18 },
+      targetToken: { decimals: 6 },
       timestamp: new Date(),
     } as any;
 
@@ -283,6 +313,8 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '20',
         targetAmount: '543',
+        sourceToken: { decimals: 18 },
+        targetToken: { decimals: 6 },
         timestamp: new Date(),
       } as any;
 
