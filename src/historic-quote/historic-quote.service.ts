@@ -766,4 +766,34 @@ export class HistoricQuoteService implements OnModuleInit {
       this.logger.log(`Updated ${newQuotes.length} Ethereum token prices`);
     }
   }
+
+  async getLast(blockchainType: BlockchainType, tokenAddress: string): Promise<HistoricQuote | null> {
+    try {
+      return await this.repository
+        .createQueryBuilder('hq')
+        .where('hq.tokenAddress = :tokenAddress', { tokenAddress: tokenAddress.toLowerCase() })
+        .andWhere('hq.blockchainType = :blockchainType', { blockchainType })
+        .orderBy('hq.timestamp', 'DESC')
+        .getOne();
+    } catch (error) {
+      this.logger.error(`Error fetching last historical quote for address ${tokenAddress}:`, error);
+      return null;
+    }
+  }
+
+  async addQuote(quote: Partial<HistoricQuote>): Promise<HistoricQuote> {
+    try {
+      const newQuote = this.repository.create({
+        ...quote,
+        timestamp: quote.timestamp || new Date(),
+        tokenAddress: quote.tokenAddress?.toLowerCase(),
+        provider: quote.provider || 'carbon-price',
+      });
+
+      return await this.repository.save(newQuote);
+    } catch (error) {
+      this.logger.error(`Error adding historical quote for address ${quote.tokenAddress}:`, error);
+      throw new Error(`Error adding historical quote for address ${quote.tokenAddress}`);
+    }
+  }
 }
