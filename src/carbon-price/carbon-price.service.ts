@@ -7,6 +7,7 @@ import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
+import { Address } from 'web3';
 
 type TokenAddressPair = {
   unknownTokenAddress: string;
@@ -116,7 +117,7 @@ export class CarbonPriceService {
     }
 
     // Calculate the price of the unknown token
-    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, tokenPair.isToken0Known);
+    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event);
 
     // Save the price to the historicQuote table
     await this.historicQuoteService.addQuote({
@@ -157,21 +158,19 @@ export class CarbonPriceService {
   /**
    * Pure function to calculate token price based on trade event
    */
-  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent, isToken0Known: boolean): Decimal {
+  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent): Decimal {
     // Normalize amounts using the correct decimal places from their respective tokens
     const normalizedSourceAmount = new Decimal(event.sourceAmount).div(new Decimal(10).pow(event.sourceToken.decimals));
     const normalizedTargetAmount = new Decimal(event.targetAmount).div(new Decimal(10).pow(event.targetToken.decimals));
 
-    if (isToken0Known) {
+    const tradeRate = normalizedSourceAmount.div(normalizedTargetAmount);
+
+    if (event.sourceToken.address === knownTokenQuote.tokenAddress) { 
       // Known token is token0, target token is token1
-      return event.type === 'sell'
-        ? new Decimal(knownTokenQuote.usd).mul(normalizedSourceAmount).div(normalizedTargetAmount)
-        : new Decimal(knownTokenQuote.usd).mul(normalizedTargetAmount).div(normalizedSourceAmount);
+        return new Decimal(knownTokenQuote.usd).mul(tradeRate);
     } else {
       // Known token is token1, target token is token0
-      return event.type === 'sell'
-        ? new Decimal(knownTokenQuote.usd).mul(normalizedTargetAmount).div(normalizedSourceAmount)
-        : new Decimal(knownTokenQuote.usd).mul(normalizedSourceAmount).div(normalizedTargetAmount);
+      return new Decimal(knownTokenQuote.usd).div(tradeRate);
     }
   }
 }

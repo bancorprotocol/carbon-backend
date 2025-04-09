@@ -99,128 +99,198 @@ describe('CarbonPriceService', () => {
   });
 
   describe('calculateTokenPrice', () => {
-    const mockKnownTokenQuote = {
-      usd: '2',
-    } as HistoricQuote;
-
-    // Case 1: Token0 is known, selling token0 for token1
-    it('should calculate correct price when token0 is known and selling', () => {
+    // Case 1: Source token is known
+    it('should calculate correct price when source token is known', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xBNT',
+        usd: '2',
+      } as HistoricQuote;
       const mockEvent = {
-        type: 'sell',
         sourceAmount: '100',
         targetAmount: '50',
-        sourceToken: { decimals: 2 },
-        targetToken: { decimals: 2 },
+        sourceToken: { address: "0xBNT", decimals: 2 },
+        targetToken: { address: "0xUSDC", decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
-
-      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
       expect(result.toString()).toEqual('4');
     });
 
-    // Case 2: Token0 is known, buying token0 with token1
-    it('should calculate correct price when token0 is known and buying', () => {
+    // Case 2: Target token is known
+    it('should calculate correct price when target token is known', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xBNT',
+        usd: '2',
+      } as HistoricQuote;
       const mockEvent = {
-        type: 'buy',
         sourceAmount: '50',
         targetAmount: '100',
-        sourceToken: { decimals: 2 },
-        targetToken: { decimals: 2 },
+        sourceToken: { address: "0xUSDC", decimals: 2 },
+        targetToken: { address: "0xBNT", decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
-
-      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
       expect(result.toString()).toEqual('4');
     });
 
-    // Case 3: Token1 is known, selling token0 for token1
-    it('should calculate correct price when token1 is known and selling', () => {
+    // Case 3: Other Quote - Source token is known
+    it('should calculate correct price when source is known - other quote', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xUSDC',
+        usd: '1',
+      } as HistoricQuote;
       const mockEvent = {
-        type: 'sell',
-        sourceAmount: '50',
-        targetAmount: '100',
-        sourceToken: { decimals: 2 },
-        targetToken: { decimals: 2 },
-      } as TokensTradedEvent;
-
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
-
-      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
-      expect(result.toString()).toEqual('4');
-    });
-
-    // Case 4: Token1 is known, buying token0 with token1
-    it('should calculate correct price when token1 is known and buying', () => {
-      const mockEvent = {
-        type: 'buy',
         sourceAmount: '100',
         targetAmount: '50',
-        sourceToken: { decimals: 2 },
-        targetToken: { decimals: 2 },
+        sourceToken: { address: "0xUSDC",  decimals: 2 },
+        targetToken: { address: "0xBNT",  decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      expect(result.toString()).toEqual('2');
+    });
+    // Case 4: Other Quote - Target token is known
+    it('should calculate correct price when target is known - other quote', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xUSDC',
+        usd: '1',
+      } as HistoricQuote;
+      const mockEvent = {
+        sourceAmount: '50',
+        targetAmount: '100',
+        sourceToken: { address: "0xBNT", decimals: 2 },
+        targetToken: { address: "0xUSDC", decimals: 2 },
+      } as TokensTradedEvent;
 
-      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
-      expect(result.toString()).toEqual('4');
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      expect(result.toString()).toEqual('2');
     });
 
     // Test with different decimals
     it('should handle different token decimals correctly', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xBNT',
+        usd: '2',
+      } as HistoricQuote;
       const mockEvent = {
-        type: 'sell',
         sourceAmount: '1000', // 10.00 after normalization
         targetAmount: '5', // 0.05 after normalization
-        sourceToken: { decimals: 2 },
-        targetToken: { decimals: 2 },
+        sourceToken: { address: "0xBNT", decimals: 2 },
+        targetToken: { address: "0xUSDC", decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
-
-      // Expected: (1000 / 10^2) * 2 / (5 / 10^2) = 10 * 2 / 0.05 = 400
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
       expect(result.toString()).toEqual('400');
     });
 
     // Edge case: Very large numbers
     it('should handle large numbers correctly', () => {
       const largeQuote = {
+        tokenAddress: '0xBNT',
         usd: '1000',
       } as HistoricQuote;
 
       const mockEvent = {
-        type: 'sell',
         sourceAmount: '100000',
         targetAmount: '100',
-        sourceToken: { decimals: 3 },
-        targetToken: { decimals: 3 },
+        sourceToken: { address: "0xBNT", decimals: 3 },
+        targetToken: { address: "0xUSDC", decimals: 3 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(largeQuote, mockEvent, true);
-
-      // Expected: (100000 / 10^3) * 1000 / (100 / 10^3) = 100 * 1000 / 0.1 = 1000000
+      const result = service.calculateTokenPrice(largeQuote, mockEvent);
       expect(result.toString()).toEqual('1000000');
     });
 
     // Edge case: Very small numbers
     it('should handle small numbers correctly', () => {
       const smallQuote = {
+        tokenAddress: '0xBNT',
         usd: '0.01',
       } as HistoricQuote;
 
       const mockEvent = {
-        type: 'sell',
         sourceAmount: '10',
         targetAmount: '1000',
-        sourceToken: { decimals: 1 },
-        targetToken: { decimals: 1 },
+        sourceToken: { address: "0xBNT", decimals: 1 },
+        targetToken: { address: "0xUSDC", decimals: 1 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(smallQuote, mockEvent, true);
-
-      // Expected: (10 / 10^1) * 0.01 / (1000 / 10^1) = 1 * 0.01 / 100 = 0.0001
+      const result = service.calculateTokenPrice(smallQuote, mockEvent);
       expect(result.toString()).toEqual('0.0001');
+    });
+
+    // Real cases
+    it('eth/usdc quote usdc', () => {
+      const quote = {
+        tokenAddress: '0xUSDC',
+        usd: '1',
+      } as HistoricQuote;
+
+      const mockEvent = {
+        sourceAmount: '9000000000000000',
+        targetAmount: '15464710',
+        sourceToken: { address:'0xETH', decimals: 18 },
+        targetToken: { address:'0xUSDC', decimals: 6 },
+      } as TokensTradedEvent;
+
+      const result = service.calculateTokenPrice(quote, mockEvent);
+      expect(result.toString()).toEqual('1718.3011111111111111');
+    });
+
+      // Real cases
+    it('eth/usdc quote eth', () => {
+      const quote = {
+        tokenAddress: '0xETH',
+        usd: '1718.3011111111111112',
+      } as HistoricQuote;
+
+      const mockEvent = {
+        type: 'sell',
+        sourceAmount: '9000000000000000',
+        targetAmount: '15464710',
+        sourceToken: { address:'0xETH', decimals: 18 },
+        targetToken: { address:'0xUSDC', decimals: 6 },
+      } as TokensTradedEvent;
+
+      const result = service.calculateTokenPrice(quote, mockEvent);
+      expect(result.toString()).toEqual('1');
+    });
+
+    // Real cases
+    it('eth/usdc quote usdc flip', () => {
+      const quote = {
+        tokenAddress: '0xUSDC',
+        usd: '1',
+      } as HistoricQuote;
+
+      const mockEvent = {
+        type: 'sell',
+        sourceAmount: '100000000',
+        targetAmount: '61881098418604494',
+        sourceToken: { address: '0xUSDC', decimals: 6 },
+        targetToken: { address: '0xETH', decimals: 18 },
+      } as TokensTradedEvent;
+
+      const result = service.calculateTokenPrice(quote, mockEvent);
+      expect(result.toString()).toEqual('1616.0023424848433866');
+    });
+
+    // Real cases
+    it('paxos/usdc quote usdc', () => {
+      const quote = {
+        tokenAddress: '0xUSDC',
+        usd: '1',
+      } as HistoricQuote;
+
+      const mockEvent = {
+        sourceAmount: '133575144290917245',
+        targetAmount: '404598027',
+        sourceToken: { address:'0xPAXOS', decimals: 18 },
+        targetToken: { address:'0xUSDC', decimals: 6 },
+      } as TokensTradedEvent;
+
+      const result = service.calculateTokenPrice(quote, mockEvent);
+      expect(result.toString()).toEqual('3028.9918768031725129');
     });
   });
 
