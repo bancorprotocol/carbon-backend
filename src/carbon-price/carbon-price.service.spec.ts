@@ -100,123 +100,127 @@ describe('CarbonPriceService', () => {
 
   describe('calculateTokenPrice', () => {
     const mockKnownTokenQuote = {
-      usd: '0.53',
+      usd: '2',
     } as HistoricQuote;
 
     // Case 1: Token0 is known, selling token0 for token1
     it('should calculate correct price when token0 is known and selling', () => {
       const mockEvent = {
         type: 'sell',
-        sourceAmount: '20',
-        targetAmount: '543',
-        sourceToken: { decimals: 18 },
-        targetToken: { decimals: 6 },
+        sourceAmount: '100',
+        targetAmount: '50',
+        sourceToken: { decimals: 2 },
+        targetToken: { decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
 
-      // Expected calculation with decimal normalization
-      const normalizedSourceAmount = new Decimal('20').div(new Decimal(10).pow(18));
-      const normalizedTargetAmount = new Decimal('543').div(new Decimal(10).pow(6));
-      const expected = new Decimal('0.53').mul(normalizedSourceAmount).div(normalizedTargetAmount);
-
-      expect(result.toString()).toEqual(expected.toString());
+      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      expect(result.toString()).toEqual('4');
     });
 
     // Case 2: Token0 is known, buying token0 with token1
     it('should calculate correct price when token0 is known and buying', () => {
       const mockEvent = {
         type: 'buy',
-        sourceAmount: '543',
-        targetAmount: '20',
-        sourceToken: { decimals: 6 },
-        targetToken: { decimals: 18 },
+        sourceAmount: '50',
+        targetAmount: '100',
+        sourceToken: { decimals: 2 },
+        targetToken: { decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
 
-      // Expected calculation with decimal normalization
-      const normalizedSourceAmount = new Decimal('543').div(new Decimal(10).pow(6));
-      const normalizedTargetAmount = new Decimal('20').div(new Decimal(10).pow(18));
-      const expected = new Decimal('0.53').mul(normalizedTargetAmount).div(normalizedSourceAmount);
-
-      expect(result.toString()).toEqual(expected.toString());
+      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      expect(result.toString()).toEqual('4');
     });
 
     // Case 3: Token1 is known, selling token0 for token1
     it('should calculate correct price when token1 is known and selling', () => {
       const mockEvent = {
         type: 'sell',
-        sourceAmount: '543',
-        targetAmount: '20',
-        sourceToken: { decimals: 18 },
-        targetToken: { decimals: 6 },
+        sourceAmount: '50',
+        targetAmount: '100',
+        sourceToken: { decimals: 2 },
+        targetToken: { decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
 
-      // Expected calculation with decimal normalization
-      const normalizedSourceAmount = new Decimal('543').div(new Decimal(10).pow(18));
-      const normalizedTargetAmount = new Decimal('20').div(new Decimal(10).pow(6));
-      const expected = new Decimal('0.53').mul(normalizedTargetAmount).div(normalizedSourceAmount);
-
-      expect(result.toString()).toEqual(expected.toString());
+      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      expect(result.toString()).toEqual('4');
     });
 
     // Case 4: Token1 is known, buying token0 with token1
     it('should calculate correct price when token1 is known and buying', () => {
       const mockEvent = {
         type: 'buy',
-        sourceAmount: '20',
-        targetAmount: '543',
-        sourceToken: { decimals: 6 },
-        targetToken: { decimals: 18 },
+        sourceAmount: '100',
+        targetAmount: '50',
+        sourceToken: { decimals: 2 },
+        targetToken: { decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, false);
 
-      // Expected calculation with decimal normalization
-      const normalizedSourceAmount = new Decimal('20').div(new Decimal(10).pow(6));
-      const normalizedTargetAmount = new Decimal('543').div(new Decimal(10).pow(18));
-      const expected = new Decimal('0.53').mul(normalizedSourceAmount).div(normalizedTargetAmount);
+      // Expected: (100 / 10^2) * 2 / (50 / 10^2) = 1 * 2 / 0.5 = 4
+      expect(result.toString()).toEqual('4');
+    });
 
-      expect(result.toString()).toEqual(expected.toString());
+    // Test with different decimals
+    it('should handle different token decimals correctly', () => {
+      const mockEvent = {
+        type: 'sell',
+        sourceAmount: '1000', // 10.00 after normalization
+        targetAmount: '5', // 0.05 after normalization
+        sourceToken: { decimals: 2 },
+        targetToken: { decimals: 2 },
+      } as TokensTradedEvent;
+
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, true);
+
+      // Expected: (1000 / 10^2) * 2 / (5 / 10^2) = 10 * 2 / 0.05 = 400
+      expect(result.toString()).toEqual('400');
     });
 
     // Edge case: Very large numbers
     it('should handle large numbers correctly', () => {
       const largeQuote = {
-        usd: '1000000000000000',
+        usd: '1000',
       } as HistoricQuote;
 
       const mockEvent = {
         type: 'sell',
-        sourceAmount: '1000000000000000000',
-        targetAmount: '1',
-        sourceToken: { decimals: 18 },
-        targetToken: { decimals: 18 },
+        sourceAmount: '100000',
+        targetAmount: '100',
+        sourceToken: { decimals: 3 },
+        targetToken: { decimals: 3 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(largeQuote, mockEvent, true);
-      expect(result.toString()).not.toBeNaN();
+
+      // Expected: (100000 / 10^3) * 1000 / (100 / 10^3) = 100 * 1000 / 0.1 = 1000000
+      expect(result.toString()).toEqual('1000000');
     });
 
     // Edge case: Very small numbers
     it('should handle small numbers correctly', () => {
       const smallQuote = {
-        usd: '0.0000000000001',
+        usd: '0.01',
       } as HistoricQuote;
 
       const mockEvent = {
         type: 'sell',
-        sourceAmount: '0.0000000000001',
-        targetAmount: '1000000000000000',
-        sourceToken: { decimals: 18 },
-        targetToken: { decimals: 18 },
+        sourceAmount: '10',
+        targetAmount: '1000',
+        sourceToken: { decimals: 1 },
+        targetToken: { decimals: 1 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(smallQuote, mockEvent, true);
-      expect(result.toString()).not.toBeNaN();
+
+      // Expected: (10 / 10^1) * 0.01 / (1000 / 10^1) = 1 * 0.01 / 100 = 0.0001
+      expect(result.toString()).toEqual('0.0001');
     });
   });
 
