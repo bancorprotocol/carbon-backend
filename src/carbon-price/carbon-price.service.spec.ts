@@ -7,7 +7,6 @@ import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
-import Decimal from 'decimal.js';
 import { QuoteService } from '../quote/quote.service';
 
 describe('CarbonPriceService', () => {

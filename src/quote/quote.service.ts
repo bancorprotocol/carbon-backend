@@ -138,7 +138,7 @@ export class QuoteService implements OnModuleInit {
       .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: addresses.map((a) => a.toLowerCase()) })
       .getMany();
     const tokensByAddress = {};
-    result.forEach((q) => (tokensByAddress[q.token.address] = q));
+    result.forEach((q) => (tokensByAddress[q.token.address.toLowerCase()] = q));
     return tokensByAddress;
   }
 
@@ -285,6 +285,10 @@ export class QuoteService implements OnModuleInit {
     const existingQuotes = await this.findQuotes(blockchainType, [address]);
     const existingQuote = existingQuotes[address] || existingQuotes[address.toLowerCase()];
     if (existingQuote) {
+      if (existingQuote.provider === 'carbon-defi') {
+        return existingQuote;
+      }
+
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (new Date(existingQuote.timestamp) > fiveMinutesAgo) {
         return existingQuote;

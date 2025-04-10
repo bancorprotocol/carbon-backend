@@ -127,7 +127,7 @@ export class CarbonPriceService {
       tokenAddress: tokenPair.unknownTokenAddress,
       usd: tokenPrice,
       timestamp: event.timestamp,
-      provider: 'carbon-price',
+      provider: 'carbon-defi',
     });
 
     // Also update the quote table
