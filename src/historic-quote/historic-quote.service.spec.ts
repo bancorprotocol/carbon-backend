@@ -617,7 +617,7 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 7200, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 7200, now);
 
       // Should have called getHistoryQuotesBuckets with right params
       expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
@@ -656,7 +656,7 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 3600, now);
 
       const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
       expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
@@ -683,11 +683,69 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 3600, now);
 
       const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
       expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1); // Should skip the timestamp with null close
       expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
+    });
+
+    it('should handle tokens from different blockchain types', async () => {
+      const now = moment().unix();
+      const tokenA = '0xTokenA';
+      const tokenB = '0xTokenB';
+      const baseBlockchainType = BlockchainType.Ethereum;
+      const quoteBlockchainType = BlockchainType.Sei;
+
+      const mockTokenAData = {
+        [tokenA]: [{ timestamp: now, open: '100', close: '110', high: '120', low: '90', provider: 'provider1' }],
+      };
+
+      const mockTokenBData = {
+        [tokenB]: [{ timestamp: now, open: '10', close: '11', high: '12', low: '9', provider: 'provider2' }],
+      };
+
+      // Mock implementation for getHistoryQuotesBuckets to return different data based on blockchain type
+      jest.spyOn(service, 'getHistoryQuotesBuckets').mockImplementation((blockchain) => {
+        if (blockchain === baseBlockchainType) {
+          return Promise.resolve(mockTokenAData);
+        } else if (blockchain === quoteBlockchainType) {
+          return Promise.resolve(mockTokenBData);
+        }
+        return Promise.resolve({});
+      });
+
+      jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
+
+      await service.getUsdBuckets(baseBlockchainType, quoteBlockchainType, tokenA, tokenB, now - 3600, now);
+
+      // Verify getHistoryQuotesBuckets was called twice with different blockchain types
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledTimes(2);
+
+      // First call should be for base token with Ethereum blockchain
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
+        baseBlockchainType,
+        [tokenA],
+        now - 3600,
+        now,
+        '1 hour',
+      );
+
+      // Second call should be for quote token with Sei blockchain
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
+        quoteBlockchainType,
+        [tokenB],
+        now - 3600,
+        now,
+        '1 hour',
+      );
+
+      // Verify the data passed to createDailyCandlestick
+      const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
+      expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
+      expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
+      expect(pricesPassedToCreateDailyCandlestick[0].provider).toBe('provider1/provider2');
+      expect(pricesPassedToCreateDailyCandlestick[0].usd.toString()).toBe('10');
     });
   });
 

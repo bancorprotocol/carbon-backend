@@ -44,7 +44,8 @@ export class SimulatorController {
     // Initialize variables for the tokens and blockchain to use
     let usedBaseToken = baseTokenAddress;
     let usedQuoteToken = quoteTokenAddress;
-    let blockchainType = deployment.blockchainType;
+    let baseTokenBlockchainType = deployment.blockchainType;
+    let quoteTokenBlockchainType = deployment.blockchainType;
     let mappedBaseToken = null;
     let mappedQuoteToken = null;
 
@@ -73,7 +74,7 @@ export class SimulatorController {
         mappedBaseToken = lowercaseTokenMap[usedBaseToken];
         usedBaseToken = mappedBaseToken;
         params.baseToken = mappedBaseToken;
-        blockchainType = BlockchainType.Ethereum;
+        baseTokenBlockchainType = BlockchainType.Ethereum;
       }
 
       // Check if quote token is mapped
@@ -81,23 +82,29 @@ export class SimulatorController {
         mappedQuoteToken = lowercaseTokenMap[usedQuoteToken];
         usedQuoteToken = mappedQuoteToken;
         params.quoteToken = mappedQuoteToken;
-        blockchainType = BlockchainType.Ethereum;
+        quoteTokenBlockchainType = BlockchainType.Ethereum;
       }
     }
 
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      blockchainType,
+      baseTokenBlockchainType,
+      quoteTokenBlockchainType,
       usedBaseToken,
       usedQuoteToken,
       params.start,
       params.end,
     );
 
-    // If using mapped Ethereum tokens, use the Ethereum deployment
-    const effectiveDeployment =
-      mappedBaseToken || mappedQuoteToken
-        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
-        : deployment;
+    // Determine which deployment to use for simulation
+    let effectiveDeployment = deployment;
+    if (baseTokenBlockchainType === BlockchainType.Ethereum && quoteTokenBlockchainType === BlockchainType.Ethereum) {
+      // If both tokens are from Ethereum, use Ethereum deployment
+      effectiveDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+    } else if (mappedBaseToken || mappedQuoteToken) {
+      // If tokens are mixed between blockchains but at least one is Ethereum-mapped, prioritize the original deployment
+      // This is a choice that may need adjustment based on business logic
+      effectiveDeployment = deployment;
+    }
 
     const data = await this.simulatorService.generateSimulation(params, usdPrices, effectiveDeployment);
 

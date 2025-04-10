@@ -534,18 +534,33 @@ export class HistoricQuoteService implements OnModuleInit {
   }
 
   async getUsdBuckets(
-    blockchainType: BlockchainType,
+    baseTokenBlockchainType: BlockchainType,
+    quoteTokenBlockchainType: BlockchainType,
     tokenA: string,
     tokenB: string,
     start: number,
     end: number,
   ): Promise<Candlestick[]> {
-    const data = await this.getHistoryQuotesBuckets(blockchainType, [tokenA, tokenB], start, end, '1 hour');
+    let tokenAData: { [key: string]: Candlestick[] };
+    let tokenBData: { [key: string]: Candlestick[] };
+
+    // If both blockchain types are the same, make a single call
+    if (baseTokenBlockchainType === quoteTokenBlockchainType) {
+      const data = await this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA, tokenB], start, end, '1 hour');
+      tokenAData = { [tokenA]: data[tokenA] };
+      tokenBData = { [tokenB]: data[tokenB] };
+    } else {
+      // Run both queries in parallel for better performance
+      [tokenAData, tokenBData] = await Promise.all([
+        this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA], start, end, '1 hour'),
+        this.getHistoryQuotesBuckets(quoteTokenBlockchainType, [tokenB], start, end, '1 hour'),
+      ]);
+    }
 
     const prices = [];
     // Create map of timestamps to candles for each token
-    const tokenAByTimestamp = new Map(data[tokenA].map((candle) => [candle.timestamp, candle]));
-    const tokenBByTimestamp = new Map(data[tokenB].map((candle) => [candle.timestamp, candle]));
+    const tokenAByTimestamp = new Map(tokenAData[tokenA].map((candle) => [candle.timestamp, candle]));
+    const tokenBByTimestamp = new Map(tokenBData[tokenB].map((candle) => [candle.timestamp, candle]));
 
     // Get all timestamps where both tokens have data
     const allTimestamps = [...new Set([...tokenAByTimestamp.keys(), ...tokenBByTimestamp.keys()])].sort();
