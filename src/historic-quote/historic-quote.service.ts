@@ -20,7 +20,7 @@ type Candlestick = {
   provider: string;
 };
 
-type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko';
+type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko' | 'carbon-defi';
 
 interface ProviderConfig {
   name: PriceProvider;
@@ -50,7 +50,7 @@ export class HistoricQuoteService implements OnModuleInit {
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
-    [BlockchainType.Coti]: [],
+    [BlockchainType.Coti]: [{ name: 'carbon-defi', enabled: true }],
   };
 
   constructor(
