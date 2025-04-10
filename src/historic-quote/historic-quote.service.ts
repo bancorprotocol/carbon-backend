@@ -798,6 +798,16 @@ export class HistoricQuoteService implements OnModuleInit {
 
   async addQuote(quote: Partial<HistoricQuote>): Promise<HistoricQuote> {
     try {
+      // Check if there's an existing quote with the same token address and blockchain type
+      if (quote.tokenAddress && quote.blockchainType) {
+        const lastQuote = await this.getLast(quote.blockchainType, quote.tokenAddress);
+        // If the last quote exists and has the same USD value, return it instead of creating a new one
+        if (lastQuote && lastQuote.usd === quote.usd) {
+          this.logger.log(`Skipping duplicate quote for ${quote.tokenAddress} with USD value ${quote.usd}`);
+          return lastQuote;
+        }
+      }
+
       const newQuote = this.repository.create({
         ...quote,
         timestamp: quote.timestamp || new Date(),

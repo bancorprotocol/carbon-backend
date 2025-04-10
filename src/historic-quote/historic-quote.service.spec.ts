@@ -834,6 +834,15 @@ describe('HistoricQuoteService', () => {
       jest.clearAllMocks();
       mockRepository.create.mockImplementation((data) => data);
       mockRepository.save.mockImplementation((data) => Promise.resolve(data));
+
+      // Mock createQueryBuilder for getLast method
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
     });
 
     it('should create and save a new quote with provided values', async () => {
@@ -896,6 +905,42 @@ describe('HistoricQuoteService', () => {
       await expect(service.addQuote(quote)).rejects.toThrow(`Error adding historical quote for address 0xErrorToken`);
       expect(mockRepository.create).toHaveBeenCalled();
       expect(mockRepository.save).toHaveBeenCalled();
+    });
+
+    it('should skip creating a new quote if the latest quote has the same USD value', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken789',
+        usd: '150.25',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken789',
+        usd: '150.25', // Same USD value as existing quote
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
     });
   });
 });
