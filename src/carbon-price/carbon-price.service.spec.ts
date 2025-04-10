@@ -71,7 +71,7 @@ describe('CarbonPriceService', () => {
   });
 
   describe('identifyTokenPair', () => {
-    it('should identify token0 as known token', () => {
+    it('should identify token0 as known token when token1 is not mapped', () => {
       const token0Address = '0xcotitoken';
       const token1Address = '0xunknowntoken';
       const result = service.identifyTokenPair(token0Address, token1Address, mockTokenMap);
@@ -83,7 +83,7 @@ describe('CarbonPriceService', () => {
       });
     });
 
-    it('should identify token1 as known token', () => {
+    it('should identify token1 as known token when token0 is not mapped', () => {
       const token0Address = '0xunknowntoken';
       const token1Address = '0xcotitoken';
       const result = service.identifyTokenPair(token0Address, token1Address, mockTokenMap);
@@ -99,6 +99,20 @@ describe('CarbonPriceService', () => {
       const token0Address = '0xrandomtoken1';
       const token1Address = '0xrandomtoken2';
       const result = service.identifyTokenPair(token0Address, token1Address, mockTokenMap);
+
+      expect(result).toBeNull();
+    });
+
+    it('should return null if both tokens are in the map', () => {
+      // Create a token map with multiple tokens
+      const multiTokenMap = {
+        '0xcotitoken': '0xethereumtoken1',
+        '0xanothertoken': '0xethereumtoken2',
+      };
+
+      const token0Address = '0xcotitoken';
+      const token1Address = '0xanothertoken';
+      const result = service.identifyTokenPair(token0Address, token1Address, multiTokenMap);
 
       expect(result).toBeNull();
     });
@@ -310,6 +324,15 @@ describe('CarbonPriceService', () => {
       timestamp: new Date(),
     } as any;
 
+    const mockEventWithBothMapped = {
+      type: 'sell',
+      sourceAmount: '20',
+      targetAmount: '543',
+      sourceToken: { address: '0xCotiToken', decimals: 18 },
+      targetToken: { address: '0xAnotherMappedToken', decimals: 6 },
+      timestamp: new Date(),
+    } as any;
+
     const mockKnownTokenQuote = {
       usd: '0.53',
     } as HistoricQuote;
@@ -323,6 +346,22 @@ describe('CarbonPriceService', () => {
     it('should return false if no token in pair is in token map', async () => {
       const emptyTokenMap = {};
       const result = await service.processTradeEvent(mockEvent, emptyTokenMap, mockDeployment as Deployment);
+      expect(result).toBe(false);
+      expect(historicQuoteService.getLast).not.toHaveBeenCalled();
+    });
+
+    it('should return false if both tokens in the pair are in the token map', async () => {
+      // Create a token map with multiple tokens
+      const multiTokenMap = {
+        '0xcotitoken': '0xethereumtoken1',
+        '0xanothermappedtoken': '0xethereumtoken2',
+      };
+
+      const result = await service.processTradeEvent(
+        mockEventWithBothMapped,
+        multiTokenMap,
+        mockDeployment as Deployment,
+      );
       expect(result).toBe(false);
       expect(historicQuoteService.getLast).not.toHaveBeenCalled();
     });
@@ -350,7 +389,7 @@ describe('CarbonPriceService', () => {
         expect.objectContaining({
           blockchainType: BlockchainType.Coti,
           tokenAddress: '0xunknowntoken',
-          provider: 'carbon-price',
+          provider: 'carbon-defi',
           usd: expect.any(String),
           timestamp: mockEvent.timestamp,
         }),
@@ -363,7 +402,7 @@ describe('CarbonPriceService', () => {
           blockchainType: BlockchainType.Coti,
           usd: expect.any(String),
           timestamp: mockEvent.timestamp,
-          provider: 'carbon-price',
+          provider: 'carbon-defi',
         }),
       );
     });
