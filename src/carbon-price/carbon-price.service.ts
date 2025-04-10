@@ -7,6 +7,7 @@ import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
+import { QuoteService } from '../quote/quote.service';
 
 type TokenAddressPair = {
   unknownTokenAddress: string;
@@ -23,6 +24,7 @@ export class CarbonPriceService {
     private lastProcessedBlockService: LastProcessedBlockService,
     private deploymentService: DeploymentService,
     private historicQuoteService: HistoricQuoteService,
+    private quoteService: QuoteService,
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<any> {
@@ -117,14 +119,28 @@ export class CarbonPriceService {
 
     // Calculate the price of the unknown token
     const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event);
+    const tokenPrice = unknownTokenPrice.toString();
 
     // Save the price to the historicQuote table
     await this.historicQuoteService.addQuote({
       blockchainType: deployment.blockchainType,
       tokenAddress: tokenPair.unknownTokenAddress,
-      usd: unknownTokenPrice.toString(),
+      usd: tokenPrice,
       timestamp: event.timestamp,
       provider: 'carbon-price',
+    });
+
+    // Also update the quote table
+    const token = tokenPair.isToken0Known
+      ? event.targetToken // If token0 is known, then token1 is the unknown token
+      : event.sourceToken; // If token1 is known, then token0 is the unknown token
+
+    await this.quoteService.addOrUpdateQuote({
+      token: token,
+      blockchainType: deployment.blockchainType,
+      usd: tokenPrice,
+      timestamp: event.timestamp,
+      provider: 'carbon-defi',
     });
 
     return true;

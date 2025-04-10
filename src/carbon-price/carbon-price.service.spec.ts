@@ -8,6 +8,7 @@ import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
 import Decimal from 'decimal.js';
+import { QuoteService } from '../quote/quote.service';
 
 describe('CarbonPriceService', () => {
   let service: CarbonPriceService;
@@ -15,6 +16,7 @@ describe('CarbonPriceService', () => {
   let lastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
   let deploymentService: jest.Mocked<DeploymentService>;
   let historicQuoteService: jest.Mocked<HistoricQuoteService>;
+  let quoteService: jest.Mocked<QuoteService>;
 
   const mockDeployment: Partial<Deployment> = {
     blockchainType: BlockchainType.Coti,
@@ -47,6 +49,10 @@ describe('CarbonPriceService', () => {
       addQuote: jest.fn(),
     } as any;
 
+    quoteService = {
+      addOrUpdateQuote: jest.fn(),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         CarbonPriceService,
@@ -54,6 +60,7 @@ describe('CarbonPriceService', () => {
         { provide: LastProcessedBlockService, useValue: lastProcessedBlockService },
         { provide: DeploymentService, useValue: deploymentService },
         { provide: HistoricQuoteService, useValue: historicQuoteService },
+        { provide: QuoteService, useValue: quoteService },
       ],
     }).compile();
 
@@ -311,6 +318,7 @@ describe('CarbonPriceService', () => {
     beforeEach(() => {
       historicQuoteService.getLast.mockReset();
       historicQuoteService.addQuote.mockReset();
+      quoteService.addOrUpdateQuote.mockReset();
     });
 
     it('should return false if no token in pair is in token map', async () => {
@@ -333,6 +341,7 @@ describe('CarbonPriceService', () => {
     it('should calculate and save price when token0 is known', async () => {
       historicQuoteService.getLast.mockResolvedValue(mockKnownTokenQuote);
       historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+      quoteService.addOrUpdateQuote.mockResolvedValue({} as any);
 
       const result = await service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment);
 
@@ -347,6 +356,32 @@ describe('CarbonPriceService', () => {
           timestamp: mockEvent.timestamp,
         }),
       );
+
+      // Verify QuoteService is called
+      expect(quoteService.addOrUpdateQuote).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token: mockEvent.targetToken,
+          blockchainType: BlockchainType.Coti,
+          usd: expect.any(String),
+          timestamp: mockEvent.timestamp,
+          provider: 'carbon-price',
+        }),
+      );
+    });
+
+    it('should propagate errors from QuoteService.addOrUpdateQuote', async () => {
+      historicQuoteService.getLast.mockResolvedValue(mockKnownTokenQuote);
+      historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+
+      const testError = new Error('Test error');
+      quoteService.addOrUpdateQuote.mockRejectedValue(testError);
+
+      await expect(service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment)).rejects.toThrow(
+        testError,
+      );
+
+      expect(historicQuoteService.addQuote).toHaveBeenCalled();
+      expect(quoteService.addOrUpdateQuote).toHaveBeenCalled();
     });
   });
 
