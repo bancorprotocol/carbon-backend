@@ -449,8 +449,6 @@ describe('CarbonPriceService', () => {
       // Should call get for two separate batches
       expect(tokensTradedEventService.get).toHaveBeenCalledTimes(2);
 
-      // Instead of hardcoding values that may change if implementation changes,
-      // verify the overall behavior is correct
       expect(firstCallArgs[0]).toBe(1001); // First batch starts at startBlock
       expect(firstCallArgs[1]).toBeLessThan(endBlock); // First batch ends before endBlock
       expect(firstCallArgs[2]).toEqual(mockDeployment); // First batch has correct deployment

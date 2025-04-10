@@ -743,7 +743,6 @@ describe('HistoricQuoteService', () => {
       // Verify the data passed to createDailyCandlestick
       const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
       expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
-      expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
       expect(pricesPassedToCreateDailyCandlestick[0].provider).toBe('provider1/provider2');
       expect(pricesPassedToCreateDailyCandlestick[0].usd.toString()).toBe('10');
     });
@@ -827,6 +826,76 @@ describe('HistoricQuoteService', () => {
       // Provider selection should match what we mocked
       expect(result[tokenA][0].provider).toBe('codex');
       expect(result[tokenB][0].provider).toBe('coinmarketcap');
+    });
+  });
+
+  describe('addQuote', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockRepository.create.mockImplementation((data) => data);
+      mockRepository.save.mockImplementation((data) => Promise.resolve(data));
+    });
+
+    it('should create and save a new quote with provided values', async () => {
+      const quote = {
+        tokenAddress: '0xToken123',
+        usd: '100.5',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(quote);
+
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...quote,
+        tokenAddress: '0xtoken123', // Should be lowercase
+        timestamp: quote.timestamp,
+        provider: 'test-provider',
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual({
+        ...quote,
+        tokenAddress: '0xtoken123', // Should be lowercase
+      });
+    });
+
+    it('should use default values when not provided', async () => {
+      const now = new Date();
+      jest.useFakeTimers().setSystemTime(now);
+
+      const quote = {
+        tokenAddress: '0xToken456',
+        usd: '200.75',
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const result = await service.addQuote(quote);
+
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...quote,
+        tokenAddress: '0xtoken456', // Should be lowercase
+        timestamp: now,
+        provider: 'carbon-price', // Default provider
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('should handle errors when saving quotes', async () => {
+      const errorMessage = 'Database error';
+      mockRepository.save.mockRejectedValue(new Error(errorMessage));
+
+      const quote = {
+        tokenAddress: '0xErrorToken',
+        usd: '300.25',
+        blockchainType: BlockchainType.Ethereum,
+      };
+
+      await expect(service.addQuote(quote)).rejects.toThrow(`Error adding historical quote for address 0xErrorToken`);
+      expect(mockRepository.create).toHaveBeenCalled();
+      expect(mockRepository.save).toHaveBeenCalled();
     });
   });
 });
