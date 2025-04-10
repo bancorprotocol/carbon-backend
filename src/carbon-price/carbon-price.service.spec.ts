@@ -108,8 +108,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '100',
         targetAmount: '50',
-        sourceToken: { address: "0xBNT", decimals: 2 },
-        targetToken: { address: "0xUSDC", decimals: 2 },
+        sourceToken: { address: '0xBNT', decimals: 2 },
+        targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
@@ -125,8 +125,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '50',
         targetAmount: '100',
-        sourceToken: { address: "0xUSDC", decimals: 2 },
-        targetToken: { address: "0xBNT", decimals: 2 },
+        sourceToken: { address: '0xUSDC', decimals: 2 },
+        targetToken: { address: '0xBNT', decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
@@ -142,8 +142,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '100',
         targetAmount: '50',
-        sourceToken: { address: "0xUSDC",  decimals: 2 },
-        targetToken: { address: "0xBNT",  decimals: 2 },
+        sourceToken: { address: '0xUSDC', decimals: 2 },
+        targetToken: { address: '0xBNT', decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
@@ -158,8 +158,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '50',
         targetAmount: '100',
-        sourceToken: { address: "0xBNT", decimals: 2 },
-        targetToken: { address: "0xUSDC", decimals: 2 },
+        sourceToken: { address: '0xBNT', decimals: 2 },
+        targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
@@ -175,8 +175,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '1000', // 10.00 after normalization
         targetAmount: '5', // 0.05 after normalization
-        sourceToken: { address: "0xBNT", decimals: 2 },
-        targetToken: { address: "0xUSDC", decimals: 2 },
+        sourceToken: { address: '0xBNT', decimals: 2 },
+        targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
@@ -193,8 +193,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '100000',
         targetAmount: '100',
-        sourceToken: { address: "0xBNT", decimals: 3 },
-        targetToken: { address: "0xUSDC", decimals: 3 },
+        sourceToken: { address: '0xBNT', decimals: 3 },
+        targetToken: { address: '0xUSDC', decimals: 3 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(largeQuote, mockEvent);
@@ -211,8 +211,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '10',
         targetAmount: '1000',
-        sourceToken: { address: "0xBNT", decimals: 1 },
-        targetToken: { address: "0xUSDC", decimals: 1 },
+        sourceToken: { address: '0xBNT', decimals: 1 },
+        targetToken: { address: '0xUSDC', decimals: 1 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(smallQuote, mockEvent);
@@ -220,7 +220,7 @@ describe('CarbonPriceService', () => {
     });
 
     // Real cases
-    it('eth/usdc quote usdc', () => {
+    it('should handle eth/usdc quote usdc', () => {
       const quote = {
         tokenAddress: '0xUSDC',
         usd: '1',
@@ -229,16 +229,16 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '9000000000000000',
         targetAmount: '15464710',
-        sourceToken: { address:'0xETH', decimals: 18 },
-        targetToken: { address:'0xUSDC', decimals: 6 },
+        sourceToken: { address: '0xETH', decimals: 18 },
+        targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(quote, mockEvent);
       expect(result.toString()).toEqual('1718.3011111111111111');
     });
 
-      // Real cases
-    it('eth/usdc quote eth', () => {
+    // Real cases
+    it('should handle eth/usdc quote eth', () => {
       const quote = {
         tokenAddress: '0xETH',
         usd: '1718.3011111111111112',
@@ -248,8 +248,8 @@ describe('CarbonPriceService', () => {
         type: 'sell',
         sourceAmount: '9000000000000000',
         targetAmount: '15464710',
-        sourceToken: { address:'0xETH', decimals: 18 },
-        targetToken: { address:'0xUSDC', decimals: 6 },
+        sourceToken: { address: '0xETH', decimals: 18 },
+        targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(quote, mockEvent);
@@ -257,7 +257,7 @@ describe('CarbonPriceService', () => {
     });
 
     // Real cases
-    it('eth/usdc quote usdc flip', () => {
+    it('should handle eth/usdc quote usdc flip', () => {
       const quote = {
         tokenAddress: '0xUSDC',
         usd: '1',
@@ -276,7 +276,7 @@ describe('CarbonPriceService', () => {
     });
 
     // Real cases
-    it('paxos/usdc quote usdc', () => {
+    it('should handle paxos/usdc quote usdc', () => {
       const quote = {
         tokenAddress: '0xUSDC',
         usd: '1',
@@ -285,8 +285,8 @@ describe('CarbonPriceService', () => {
       const mockEvent = {
         sourceAmount: '133575144290917245',
         targetAmount: '404598027',
-        sourceToken: { address:'0xPAXOS', decimals: 18 },
-        targetToken: { address:'0xUSDC', decimals: 6 },
+        sourceToken: { address: '0xPAXOS', decimals: 18 },
+        targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
       const result = service.calculateTokenPrice(quote, mockEvent);

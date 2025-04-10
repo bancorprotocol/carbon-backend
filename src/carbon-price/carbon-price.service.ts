@@ -7,7 +7,6 @@ import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
-import { Address } from 'web3';
 
 type TokenAddressPair = {
   unknownTokenAddress: string;
@@ -165,9 +164,9 @@ export class CarbonPriceService {
 
     const tradeRate = normalizedSourceAmount.div(normalizedTargetAmount);
 
-    if (event.sourceToken.address === knownTokenQuote.tokenAddress) { 
+    if (event.sourceToken.address === knownTokenQuote.tokenAddress) {
       // Known token is token0, target token is token1
-        return new Decimal(knownTokenQuote.usd).mul(tradeRate);
+      return new Decimal(knownTokenQuote.usd).mul(tradeRate);
     } else {
       // Known token is token1, target token is token0
       return new Decimal(knownTokenQuote.usd).div(tradeRate);
