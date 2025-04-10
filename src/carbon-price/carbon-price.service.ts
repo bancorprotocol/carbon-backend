@@ -154,13 +154,17 @@ export class CarbonPriceService {
     token1Address: string,
     lowercaseTokenMap: LowercaseTokenMap,
   ): TokenAddressPair | null {
-    if (lowercaseTokenMap[token0Address]) {
+    const isToken0Mapped = !!lowercaseTokenMap[token0Address];
+    const isToken1Mapped = !!lowercaseTokenMap[token1Address];
+
+    // Only process pairs where exactly one token is mapped and the other is not
+    if (isToken0Mapped && !isToken1Mapped) {
       return {
         unknownTokenAddress: token1Address,
         mappedTokenAddress: lowercaseTokenMap[token0Address],
         isToken0Known: true,
       };
-    } else if (lowercaseTokenMap[token1Address]) {
+    } else if (!isToken0Mapped && isToken1Mapped) {
       return {
         unknownTokenAddress: token0Address,
         mappedTokenAddress: lowercaseTokenMap[token1Address],
