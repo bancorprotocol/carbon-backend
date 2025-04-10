@@ -95,18 +95,24 @@ export class SimulatorController {
       params.end,
     );
 
-    // Determine which deployment to use for simulation
-    let effectiveDeployment = deployment;
-    if (baseTokenBlockchainType === BlockchainType.Ethereum && quoteTokenBlockchainType === BlockchainType.Ethereum) {
-      // If both tokens are from Ethereum, use Ethereum deployment
-      effectiveDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
-    } else if (mappedBaseToken || mappedQuoteToken) {
-      // If tokens are mixed between blockchains but at least one is Ethereum-mapped, prioritize the original deployment
-      // This is a choice that may need adjustment based on business logic
-      effectiveDeployment = deployment;
-    }
+    // Get deployments for each token based on their blockchain type
+    const baseTokenDeployment =
+      baseTokenBlockchainType === BlockchainType.Ethereum
+        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
+        : deployment;
 
-    const data = await this.simulatorService.generateSimulation(params, usdPrices, effectiveDeployment);
+    const quoteTokenDeployment =
+      quoteTokenBlockchainType === BlockchainType.Ethereum
+        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
+        : deployment;
+
+    const data = await this.simulatorService.generateSimulation(
+      params,
+      usdPrices,
+      baseTokenDeployment,
+      quoteTokenDeployment,
+      deployment,
+    );
 
     const resultData = data.dates.map((d, i) => ({
       date: d,

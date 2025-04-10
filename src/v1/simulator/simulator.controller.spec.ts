@@ -145,6 +145,12 @@ describe('SimulatorController', () => {
         expect.objectContaining({
           blockchainType: BlockchainType.Sei,
         }),
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
       );
     });
 
@@ -193,6 +199,8 @@ describe('SimulatorController', () => {
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
+        ethereumDeployment,
+        seiDeployment,
         seiDeployment,
       );
     });
@@ -244,6 +252,8 @@ describe('SimulatorController', () => {
         }),
         mockUsdPrices,
         ethereumDeployment,
+        ethereumDeployment,
+        seiDeployment,
       );
     });
 
@@ -259,7 +269,13 @@ describe('SimulatorController', () => {
         },
       };
 
+      const ethereumDeployment = {
+        exchangeId: ExchangeId.OGEthereum,
+        blockchainType: BlockchainType.Ethereum,
+      };
+
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(seiDeployment);
+      mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(ethereumDeployment);
 
       // Mock service responses
       mockHistoricQuoteService.getUsdBuckets.mockResolvedValue(mockUsdPrices);
@@ -286,6 +302,8 @@ describe('SimulatorController', () => {
           quoteToken: quoteEthAddress,
         }),
         mockUsdPrices,
+        seiDeployment,
+        ethereumDeployment,
         seiDeployment,
       );
     });
@@ -329,6 +347,12 @@ describe('SimulatorController', () => {
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
         expect.objectContaining({
           blockchainType: BlockchainType.Sei,
         }),
@@ -388,6 +412,8 @@ describe('SimulatorController', () => {
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
+        ethereumDeployment,
+        seiDeployment,
         seiDeployment,
       );
     });
