@@ -95,8 +95,8 @@ export class CarbonPriceService {
     lowercaseTokenMap: LowercaseTokenMap,
     deployment: Deployment,
   ): Promise<boolean> {
-    const token0Address = event.pair.token0.address.toLowerCase();
-    const token1Address = event.pair.token1.address.toLowerCase();
+    const token0Address = event.sourceToken.address.toLowerCase();
+    const token1Address = event.targetToken.address.toLowerCase();
 
     // Check if either token0 or token1 is in the deployment token map
     const tokenPair = this.identifyTokenPair(token0Address, token1Address, lowercaseTokenMap);

@@ -296,15 +296,11 @@ describe('CarbonPriceService', () => {
 
   describe('processTradeEvent', () => {
     const mockEvent = {
-      pair: {
-        token0: { address: '0xCotiToken' },
-        token1: { address: '0xUnknownToken' },
-      },
       type: 'sell',
       sourceAmount: '20',
       targetAmount: '543',
-      sourceToken: { decimals: 18 },
-      targetToken: { decimals: 6 },
+      sourceToken: { address: '0xCotiToken', decimals: 18 },
+      targetToken: { address: '0xUnknownToken', decimals: 6 },
       timestamp: new Date(),
     } as any;
 
