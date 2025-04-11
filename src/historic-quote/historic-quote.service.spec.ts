@@ -617,7 +617,7 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 7200, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 7200, now);
 
       // Should have called getHistoryQuotesBuckets with right params
       expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
@@ -656,7 +656,7 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 3600, now);
 
       const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
       expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
@@ -683,11 +683,68 @@ describe('HistoricQuoteService', () => {
       jest.spyOn(service, 'getHistoryQuotesBuckets').mockResolvedValue(mockHistoryData);
       jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
 
-      await service.getUsdBuckets(blockchainType, tokenA, tokenB, now - 3600, now);
+      await service.getUsdBuckets(blockchainType, blockchainType, tokenA, tokenB, now - 3600, now);
 
       const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
       expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1); // Should skip the timestamp with null close
       expect(pricesPassedToCreateDailyCandlestick[0].timestamp).toBe(now);
+    });
+
+    it('should handle tokens from different blockchain types', async () => {
+      const now = moment().unix();
+      const tokenA = '0xTokenA';
+      const tokenB = '0xTokenB';
+      const baseBlockchainType = BlockchainType.Ethereum;
+      const quoteBlockchainType = BlockchainType.Sei;
+
+      const mockTokenAData = {
+        [tokenA]: [{ timestamp: now, open: '100', close: '110', high: '120', low: '90', provider: 'provider1' }],
+      };
+
+      const mockTokenBData = {
+        [tokenB]: [{ timestamp: now, open: '10', close: '11', high: '12', low: '9', provider: 'provider2' }],
+      };
+
+      // Mock implementation for getHistoryQuotesBuckets to return different data based on blockchain type
+      jest.spyOn(service, 'getHistoryQuotesBuckets').mockImplementation((blockchain) => {
+        if (blockchain === baseBlockchainType) {
+          return Promise.resolve(mockTokenAData);
+        } else if (blockchain === quoteBlockchainType) {
+          return Promise.resolve(mockTokenBData);
+        }
+        return Promise.resolve({});
+      });
+
+      jest.spyOn(service, 'createDailyCandlestick').mockImplementation((prices) => prices);
+
+      await service.getUsdBuckets(baseBlockchainType, quoteBlockchainType, tokenA, tokenB, now - 3600, now);
+
+      // Verify getHistoryQuotesBuckets was called twice with different blockchain types
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledTimes(2);
+
+      // First call should be for base token with Ethereum blockchain
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
+        baseBlockchainType,
+        [tokenA],
+        now - 3600,
+        now,
+        '1 hour',
+      );
+
+      // Second call should be for quote token with Sei blockchain
+      expect(service.getHistoryQuotesBuckets).toHaveBeenCalledWith(
+        quoteBlockchainType,
+        [tokenB],
+        now - 3600,
+        now,
+        '1 hour',
+      );
+
+      // Verify the data passed to createDailyCandlestick
+      const pricesPassedToCreateDailyCandlestick = (service.createDailyCandlestick as jest.Mock).mock.calls[0][0];
+      expect(pricesPassedToCreateDailyCandlestick).toHaveLength(1);
+      expect(pricesPassedToCreateDailyCandlestick[0].provider).toBe('provider1/provider2');
+      expect(pricesPassedToCreateDailyCandlestick[0].usd.toString()).toBe('10');
     });
   });
 
@@ -769,6 +826,121 @@ describe('HistoricQuoteService', () => {
       // Provider selection should match what we mocked
       expect(result[tokenA][0].provider).toBe('codex');
       expect(result[tokenB][0].provider).toBe('coinmarketcap');
+    });
+  });
+
+  describe('addQuote', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockRepository.create.mockImplementation((data) => data);
+      mockRepository.save.mockImplementation((data) => Promise.resolve(data));
+
+      // Mock createQueryBuilder for getLast method
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(null),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should create and save a new quote with provided values', async () => {
+      const quote = {
+        tokenAddress: '0xToken123',
+        usd: '100.5',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(quote);
+
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...quote,
+        tokenAddress: '0xtoken123', // Should be lowercase
+        timestamp: quote.timestamp,
+        provider: 'test-provider',
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual({
+        ...quote,
+        tokenAddress: '0xtoken123', // Should be lowercase
+      });
+    });
+
+    it('should use default values when not provided', async () => {
+      const now = new Date();
+      jest.useFakeTimers().setSystemTime(now);
+
+      const quote = {
+        tokenAddress: '0xToken456',
+        usd: '200.75',
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const result = await service.addQuote(quote);
+
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...quote,
+        tokenAddress: '0xtoken456', // Should be lowercase
+        timestamp: now,
+        provider: 'carbon-price', // Default provider
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+
+    it('should handle errors when saving quotes', async () => {
+      const errorMessage = 'Database error';
+      mockRepository.save.mockRejectedValue(new Error(errorMessage));
+
+      const quote = {
+        tokenAddress: '0xErrorToken',
+        usd: '300.25',
+        blockchainType: BlockchainType.Ethereum,
+      };
+
+      await expect(service.addQuote(quote)).rejects.toThrow(`Error adding historical quote for address 0xErrorToken`);
+      expect(mockRepository.create).toHaveBeenCalled();
+      expect(mockRepository.save).toHaveBeenCalled();
+    });
+
+    it('should skip creating a new quote if the latest quote has the same USD value', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken789',
+        usd: '150.25',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken789',
+        usd: '150.25', // Same USD value as existing quote
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
     });
   });
 });

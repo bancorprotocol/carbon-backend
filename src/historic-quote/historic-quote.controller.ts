@@ -31,7 +31,9 @@ export class HistoricQuoteController {
     // Initialize variables for the tokens and blockchain to use
     let usedBaseToken = baseTokenAddress;
     let usedQuoteToken = quoteTokenAddress;
-    let blockchainType = deployment.blockchainType;
+    // Initialize separate blockchain types for base and quote tokens
+    let baseTokenBlockchainType = deployment.blockchainType;
+    let quoteTokenBlockchainType = deployment.blockchainType;
     let mappedBaseToken = null;
     let mappedQuoteToken = null;
 
@@ -44,20 +46,21 @@ export class HistoricQuoteController {
       if (lowercaseTokenMap[baseTokenAddress]) {
         mappedBaseToken = lowercaseTokenMap[baseTokenAddress].toLowerCase();
         usedBaseToken = mappedBaseToken;
-        blockchainType = BlockchainType.Ethereum;
+        baseTokenBlockchainType = BlockchainType.Ethereum;
       }
 
       // Check if quote token is mapped
       if (lowercaseTokenMap[quoteTokenAddress]) {
         mappedQuoteToken = lowercaseTokenMap[quoteTokenAddress].toLowerCase();
         usedQuoteToken = mappedQuoteToken;
-        blockchainType = BlockchainType.Ethereum;
+        quoteTokenBlockchainType = BlockchainType.Ethereum;
       }
     }
 
     // Get the price data
     const data = await this.historicQuoteService.getUsdBuckets(
-      blockchainType,
+      baseTokenBlockchainType,
+      quoteTokenBlockchainType,
       usedBaseToken,
       usedQuoteToken,
       params.start,

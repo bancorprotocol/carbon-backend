@@ -1,14 +1,14 @@
 import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { MarketRateDto } from './market-rate.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
-import { DeploymentService, ExchangeId, NATIVE_TOKEN } from '../../deployment/deployment.service';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { CodexService } from '../../codex/codex.service';
 import { CoinGeckoService } from '../../quote/coingecko.service';
 import { BlockchainProviderConfig } from '../../historic-quote/historic-quote.service';
 import { QuoteService } from '../../quote/quote.service';
-import { cotiMap } from '../../utilities';
+
 @Controller({ version: '1', path: ':exchangeId?/market-rate' })
 export class MarketRateController {
   private priceProviders: BlockchainProviderConfig = {
@@ -45,11 +45,9 @@ export class MarketRateController {
     const currencies = convert.split(',');
 
     // check if we currencies requested are the same as the ones we already have
-    if (currencies.length == 0 || (currencies.length == 1 && currencies[0].toLowerCase() == 'usd')) {
-      const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
-      if (existingQuote) {
-        return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
-      }
+    const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
+    if (existingQuote) {
+      return { data: { USD: parseFloat(existingQuote.usd) }, provider: existingQuote.provider };
     }
 
     let tokenAddress = address;

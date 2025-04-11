@@ -30,6 +30,8 @@ import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-ev
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
 import { NotificationModule } from '../notification/notification.module';
 import { ProtectionRemovedEventModule } from '../events/protection-removed-event/protection-removed-event.module';
+import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
+
 @Module({
   imports: [
     BlockModule,
@@ -62,6 +64,7 @@ import { ProtectionRemovedEventModule } from '../events/protection-removed-event
     VortexFundsWithdrawnEventModule,
     NotificationModule,
     ProtectionRemovedEventModule,
+    CarbonPriceModule,
   ],
   providers: [UpdaterService],
 })

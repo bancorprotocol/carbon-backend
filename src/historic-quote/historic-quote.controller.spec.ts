@@ -91,6 +91,7 @@ describe('HistoricQuoteController', () => {
       // Verify the service was called with correct parameters
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
         BlockchainType.Sei,
+        BlockchainType.Sei,
         validDateParams.baseToken.toLowerCase(),
         validDateParams.quoteToken.toLowerCase(),
         validDateParams.start,
@@ -143,6 +144,7 @@ describe('HistoricQuoteController', () => {
       // Verify the service was called with correct parameters
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
         BlockchainType.Ethereum,
+        BlockchainType.Sei,
         baseEthAddress,
         validDateParams.quoteToken.toLowerCase(),
         validDateParams.start,
@@ -186,6 +188,7 @@ describe('HistoricQuoteController', () => {
       // Verify the service was called with correct parameters
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
         BlockchainType.Ethereum,
+        BlockchainType.Ethereum,
         baseEthAddress.toLowerCase(),
         quoteEthAddress.toLowerCase(),
         validDateParams.start,
@@ -212,6 +215,48 @@ describe('HistoricQuoteController', () => {
 
       // Verify result is empty array
       expect(result).toEqual([]);
+    });
+
+    it('should use Ethereum mapping only for quote token when base token has no mapping', async () => {
+      const quoteEthAddress = '0xethquotetoken';
+
+      // Setup deployment with mapping for quote token only
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue({
+        exchangeId: ExchangeId.OGSei,
+        blockchainType: BlockchainType.Sei,
+        mapEthereumTokens: {
+          [validDateParams.quoteToken.toLowerCase()]: quoteEthAddress,
+        },
+      });
+
+      // Mock the service response
+      mockHistoricQuoteService.getUsdBuckets.mockResolvedValue([
+        {
+          timestamp: 1672531200,
+          low: new Decimal('100'),
+          high: new Decimal('110'),
+          open: new Decimal('105'),
+          close: new Decimal('107'),
+          provider: 'codex',
+        },
+      ]);
+
+      // Call the controller
+      const result = await controller.prices(ExchangeId.OGSei, validDateParams);
+
+      // Verify the service was called with correct parameters
+      expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
+        BlockchainType.Sei,
+        BlockchainType.Ethereum,
+        validDateParams.baseToken.toLowerCase(),
+        quoteEthAddress,
+        validDateParams.start,
+        validDateParams.end,
+      );
+
+      // Verify result includes mapping info
+      expect(result[0].mappedBaseToken).toBeUndefined();
+      expect(result[0].mappedQuoteToken).toBe(quoteEthAddress);
     });
 
     it('should handle case-insensitive token address matching with mapEthereumTokens', async () => {
@@ -255,6 +300,7 @@ describe('HistoricQuoteController', () => {
 
       // Verify the service was called with correct parameters - lowercase ethereum tokens
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
+        BlockchainType.Ethereum,
         BlockchainType.Ethereum,
         baseEthTokenMixedCase.toLowerCase(),
         quoteEthTokenMixedCase.toLowerCase(),
@@ -308,6 +354,7 @@ describe('HistoricQuoteController', () => {
 
       // Verify the service was called with correct parameters
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
+        BlockchainType.Ethereum,
         BlockchainType.Ethereum,
         baseEthToken.toLowerCase(),
         quoteEthToken.toLowerCase(),

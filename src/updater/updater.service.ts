@@ -24,6 +24,7 @@ import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdra
 import { NotificationService } from '../notification/notification.service';
 import { ActivityV2Service } from '../activity/activity-v2.service';
 import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
+import { CarbonPriceService } from '../carbon-price/carbon-price.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
@@ -56,6 +57,7 @@ export class UpdaterService {
     private notificationService: NotificationService,
     private protectionRemovedEventService: ProtectionRemovedEventService,
     private activityV2Service: ActivityV2Service,
+    private carbonPriceService: CarbonPriceService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -140,6 +142,10 @@ export class UpdaterService {
       // create trades
       await this.tokensTradedEventService.update(endBlock, pairs, tokens, deployment);
       console.log(`CARBON SERVICE - Finished trades for ${deployment.exchangeId}`);
+
+      // update carbon price
+      await this.carbonPriceService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating carbon price for ${deployment.exchangeId}`);
 
       // coingecko tickers
       await this.coingeckoService.update(deployment);
