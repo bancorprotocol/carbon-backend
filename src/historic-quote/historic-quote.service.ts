@@ -801,10 +801,16 @@ export class HistoricQuoteService implements OnModuleInit {
       // Check if there's an existing quote with the same token address and blockchain type
       if (quote.tokenAddress && quote.blockchainType) {
         const lastQuote = await this.getLast(quote.blockchainType, quote.tokenAddress);
+
         // If the last quote exists and has the same USD value, return it instead of creating a new one
-        if (lastQuote && lastQuote.usd === quote.usd) {
-          this.logger.log(`Skipping duplicate quote for ${quote.tokenAddress} with USD value ${quote.usd}`);
-          return lastQuote;
+        if (lastQuote && quote.usd) {
+          const lastQuoteDecimal = new Decimal(lastQuote.usd);
+          const newQuoteDecimal = new Decimal(quote.usd);
+
+          if (lastQuoteDecimal.equals(newQuoteDecimal)) {
+            this.logger.log(`Skipping duplicate quote for ${quote.tokenAddress} with USD value ${quote.usd}`);
+            return lastQuote;
+          }
         }
       }
 
