@@ -166,6 +166,9 @@ export class DeploymentService {
             address: '0x5715203B16F15d7349Cb1E3537365E9664EAf933',
           },
         },
+        mapEthereumTokens: {
+          '0x9151434b16b9763660705744891fA906F660EcC5': '0xdac17f958d2ee523a2206206994597c13d831ec7', // usdt0
+        },
         notifications: {
           explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
