@@ -4,7 +4,7 @@ import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-t
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { DeploymentService } from '../deployment/deployment.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
-import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
+import { BlockchainType, Deployment, ExchangeId, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { TokensTradedEvent } from '../events/tokens-traded-event/tokens-traded-event.entity';
 import { HistoricQuote } from '../historic-quote/historic-quote.entity';
 import { QuoteService } from '../quote/quote.service';
@@ -23,6 +23,7 @@ describe('CarbonPriceService', () => {
     mapEthereumTokens: {
       '0xCotiToken': '0xEthereumToken',
     },
+    nativeTokenAlias: '0xNativeTokenAlias',
   };
 
   const mockTokenMap = {
@@ -118,6 +119,48 @@ describe('CarbonPriceService', () => {
     });
   });
 
+  describe('normalizeTokenAddress', () => {
+    it('should return the native token alias when address is native token', () => {
+      const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
+      const deployment = { ...mockDeployment, nativeTokenAlias: '0xNativeTokenAlias' } as Deployment;
+
+      const result = service.normalizeTokenAddress(nativeTokenAddress, deployment);
+      expect(result).toEqual('0xnativetokenalias');
+    });
+
+    it('should return the original address when address is not native token', () => {
+      const tokenAddress = '0xsomeothertoken';
+      const deployment = { ...mockDeployment, nativeTokenAlias: '0xNativeTokenAlias' } as Deployment;
+
+      const result = service.normalizeTokenAddress(tokenAddress, deployment);
+      expect(result).toEqual(tokenAddress);
+    });
+
+    it('should return the original address when nativeTokenAlias is not defined', () => {
+      const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
+      const deployment = { ...mockDeployment, nativeTokenAlias: undefined } as Deployment;
+
+      const result = service.normalizeTokenAddress(nativeTokenAddress, deployment);
+      expect(result).toEqual(nativeTokenAddress);
+    });
+
+    it('should return the original address when nativeTokenAlias is an empty string', () => {
+      const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
+      const deployment = { ...mockDeployment, nativeTokenAlias: '' } as Deployment;
+
+      const result = service.normalizeTokenAddress(nativeTokenAddress, deployment);
+      expect(result).toEqual(nativeTokenAddress);
+    });
+
+    it('should handle different casing of native token address', () => {
+      const nativeTokenUpperCase = NATIVE_TOKEN.toUpperCase();
+      const deployment = { ...mockDeployment, nativeTokenAlias: '0xNativeTokenAlias' } as Deployment;
+
+      const result = service.normalizeTokenAddress(nativeTokenUpperCase, deployment);
+      expect(result).toEqual('0xnativetokenalias');
+    });
+  });
+
   describe('calculateTokenPrice', () => {
     // Case 1: Source token is known
     it('should calculate correct price when source token is known', () => {
@@ -132,7 +175,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('4');
     });
 
@@ -149,7 +192,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xBNT', decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('4');
     });
 
@@ -166,7 +209,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xBNT', decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('2');
     });
     // Case 4: Other Quote - Target token is known
@@ -182,8 +225,98 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('2');
+    });
+
+    // Test with native token address in source token
+    it('should handle native token in source address correctly', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xethereumtoken',
+        usd: '2',
+      } as HistoricQuote;
+      const mockEvent = {
+        sourceAmount: '100',
+        targetAmount: '50',
+        sourceToken: { address: NATIVE_TOKEN, decimals: 18 },
+        targetToken: { address: '0xUSDC', decimals: 6 },
+      } as TokensTradedEvent;
+
+      const deployment = {
+        ...mockDeployment,
+        nativeTokenAlias: '0xNativeTokenAlias',
+        mapEthereumTokens: {
+          '0xNativeTokenAlias': '0xethereumtoken',
+        },
+      } as Deployment;
+
+      // Mock getLowercaseTokenMap to return the proper mapping for native token alias
+      deploymentService.getLowercaseTokenMap.mockReturnValue({
+        '0xnativetokenalias': '0xethereumtoken',
+      });
+
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, deployment);
+      expect(result.toString()).not.toEqual('0');
+    });
+
+    // Test with native token address in target token
+    it('should handle native token in target address correctly', () => {
+      const mockKnownTokenQuote = {
+        tokenAddress: '0xethereumtoken',
+        usd: '2',
+      } as HistoricQuote;
+      const mockEvent = {
+        sourceAmount: '50',
+        targetAmount: '100',
+        sourceToken: { address: '0xUSDC', decimals: 6 },
+        targetToken: { address: NATIVE_TOKEN, decimals: 18 },
+      } as TokensTradedEvent;
+
+      const deployment = {
+        ...mockDeployment,
+        nativeTokenAlias: '0xNativeTokenAlias',
+        mapEthereumTokens: {
+          '0xNativeTokenAlias': '0xethereumtoken',
+        },
+      } as Deployment;
+
+      // Mock getLowercaseTokenMap to return the proper mapping for native token alias
+      deploymentService.getLowercaseTokenMap.mockReturnValue({
+        '0xnativetokenalias': '0xethereumtoken',
+      });
+
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, deployment);
+      expect(result.toString()).not.toEqual('0');
+    });
+
+    // Test token address normalization in tokenPair identification
+    it('should properly identify token pairs with native tokens', () => {
+      // Setup deployment with native token alias
+      const deployment = {
+        ...mockDeployment,
+        nativeTokenAlias: '0xNativeTokenAlias',
+      } as Deployment;
+
+      // Normalize the native token address
+      const normalizedAddress = service.normalizeTokenAddress(NATIVE_TOKEN.toLowerCase(), deployment);
+
+      // Verify it returns the alias
+      expect(normalizedAddress).toEqual('0xnativetokenalias');
+
+      // Setup token map where the native token alias is mapped
+      const tokenMap = {
+        '0xnativetokenalias': '0xethereumtoken',
+      };
+
+      // Check that identifyTokenPair works with the normalized address
+      const pair = service.identifyTokenPair(normalizedAddress, '0xsomeothertoken', tokenMap);
+
+      // Verify the pair is identified correctly
+      expect(pair).toEqual({
+        unknownTokenAddress: '0xsomeothertoken',
+        mappedTokenAddress: '0xethereumtoken',
+        isToken0Known: true,
+      });
     });
 
     // Test with different decimals
@@ -199,7 +332,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 2 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent);
+      const result = service.calculateTokenPrice(mockKnownTokenQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('400');
     });
 
@@ -217,7 +350,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 3 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(largeQuote, mockEvent);
+      const result = service.calculateTokenPrice(largeQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('1000000');
     });
 
@@ -235,7 +368,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 1 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(smallQuote, mockEvent);
+      const result = service.calculateTokenPrice(smallQuote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('0.0001');
     });
 
@@ -253,7 +386,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(quote, mockEvent);
+      const result = service.calculateTokenPrice(quote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('1718.3011111111111111');
     });
 
@@ -272,7 +405,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(quote, mockEvent);
+      const result = service.calculateTokenPrice(quote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('1');
     });
 
@@ -291,7 +424,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xETH', decimals: 18 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(quote, mockEvent);
+      const result = service.calculateTokenPrice(quote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('1616.0023424848433866');
     });
 
@@ -309,7 +442,7 @@ describe('CarbonPriceService', () => {
         targetToken: { address: '0xUSDC', decimals: 6 },
       } as TokensTradedEvent;
 
-      const result = service.calculateTokenPrice(quote, mockEvent);
+      const result = service.calculateTokenPrice(quote, mockEvent, mockDeployment as Deployment);
       expect(result.toString()).toEqual('3028.9918768031725129');
     });
   });
@@ -334,6 +467,7 @@ describe('CarbonPriceService', () => {
     } as any;
 
     const mockKnownTokenQuote = {
+      tokenAddress: '0xethereumtoken',
       usd: '0.53',
     } as HistoricQuote;
 
@@ -420,6 +554,90 @@ describe('CarbonPriceService', () => {
 
       expect(historicQuoteService.addQuote).toHaveBeenCalled();
       expect(quoteService.addOrUpdateQuote).toHaveBeenCalled();
+    });
+
+    // Test with native token as the known token in processTradeEvent
+    it('should handle processTradeEvent with native token correctly', async () => {
+      // Mock an event where one token is the native token
+      const mockEvent = {
+        id: 1,
+        blockchainType: BlockchainType.Coti,
+        exchangeId: ExchangeId.OGCoti,
+        block: 123456,
+        transactionHash: '0xtxhash',
+        timestamp: 123456789,
+        sourceToken: { address: NATIVE_TOKEN, decimals: 18, name: 'ETH', symbol: 'ETH' },
+        targetToken: { address: '0xtoken1', decimals: 6, name: 'Token1', symbol: 'TKN1' },
+        sourceAmount: '1000000000000000000', // 1 ETH
+        targetAmount: '1000000', // 1 TKN1
+        logIndex: 0,
+        provider: 'carbon',
+        traderId: '0xtrader',
+        pairId: '0xpair',
+        strategy: 'trading',
+      } as unknown as TokensTradedEvent;
+
+      const deployment = {
+        ...mockDeployment,
+        nativeTokenAlias: '0xNativeTokenAlias',
+        mapEthereumTokens: {
+          '0xNativeTokenAlias': '0xethereumtoken',
+        },
+        blockchainType: BlockchainType.Coti,
+      } as Deployment;
+
+      // Mock token map to simulate nativeTokenAlias being in the map
+      deploymentService.getLowercaseTokenMap.mockReturnValue({
+        '0xnativetokenalias': '0xethereumtoken',
+      });
+
+      // Mock historicQuoteService to return a quote for the ETH token
+      historicQuoteService.getLast.mockResolvedValue({
+        tokenAddress: '0xethereumtoken',
+        usd: '2000',
+      } as HistoricQuote);
+
+      // Run processTradeEvent
+      const result = await service.processTradeEvent(
+        mockEvent,
+        { '0xnativetokenalias': '0xethereumtoken' },
+        deployment,
+      );
+
+      // Verify the result is true and quotes were added
+      expect(result).toBe(true);
+      expect(historicQuoteService.addQuote).toHaveBeenCalled();
+      expect(quoteService.addOrUpdateQuote).toHaveBeenCalled();
+    });
+
+    it('should handle case where nativeTokenAlias has no mapping in tokenMap', async () => {
+      // Mock an event with native token
+      const mockEventWithNative = {
+        sourceToken: { address: NATIVE_TOKEN, decimals: 18 },
+        targetToken: { address: '0xUnknownToken', decimals: 6 },
+        sourceAmount: '1000000000000000000',
+        targetAmount: '100000',
+        timestamp: new Date(),
+      } as any;
+
+      // Create a deployment with nativeTokenAlias
+      const deployment = {
+        ...mockDeployment,
+        nativeTokenAlias: '0xNativeTokenAlias',
+      } as Deployment;
+
+      // Create a token map that doesn't include the nativeTokenAlias
+      const tokenMapWithoutNative = {
+        '0xsomeothertoken': '0xethereumtoken',
+      };
+
+      // Run processTradeEvent
+      const result = await service.processTradeEvent(mockEventWithNative, tokenMapWithoutNative, deployment);
+
+      // Should return false as the token pair wouldn't be identified
+      expect(result).toBe(false);
+      // Historic quote service shouldn't be called
+      expect(historicQuoteService.getLast).not.toHaveBeenCalled();
     });
   });
 

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Deployment, BlockchainType, LowercaseTokenMap } from '../deployment/deployment.service';
+import { Deployment, BlockchainType, LowercaseTokenMap, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { TokensTradedEventService } from '../events/tokens-traded-event/tokens-traded-event.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { DeploymentService } from '../deployment/deployment.service';
@@ -97,8 +97,9 @@ export class CarbonPriceService {
     lowercaseTokenMap: LowercaseTokenMap,
     deployment: Deployment,
   ): Promise<boolean> {
-    const token0Address = event.sourceToken.address.toLowerCase();
-    const token1Address = event.targetToken.address.toLowerCase();
+    // Get the token addresses and normalize them
+    const token0Address = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
+    const token1Address = this.normalizeTokenAddress(event.targetToken.address.toLowerCase(), deployment);
 
     // Check if either token0 or token1 is in the deployment token map
     const tokenPair = this.identifyTokenPair(token0Address, token1Address, lowercaseTokenMap);
@@ -118,7 +119,7 @@ export class CarbonPriceService {
     }
 
     // Calculate the price of the unknown token
-    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event);
+    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment);
     const tokenPrice = unknownTokenPrice.toString();
 
     // Save the price to the historicQuote table
@@ -144,6 +145,21 @@ export class CarbonPriceService {
     });
 
     return true;
+  }
+
+  /**
+   * Normalize token address to handle native token aliases
+   */
+  normalizeTokenAddress(address: string, deployment: Deployment): string {
+    const NATIVE_TOKEN_ADDRESS = NATIVE_TOKEN.toLowerCase();
+    const normalizedAddress = address.toLowerCase();
+
+    // If the address is the native token address and there's a native token alias defined
+    if (normalizedAddress === NATIVE_TOKEN_ADDRESS && deployment.nativeTokenAlias) {
+      return deployment.nativeTokenAlias.toLowerCase();
+    }
+
+    return normalizedAddress;
   }
 
   /**
@@ -177,14 +193,18 @@ export class CarbonPriceService {
   /**
    * Pure function to calculate token price based on trade event
    */
-  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent): Decimal {
+  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent, deployment: Deployment): Decimal {
+    // Normalize the addresses to handle native token aliases
+    const sourceTokenAddress = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
+    const knownTokenAddress = knownTokenQuote.tokenAddress.toLowerCase();
+
     // Normalize amounts using the correct decimal places from their respective tokens
     const normalizedSourceAmount = new Decimal(event.sourceAmount).div(new Decimal(10).pow(event.sourceToken.decimals));
     const normalizedTargetAmount = new Decimal(event.targetAmount).div(new Decimal(10).pow(event.targetToken.decimals));
 
     const tradeRate = normalizedSourceAmount.div(normalizedTargetAmount);
 
-    if (event.sourceToken.address === knownTokenQuote.tokenAddress) {
+    if (sourceTokenAddress === knownTokenAddress) {
       // Known token is token0, target token is token1
       return new Decimal(knownTokenQuote.usd).mul(tradeRate);
     } else {
