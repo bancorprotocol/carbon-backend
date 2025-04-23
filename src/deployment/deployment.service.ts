@@ -77,6 +77,8 @@ export interface Deployment {
   };
 }
 
+export type LowercaseTokenMap = { [lowercaseAddress: string]: string };
+
 @Injectable()
 export class DeploymentService {
   private deployments: Deployment[];
@@ -581,7 +583,7 @@ export class DeploymentService {
     return deployment;
   }
 
-  getLowercaseTokenMap(deployment: Deployment): { [lowercaseAddress: string]: string } {
+  getLowercaseTokenMap(deployment: Deployment): LowercaseTokenMap {
     if (!deployment.mapEthereumTokens) {
       return {};
     }

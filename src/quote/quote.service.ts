@@ -138,7 +138,7 @@ export class QuoteService implements OnModuleInit {
       .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: addresses.map((a) => a.toLowerCase()) })
       .getMany();
     const tokensByAddress = {};
-    result.forEach((q) => (tokensByAddress[q.token.address] = q));
+    result.forEach((q) => (tokensByAddress[q.token.address.toLowerCase()] = q));
     return tokensByAddress;
   }
 
@@ -285,6 +285,10 @@ export class QuoteService implements OnModuleInit {
     const existingQuotes = await this.findQuotes(blockchainType, [address]);
     const existingQuote = existingQuotes[address] || existingQuotes[address.toLowerCase()];
     if (existingQuote) {
+      if (existingQuote.provider === 'carbon-defi') {
+        return existingQuote;
+      }
+
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
       if (new Date(existingQuote.timestamp) > fiveMinutesAgo) {
         return existingQuote;
@@ -292,5 +296,46 @@ export class QuoteService implements OnModuleInit {
     }
 
     return undefined;
+  }
+
+  /**
+   * Adds a new quote or updates an existing one for a token
+   * One token should not have more than one quote in the quote table
+   * @param quote Quote data to add or update
+   * @returns The saved Quote entity
+   */
+  async addOrUpdateQuote(quote: Partial<Quote>): Promise<Quote> {
+    try {
+      if (!quote.token || !quote.blockchainType) {
+        throw new Error('Token and blockchainType are required for quote');
+      }
+
+      // Check if a quote already exists for this token
+      const existingQuote = await this.quoteRepository.findOne({
+        where: {
+          token: { id: quote.token.id },
+          blockchainType: quote.blockchainType,
+        },
+        relations: ['token'],
+      });
+
+      // If exists, update it; otherwise create a new one
+      const quoteEntity = existingQuote || new Quote();
+
+      // Update properties
+      quoteEntity.provider = quote.provider || 'manual';
+      quoteEntity.token = quote.token;
+      quoteEntity.blockchainType = quote.blockchainType;
+      quoteEntity.timestamp = quote.timestamp || new Date();
+      quoteEntity.usd = quote.usd;
+
+      return await this.quoteRepository.save(quoteEntity);
+    } catch (error) {
+      this.logger.error(
+        `Error adding/updating quote for token ${quote.token?.address} on ${quote.blockchainType}:`,
+        error,
+      );
+      throw error;
+    }
   }
 }

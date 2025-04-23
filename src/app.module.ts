@@ -23,6 +23,7 @@ import { DeploymentModule } from './deployment/deployment.module';
 import { CodexService } from './codex/codex.service';
 import { CodexModule } from './codex/codex.module';
 import { SubdomainCacheInterceptor } from './cache.interceptor';
+import { CarbonPriceModule } from './carbon-price/carbon-price.module';
 
 @Module({
   imports: [
@@ -106,6 +107,7 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
     TvlModule,
     DeploymentModule,
     CodexModule,
+    CarbonPriceModule,
   ],
 
   providers: [

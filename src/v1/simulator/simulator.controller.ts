@@ -44,7 +44,8 @@ export class SimulatorController {
     // Initialize variables for the tokens and blockchain to use
     let usedBaseToken = baseTokenAddress;
     let usedQuoteToken = quoteTokenAddress;
-    let blockchainType = deployment.blockchainType;
+    let baseTokenBlockchainType = deployment.blockchainType;
+    let quoteTokenBlockchainType = deployment.blockchainType;
     let mappedBaseToken = null;
     let mappedQuoteToken = null;
 
@@ -73,7 +74,7 @@ export class SimulatorController {
         mappedBaseToken = lowercaseTokenMap[usedBaseToken];
         usedBaseToken = mappedBaseToken;
         params.baseToken = mappedBaseToken;
-        blockchainType = BlockchainType.Ethereum;
+        baseTokenBlockchainType = BlockchainType.Ethereum;
       }
 
       // Check if quote token is mapped
@@ -81,25 +82,37 @@ export class SimulatorController {
         mappedQuoteToken = lowercaseTokenMap[usedQuoteToken];
         usedQuoteToken = mappedQuoteToken;
         params.quoteToken = mappedQuoteToken;
-        blockchainType = BlockchainType.Ethereum;
+        quoteTokenBlockchainType = BlockchainType.Ethereum;
       }
     }
 
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      blockchainType,
+      baseTokenBlockchainType,
+      quoteTokenBlockchainType,
       usedBaseToken,
       usedQuoteToken,
       params.start,
       params.end,
     );
 
-    // If using mapped Ethereum tokens, use the Ethereum deployment
-    const effectiveDeployment =
-      mappedBaseToken || mappedQuoteToken
+    // Get deployments for each token based on their blockchain type
+    const baseTokenDeployment =
+      baseTokenBlockchainType === BlockchainType.Ethereum
         ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
         : deployment;
 
-    const data = await this.simulatorService.generateSimulation(params, usdPrices, effectiveDeployment);
+    const quoteTokenDeployment =
+      quoteTokenBlockchainType === BlockchainType.Ethereum
+        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
+        : deployment;
+
+    const data = await this.simulatorService.generateSimulation(
+      params,
+      usdPrices,
+      baseTokenDeployment,
+      quoteTokenDeployment,
+      deployment,
+    );
 
     const resultData = data.dates.map((d, i) => ({
       date: d,
