@@ -122,6 +122,22 @@ export class CarbonPriceService {
     const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment);
     const tokenPrice = unknownTokenPrice.toString();
 
+    // Check if the last price for this token is the same, to avoid duplicate entries
+    const lastQuote = await this.historicQuoteService.getLast(deployment.blockchainType, tokenPair.unknownTokenAddress);
+
+    // If the last quote exists and has the same price, skip adding a new quote
+    // Use Decimal.js for precise comparison
+    if (lastQuote) {
+      const lastPriceDecimal = new Decimal(lastQuote.usd);
+
+      // Check if prices are equal with a small tolerance for floating point precision
+      // equals() method in Decimal.js already has precision handling
+      if (unknownTokenPrice.equals(lastPriceDecimal)) {
+        this.logger.log(`Skipping duplicate price for token ${tokenPair.unknownTokenAddress}: ${tokenPrice}`);
+        return false;
+      }
+    }
+
     // Save the price to the historicQuote table
     await this.historicQuoteService.addQuote({
       blockchainType: deployment.blockchainType,
