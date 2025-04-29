@@ -68,9 +68,9 @@ export interface Deployment {
       botToken: string;
       bancorProtectionToken?: string;
       threads: {
-        carbonThreadId: number;
-        fastlaneId: number;
-        vortexId: number;
+        carbonThreadId?: number;
+        fastlaneId?: number;
+        vortexId?: number;
         bancorProtectionId?: number;
       };
     };
@@ -557,10 +557,22 @@ export class DeploymentService {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
         },
+        notifications: {
+          explorerUrl: this.configService.get('COTI_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('COTI_WALLET_URL'),
+          title: 'Coti',
+          telegram: {
+            botToken: this.configService.get('COTI_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('COTI_CARBON_THREAD_ID'),
+            },
+          },
+        },
         mapEthereumTokens: {
           '0xDDB3422497E61e13543BeA06989C0789117555c5': '0xDDB3422497E61e13543BeA06989C0789117555c5', // coti
           '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
           '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
+          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc.e
         },
       },
     ];
