@@ -16,6 +16,7 @@ export enum BlockchainType {
   Linea = 'linea',
   Berachain = 'berachain',
   Coti = 'coti',
+  Iota = 'iota',
 }
 
 export enum ExchangeId {
@@ -31,6 +32,7 @@ export enum ExchangeId {
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
   OGCoti = 'coti',
+  IotaGraphene = 'iota-graphene',
 }
 
 export interface GasToken {
@@ -573,6 +575,46 @@ export class DeploymentService {
           '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
           '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
           '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc.e
+        },
+      },
+      {
+        exchangeId: ExchangeId.IotaGraphene,
+        blockchainType: BlockchainType.Iota,
+        rpcEndpoint: this.configService.get('IOTA_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 1,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 1936296,
+        gasToken: {
+          name: 'IOTA',
+          symbol: 'IOTA',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0x6e47f8d48a01b44DF3fFF35d258A10A3AEdC114c',
+        contracts: {
+          CarbonController: {
+            address: '0x0E4d23092A4a12caAd0E22e0892EcEC7C09DC51c',
+          },
+          CarbonVoucher: {
+            address: '0xCB66807CE7a762F469aeb1478c09a6DAfEcB801C',
+          },
+          BancorArbitrage: {
+            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          Vortex: {
+            address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('IOTA_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('IOTA_CARBON_WALLET_URL'),
+          title: 'IOTA',
+          telegram: {
+            botToken: this.configService.get('IOTA_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              fastlaneId: this.configService.get('IOTA_FASTLANE_THREAD_ID'),
+            },
+          },
         },
       },
     ];
