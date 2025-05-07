@@ -45,6 +45,7 @@ export class CoingeckoService {
           left join tokens t0 on t0.id = s."sourceTokenId" and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
           left join tokens t1 on t1.id = s."targetTokenId" and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
           where s."blockchainType" = '${deployment.blockchainType}' and s."exchangeId" = '${deployment.exchangeId}'
+          and s."sourceAmount"::double precision > 0 and s."targetAmount"::double precision > 0
       ),
       carbon_trades_24h as (
           select evt_block_time, sourceAmount_real, sourceToken, targetAmount_real, targetToken, tt.pair_alpha, native_pair, rate,
