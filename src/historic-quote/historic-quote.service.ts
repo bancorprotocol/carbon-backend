@@ -10,6 +10,7 @@ import moment from 'moment';
 import Decimal from 'decimal.js';
 import { BlockchainType, Deployment, DeploymentService, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { CodexService } from '../codex/codex.service';
+import { TokensByAddress } from 'src/token/token.service';
 
 type Candlestick = {
   timestamp: number;
@@ -18,6 +19,9 @@ type Candlestick = {
   high: string;
   low: string;
   provider: string;
+  mappedFrom?: string;
+  mappedBaseToken?: string;
+  mappedQuoteToken?: string;
 };
 
 type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko' | 'carbon-defi';
@@ -31,6 +35,10 @@ export type BlockchainProviderConfig = {
   [key in BlockchainType]: ProviderConfig[];
 };
 
+/**
+ * Service responsible for managing and retrieving historical price quotes for tokens across different blockchains.
+ * Handles price data from multiple providers (CoinMarketCap, Codex) and supports token mapping between blockchains.
+ */
 @Injectable()
 export class HistoricQuoteService implements OnModuleInit {
   private readonly logger = new Logger(HistoricQuoteService.name);
@@ -66,6 +74,10 @@ export class HistoricQuoteService implements OnModuleInit {
     this.shouldPollQuotes = this.configService.get('SHOULD_POLL_HISTORIC_QUOTES') === '1';
   }
 
+  /**
+   * Initializes the service and sets up polling for updates if configured.
+   * Called automatically when the module is initialized.
+   */
   onModuleInit() {
     if (this.shouldPollQuotes) {
       const callback = () => this.pollForUpdates();
@@ -74,6 +86,10 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Seeds price history data for all Ethereum mapped tokens across all deployments.
+   * This method is called during the polling process to ensure all mapped tokens have historical data.
+   */
   private async seedAllEthereumMappedTokens() {
     try {
       const deployments = this.deploymentService.getDeployments();
@@ -88,6 +104,11 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Main polling method that updates historical quotes from various providers.
+   * Updates CoinMarketCap quotes, Codex quotes for different blockchains, and mapped Ethereum tokens.
+   * This method is called periodically based on the configured interval.
+   */
   async pollForUpdates(): Promise<void> {
     if (this.isPolling) return;
     this.isPolling = true;
@@ -114,6 +135,10 @@ export class HistoricQuoteService implements OnModuleInit {
     this.logger.log('Historic quotes updated');
   }
 
+  /**
+   * Updates price quotes from CoinMarketCap for Ethereum tokens.
+   * Only saves new quotes if the price has changed from the latest stored value.
+   */
   private async updateCoinMarketCapQuotes(): Promise<void> {
     const latest = await this.getLatest(BlockchainType.Ethereum); // Pass the deployment to filter by blockchainType
     const quotes = await this.coinmarketcapService.getLatestQuotes();
@@ -134,6 +159,11 @@ export class HistoricQuoteService implements OnModuleInit {
     this.logger.log('CoinMarketCap quotes updated');
   }
 
+  /**
+   * Updates price quotes from Codex for a specific blockchain.
+   * Handles both regular tokens and native tokens for the specified blockchain.
+   * @param blockchainType - The blockchain type to update quotes for
+   */
   private async updateCodexQuotes(blockchainType: BlockchainType): Promise<void> {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const latest = await this.getLatest(blockchainType);
@@ -176,6 +206,10 @@ export class HistoricQuoteService implements OnModuleInit {
     this.logger.log('Codex quotes updated');
   }
 
+  /**
+   * Seeds historical price data for all tokens from CoinMarketCap.
+   * Fetches one year of historical data for each token in batches.
+   */
   async seed(): Promise<void> {
     const start = moment().subtract(1, 'year').unix();
     const end = moment().unix();
@@ -212,6 +246,11 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Seeds historical price data for tokens from Codex for a specific blockchain.
+   * Fetches one year of historical data for each token in batches.
+   * @param blockchainType - The blockchain type to seed data for
+   */
   async seedCodex(blockchainType: BlockchainType): Promise<void> {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const start = moment().subtract(1, 'year').unix();
@@ -270,6 +309,11 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Seeds historical price data for tokens that are mapped to Ethereum tokens.
+   * Fetches data from Codex for the mapped Ethereum tokens and stores it.
+   * @param deployment - The deployment containing token mappings
+   */
   async seedFromEthereumTokens(deployment: Deployment): Promise<void> {
     if (!deployment.mapEthereumTokens || Object.keys(deployment.mapEthereumTokens).length === 0) {
       this.logger.log(`No Ethereum token mappings found for ${deployment.exchangeId}, skipping.`);
@@ -354,7 +398,21 @@ export class HistoricQuoteService implements OnModuleInit {
     this.logger.log(`Completed seeding Ethereum token price history for ${deployment.exchangeId}`);
   }
 
+  /**
+   * Retrieves the latest price quote for each token in a specific blockchain.
+   * Handles both direct blockchain quotes and mapped Ethereum token quotes.
+   * @param blockchainType - The blockchain type to get latest quotes for
+   * @returns Object mapping token addresses to their latest quotes
+   */
   async getLatest(blockchainType: BlockchainType): Promise<{ [key: string]: HistoricQuote }> {
+    // Get information about Ethereum tokens potentially mapped from this blockchain type
+    const deployment = this.deploymentService.getDeployments().find((d) => d.blockchainType === blockchainType);
+    const tokenMap = deployment?.mapEthereumTokens ? this.deploymentService.getLowercaseTokenMap(deployment) : {};
+
+    // Check if we have any token mappings
+    const hasMappings = Object.keys(tokenMap).length > 0;
+
+    // Original query to get latest quotes for the provided blockchain type
     const latestQuotes = await this.repository.query(`
       SELECT 
           "tokenAddress",
@@ -366,14 +424,75 @@ export class HistoricQuoteService implements OnModuleInit {
       GROUP BY "tokenAddress", "blockchainType";
     `);
 
+    // If we have mapped Ethereum tokens, get them separately
+    const mappedAddresses = hasMappings ? Object.keys(tokenMap) : [];
+    let mappedQuotes = [];
+
+    if (mappedAddresses.length > 0) {
+      // Get Ethereum quotes for all mapped tokens
+      const ethereumQuotes = await this.repository.query(`
+        SELECT 
+            "tokenAddress",
+            "blockchainType",
+            last(usd, "timestamp") AS usd,
+            last("timestamp", "timestamp") AS timestamp
+        FROM "historic-quotes"
+        WHERE "blockchainType" = '${BlockchainType.Ethereum}'
+        AND "tokenAddress" IN (${Object.values(tokenMap)
+          .map((addr) => `'${addr.toLowerCase()}'`)
+          .join(',')})
+        GROUP BY "tokenAddress", "blockchainType";
+      `);
+
+      // Create a map of Ethereum quotes by address for easier lookup
+      const ethereumQuotesByAddress = {};
+      ethereumQuotes.forEach((quote) => {
+        ethereumQuotesByAddress[quote.tokenAddress] = quote;
+      });
+
+      // Create mapped quotes using the original address as key but Ethereum quote data
+      mappedQuotes = Object.entries(tokenMap)
+        .map(([originalAddr, ethereumAddr]) => {
+          const ethereumQuote = ethereumQuotesByAddress[ethereumAddr.toLowerCase()];
+          if (ethereumQuote) {
+            return {
+              tokenAddress: originalAddr.toLowerCase(), // Use original address as key
+              blockchainType: BlockchainType.Ethereum, // But mark as Ethereum blockchain type
+              usd: ethereumQuote.usd,
+              timestamp: ethereumQuote.timestamp,
+              mappedFrom: ethereumQuote.tokenAddress, // Include source token
+            };
+          }
+          return null;
+        })
+        .filter((q) => q !== null);
+    }
+
     const result: { [key: string]: HistoricQuote } = {};
+
+    // Add regular quotes to result
     latestQuotes.forEach((quote) => {
+      // Only add if not going to be overridden by a mapped token
+      if (!hasMappings || !tokenMap[quote.tokenAddress]) {
+        result[quote.tokenAddress] = quote;
+      }
+    });
+
+    // Add mapped Ethereum quotes, replacing any original blockchain quotes
+    mappedQuotes.forEach((quote) => {
       result[quote.tokenAddress] = quote;
     });
 
     return result;
   }
 
+  /**
+   * Retrieves historical price quotes for multiple tokens within a time range.
+   * @param addresses - Array of token addresses to fetch quotes for
+   * @param start - Start timestamp (Unix timestamp)
+   * @param end - End timestamp (Unix timestamp)
+   * @returns Object mapping token addresses to arrays of historical quotes
+   */
   async getHistoryQuotes(addresses: string[], start: number, end: number): Promise<{ [key: string]: HistoricQuote[] }> {
     try {
       const quotesByAddress: { [key: string]: HistoricQuote[] } = {};
@@ -398,18 +517,26 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
-  async getHistoryQuotesBuckets(
+  /**
+   * Fetches historical price data in time buckets for multiple tokens.
+   * Handles both direct blockchain quotes and mapped Ethereum token quotes.
+   * @param blockchainType - The blockchain type to fetch data for
+   * @param addresses - Array of token addresses to fetch data for
+   * @param startPaddedQ - Start time in ISO format
+   * @param endQ - End time in ISO format
+   * @param bucket - Time bucket size (e.g., '1 day')
+   * @returns Array of price data points in the specified time buckets
+   */
+  private async fetchHistoryQuotesBucketsData(
     blockchainType: BlockchainType,
     addresses: string[],
-    start: number,
-    end: number,
-    bucket = '1 day',
-  ): Promise<{ [key: string]: Candlestick[] }> {
-    const today = moment().utc().startOf('day');
-    const startQ = moment.unix(start).utc().startOf('day');
-    const startPaddedQ = moment.unix(start).utc().startOf('day').subtract('1', 'day').toISOString();
-    let endQ: any = moment.unix(end).utc().endOf('day');
-    endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
+    startPaddedQ: string,
+    endQ: string,
+    bucket: string,
+  ): Promise<any[]> {
+    if (addresses.length === 0) {
+      return [];
+    }
 
     const enabledProviders = this.priceProviders[blockchainType]
       .filter((p) => p.enabled)
@@ -426,7 +553,7 @@ export class HistoricQuoteService implements OnModuleInit {
         WHERE
           timestamp >= '${startPaddedQ}'
           AND timestamp <= '${endQ}'
-          AND "tokenAddress" IN (${addresses.map((a) => `'${a.toLowerCase()}'`).join(',')})
+          AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
           AND "blockchainType" = '${blockchainType}'
           AND provider = ANY(ARRAY[${enabledProviders}]::text[])
         GROUP BY "tokenAddress", provider
@@ -486,39 +613,138 @@ export class HistoricQuoteService implements OnModuleInit {
       GROUP BY bpq."tokenAddress", bucket, sp.provider
       ORDER BY bpq."tokenAddress"`;
 
-    const result = await this.repository.query(query);
+    return await this.repository.query(query);
+  }
 
+  /**
+   * Retrieves historical price data in time buckets for multiple tokens.
+   * Handles both direct blockchain quotes and mapped Ethereum token quotes.
+   * @param blockchainType - The blockchain type to fetch data for
+   * @param addresses - Array of token addresses to fetch data for
+   * @param start - Start timestamp (Unix timestamp)
+   * @param end - End timestamp (Unix timestamp)
+   * @param bucket - Time bucket size (e.g., '1 day')
+   * @returns Object mapping token addresses to arrays of candlestick data
+   */
+  async getHistoryQuotesBuckets(
+    blockchainType: BlockchainType,
+    addresses: string[],
+    start: number,
+    end: number,
+    bucket = '1 day',
+  ): Promise<{ [key: string]: Candlestick[] }> {
+    // Get information about Ethereum tokens potentially mapped from this blockchain type
+    const deployment = this.deploymentService.getDeployments().find((d) => d.blockchainType === blockchainType);
+    const tokenMap = deployment?.mapEthereumTokens ? this.deploymentService.getLowercaseTokenMap(deployment) : {};
+
+    // Check if any of our requested addresses are mapped to Ethereum tokens
+    const lowercaseAddresses = addresses.map((addr) => addr.toLowerCase());
+    const mappedAddresses = lowercaseAddresses.filter((addr) => tokenMap[addr]);
+    const unmappedAddresses = lowercaseAddresses.filter((addr) => !tokenMap[addr]);
+
+    // Format time values
+    const today = moment().utc().startOf('day');
+    const startQ = moment.unix(start).utc().startOf('day');
+    const startPaddedQ = moment.unix(start).utc().startOf('day').subtract('1', 'day').toISOString();
+    let endQ: any = moment.unix(end).utc().endOf('day');
+    endQ = endQ.isAfter(today) ? today.toISOString() : endQ.toISOString();
+
+    // Store results
     const candlesByAddress: { [key: string]: Candlestick[] } = {};
 
-    result.forEach((row: any) => {
-      if (!row.open) {
-        return;
-      }
+    // If we have addresses that need to be fetched from their original blockchain
+    if (unmappedAddresses.length > 0) {
+      const result = await this.fetchHistoryQuotesBucketsData(
+        blockchainType,
+        unmappedAddresses,
+        startPaddedQ,
+        endQ,
+        bucket,
+      );
 
-      const timestamp = moment(row.bucket).utc();
-
-      if (timestamp.isSameOrAfter(startQ)) {
-        const tokenAddress = row.tokenAddress;
-        const candle = {
-          timestamp: timestamp.unix(),
-          open: row.open,
-          close: row.close,
-          high: row.high,
-          low: row.low,
-          provider: row.selected_provider,
-        };
-
-        if (!candlesByAddress[tokenAddress]) {
-          candlesByAddress[tokenAddress] = [];
+      // Process regular blockchain quotes
+      result.forEach((row: any) => {
+        if (!row.open) {
+          return;
         }
 
-        candlesByAddress[tokenAddress].push(candle);
-      }
-    });
+        const timestamp = moment(row.bucket).utc();
+
+        if (timestamp.isSameOrAfter(startQ)) {
+          const tokenAddress = row.tokenAddress;
+          const candle = {
+            timestamp: timestamp.unix(),
+            open: row.open,
+            close: row.close,
+            high: row.high,
+            low: row.low,
+            provider: row.selected_provider,
+          };
+
+          if (!candlesByAddress[tokenAddress]) {
+            candlesByAddress[tokenAddress] = [];
+          }
+
+          candlesByAddress[tokenAddress].push(candle);
+        }
+      });
+    }
+
+    // If we have addresses that should be fetched from Ethereum
+    if (mappedAddresses.length > 0) {
+      // Create a mapping from Ethereum address to original address for later reconstruction
+      const ethereumToOriginalMap = {};
+      const ethereumAddresses = mappedAddresses.map((addr) => {
+        const ethereumAddr = tokenMap[addr].toLowerCase();
+        ethereumToOriginalMap[ethereumAddr] = addr;
+        return ethereumAddr;
+      });
+
+      const ethereumResult = await this.fetchHistoryQuotesBucketsData(
+        BlockchainType.Ethereum,
+        ethereumAddresses,
+        startPaddedQ,
+        endQ,
+        bucket,
+      );
+
+      // Process Ethereum quotes but map them back to original token addresses
+      ethereumResult.forEach((row: any) => {
+        if (!row.open) {
+          return;
+        }
+
+        const timestamp = moment(row.bucket).utc();
+
+        if (timestamp.isSameOrAfter(startQ)) {
+          // Map Ethereum address back to original deployment address
+          const ethereumAddr = row.tokenAddress.toLowerCase();
+          const originalAddr = ethereumToOriginalMap[ethereumAddr];
+
+          if (originalAddr) {
+            const candle = {
+              timestamp: timestamp.unix(),
+              open: row.open,
+              close: row.close,
+              high: row.high,
+              low: row.low,
+              provider: row.selected_provider,
+              mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
+            };
+
+            if (!candlesByAddress[originalAddr]) {
+              candlesByAddress[originalAddr] = [];
+            }
+
+            candlesByAddress[originalAddr].push(candle);
+          }
+        }
+      });
+    }
 
     // Check if tokens exist at all in candlesByAddress
     // This check may need to be relaxed if pagination can result in empty token results
-    const nonExistentTokens = addresses.filter((address) => !candlesByAddress[address]);
+    const nonExistentTokens = addresses.filter((address) => !candlesByAddress[address.toLowerCase()]);
     if (nonExistentTokens.length > 0) {
       throw new BadRequestException({
         message: [
@@ -534,6 +760,17 @@ export class HistoricQuoteService implements OnModuleInit {
     return candlesByAddress;
   }
 
+  /**
+   * Calculates USD price buckets for a pair of tokens.
+   * Handles tokens from different blockchains and mapped Ethereum tokens.
+   * @param baseTokenBlockchainType - Blockchain type of the base token
+   * @param quoteTokenBlockchainType - Blockchain type of the quote token
+   * @param tokenA - Address of the base token
+   * @param tokenB - Address of the quote token
+   * @param start - Start timestamp (Unix timestamp)
+   * @param end - End timestamp (Unix timestamp)
+   * @returns Array of candlestick data representing the price ratio between tokens
+   */
   async getUsdBuckets(
     baseTokenBlockchainType: BlockchainType,
     quoteTokenBlockchainType: BlockchainType,
@@ -566,6 +803,25 @@ export class HistoricQuoteService implements OnModuleInit {
     // Get all timestamps where both tokens have data
     const allTimestamps = [...new Set([...tokenAByTimestamp.keys(), ...tokenBByTimestamp.keys()])].sort();
 
+    // Keep track of mapping information
+    let mappedBaseToken = null;
+    let mappedQuoteToken = null;
+
+    // Check if we have mapping information in any of the candlesticks
+    for (const candle of tokenAData[tokenA]) {
+      if (candle.mappedFrom) {
+        mappedBaseToken = candle.mappedFrom;
+        break;
+      }
+    }
+
+    for (const candle of tokenBData[tokenB]) {
+      if (candle.mappedFrom) {
+        mappedQuoteToken = candle.mappedFrom;
+        break;
+      }
+    }
+
     // Iterate through all timestamps
     for (const timestamp of allTimestamps) {
       const base = tokenAByTimestamp.get(timestamp);
@@ -576,21 +832,37 @@ export class HistoricQuoteService implements OnModuleInit {
         continue;
       }
 
-      prices.push({
+      const priceItem = {
         timestamp,
         usd: new Decimal(base.close).div(quote.close),
         provider: base.provider === quote.provider ? base.provider : `${base.provider}/${quote.provider}`,
-      });
+        // Add mappedBaseToken and mappedQuoteToken to each price point
+        // so we can access it in the controller
+        mappedBaseToken,
+        mappedQuoteToken,
+      };
+
+      prices.push(priceItem);
     }
 
     return this.createDailyCandlestick(prices);
   }
 
+  /**
+   * Creates daily candlestick data from an array of price points.
+   * Handles null values and maintains price continuity.
+   * @param prices - Array of price points with timestamp and USD value
+   * @returns Array of daily candlestick data
+   */
   createDailyCandlestick(prices) {
     const candlesticks = [];
     let dailyData = null;
     let currentDay = null;
     let lastValidClose = null;
+
+    // Extract mapping information from the first price point (they all have the same values)
+    const mappedBaseToken = prices.length > 0 ? prices[0].mappedBaseToken : null;
+    const mappedQuoteToken = prices.length > 0 ? prices[0].mappedQuoteToken : null;
 
     prices.forEach((price) => {
       const day = moment.unix(price.timestamp).startOf('day').unix();
@@ -603,20 +875,26 @@ export class HistoricQuoteService implements OnModuleInit {
           low: price.usd !== null ? new Decimal(price.usd) : null,
           close: price.usd !== null ? new Decimal(price.usd) : null,
           provider: price.provider,
+          mappedBaseToken,
+          mappedQuoteToken,
         };
         if (price.usd !== null) {
           lastValidClose = new Decimal(price.usd);
         }
       } else if (day !== currentDay) {
         if (dailyData !== null) {
-          candlesticks.push({
+          const candlestick = {
             timestamp: currentDay,
             open: dailyData.open,
             high: dailyData.high,
             low: dailyData.low,
             close: dailyData.close,
             provider: dailyData.provider,
-          });
+            mappedBaseToken,
+            mappedQuoteToken,
+          };
+
+          candlesticks.push(candlestick);
 
           // Update lastValidClose only if the current close is not null
           if (dailyData.close !== null) {
@@ -632,6 +910,8 @@ export class HistoricQuoteService implements OnModuleInit {
           low: price.usd !== null ? new Decimal(price.usd) : null,
           close: price.usd !== null ? new Decimal(price.usd) : null,
           provider: price.provider,
+          mappedBaseToken,
+          mappedQuoteToken,
         };
       } else {
         if (price.usd !== null) {
@@ -652,22 +932,40 @@ export class HistoricQuoteService implements OnModuleInit {
     });
 
     if (dailyData !== null) {
-      candlesticks.push({
+      const candlestick = {
         timestamp: currentDay,
         open: dailyData.open,
         high: dailyData.high,
         low: dailyData.low,
         close: dailyData.close,
         provider: dailyData.provider,
-      });
+        mappedBaseToken,
+        mappedQuoteToken,
+      };
+
+      candlesticks.push(candlestick);
     }
 
     return candlesticks;
   }
 
-  async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
-    const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
-    const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
+  /**
+   * Fetches USD rates data for multiple tokens within a time range.
+   * @param blockchainType - The blockchain type to fetch data for
+   * @param addresses - Array of token addresses to fetch data for
+   * @param paddedStart - Start time in ISO format
+   * @param paddedEnd - End time in ISO format
+   * @returns Array of USD rate data points
+   */
+  private async fetchUsdRatesData(
+    blockchainType: BlockchainType,
+    addresses: string[],
+    paddedStart: string,
+    paddedEnd: string,
+  ): Promise<any[]> {
+    if (addresses.length === 0) {
+      return [];
+    }
 
     const query = `
       WITH TokenProviders AS (
@@ -683,8 +981,8 @@ export class HistoricQuoteService implements OnModuleInit {
         WHERE
           timestamp >= '${paddedStart}'
           AND timestamp <= '${paddedEnd}'
-          AND "tokenAddress" IN (${addresses.map((a) => `'${a.toLowerCase()}'`).join(',')})
-          AND "blockchainType" = '${deployment.blockchainType}'
+          AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
+          AND "blockchainType" = '${blockchainType}'
         GROUP BY "tokenAddress", provider
       ),
       gapfilled_quotes as (
@@ -699,22 +997,98 @@ export class HistoricQuoteService implements OnModuleInit {
           AND hq.provider = tp.provider
           AND tp.provider_rank = 1
         WHERE
-          hq."blockchainType" = '${deployment.blockchainType}'
-          AND hq."tokenAddress" IN (${addresses.map((address) => `'${address.toLowerCase()}'`).join(',')})
+          hq."blockchainType" = '${blockchainType}'
+          AND hq."tokenAddress" IN (${addresses.map((address) => `'${address}'`).join(',')})
         GROUP BY hq."tokenAddress", day, tp.provider
       ) SELECT * FROM gapfilled_quotes WHERE day >= '${paddedStart}';
     `;
 
-    const result = await this.repository.query(query);
-
-    return result.map((row) => ({
-      day: moment.utc(row.day).unix(),
-      address: row.address.toLowerCase(),
-      usd: parseFloat(row.usd),
-      provider: row.provider,
-    }));
+    return await this.repository.query(query);
   }
 
+  /**
+   * Retrieves USD rates for multiple tokens within a time range.
+   * Handles both direct blockchain quotes and mapped Ethereum token quotes.
+   * @param deployment - The deployment containing token information
+   * @param addresses - Array of token addresses to fetch rates for
+   * @param start - Start time in ISO format
+   * @param end - End time in ISO format
+   * @returns Array of USD rate data points
+   */
+  async getUsdRates(deployment: Deployment, addresses: string[], start: string, end: string): Promise<any[]> {
+    const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
+    const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
+
+    // Check for Ethereum token mappings
+    const tokenMap = deployment.mapEthereumTokens ? this.deploymentService.getLowercaseTokenMap(deployment) : {};
+
+    // Split addresses into mapped and unmapped based on tokenMap
+    const lowercaseAddresses = addresses.map((addr) => addr.toLowerCase());
+    const mappedAddresses = lowercaseAddresses.filter((addr) => tokenMap[addr]);
+    const unmappedAddresses = lowercaseAddresses.filter((addr) => !tokenMap[addr]);
+
+    let result = [];
+
+    // 1. Fetch rates for unmapped addresses from original blockchain if any exist
+    if (unmappedAddresses.length > 0) {
+      const unmappedResults = await this.fetchUsdRatesData(
+        deployment.blockchainType,
+        unmappedAddresses,
+        paddedStart,
+        paddedEnd,
+      );
+
+      result = result.concat(
+        unmappedResults.map((row) => ({
+          day: moment.utc(row.day).unix(),
+          address: row.address.toLowerCase(),
+          usd: parseFloat(row.usd),
+          provider: row.provider,
+        })),
+      );
+    }
+
+    // 2. Fetch rates for mapped addresses from Ethereum blockchain if any exist
+    if (mappedAddresses.length > 0) {
+      // Create a mapping from Ethereum address to original address for later reconstruction
+      const ethereumToOriginalMap = {};
+      const ethereumAddresses = mappedAddresses.map((addr) => {
+        const ethereumAddr = tokenMap[addr].toLowerCase();
+        ethereumToOriginalMap[ethereumAddr] = addr;
+        return ethereumAddr;
+      });
+
+      const mappedResults = await this.fetchUsdRatesData(
+        BlockchainType.Ethereum,
+        ethereumAddresses,
+        paddedStart,
+        paddedEnd,
+      );
+
+      // Map results back to original addresses
+      const mappedProcessedResults = mappedResults.map((row) => {
+        const ethereumAddr = row.address.toLowerCase();
+        const originalAddr = ethereumToOriginalMap[ethereumAddr];
+
+        return {
+          day: moment.utc(row.day).unix(),
+          address: originalAddr, // Use original address
+          usd: parseFloat(row.usd),
+          provider: row.provider,
+          mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
+        };
+      });
+
+      result = result.concat(mappedProcessedResults);
+    }
+
+    return result;
+  }
+
+  /**
+   * Updates price data for tokens that are mapped to Ethereum tokens.
+   * Fetches latest data from Codex for mapped Ethereum tokens.
+   */
   private async updateMappedEthereumTokens(): Promise<void> {
     const deployments = this.deploymentService.getDeployments();
     const latestEthereumQuotes = await this.getLatest(BlockchainType.Ethereum);
@@ -783,6 +1157,12 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Retrieves the most recent price quote for a specific token.
+   * @param blockchainType - The blockchain type of the token
+   * @param tokenAddress - The address of the token
+   * @returns The most recent quote or null if none exists
+   */
   async getLast(blockchainType: BlockchainType, tokenAddress: string): Promise<HistoricQuote | null> {
     try {
       return await this.repository
@@ -797,6 +1177,12 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Adds a new price quote to the database.
+   * Skips adding if the quote is a duplicate of the most recent one.
+   * @param quote - The quote data to add
+   * @returns The newly created quote
+   */
   async addQuote(quote: Partial<HistoricQuote>): Promise<HistoricQuote> {
     try {
       // Check if there's an existing quote with the same token address and blockchain type
@@ -827,5 +1213,48 @@ export class HistoricQuoteService implements OnModuleInit {
       this.logger.error(`Error adding historical quote for address ${quote.tokenAddress}:`, error);
       throw new Error(`Error adding historical quote for address ${quote.tokenAddress}`);
     }
+  }
+
+  async prepareHistoricQuotesForQuery(deployment: Deployment, tokens: TokensByAddress): Promise<string> {
+    // Calculate timestamps for 5 years ago and now
+    const end = Math.floor(Date.now() / 1000);
+    const start = end - 5 * 365.25 * 24 * 60 * 60; // 5 years in seconds
+    const lowercaseTokens = Object.keys(tokens).map((token) => token.toLowerCase());
+
+    // Get the latest quotes for each token
+    const buckets = await this.fetchHistoryQuotesBucketsData(
+      deployment.blockchainType,
+      lowercaseTokens,
+      moment.unix(start).format('YYYY-MM-DD'),
+      moment.unix(end).format('YYYY-MM-DD'),
+      '1 day',
+    );
+
+    // Build the CTE
+    let historicQuotesCTE = '';
+    if (buckets && buckets.length > 0) {
+      const quoteValues = buckets
+        .filter((bucket) => bucket.high) // Only include buckets with valid close prices
+        .map(
+          (bucket) =>
+            `('${bucket.tokenAddress}', '${bucket.close}', '${deployment.blockchainType}', '${moment
+              .utc(bucket.bucket)
+              .format('YYYY-MM-DD')}')`,
+        )
+        .join(',');
+
+      if (quoteValues) {
+        historicQuotesCTE = `
+        historic_quotes as (
+          SELECT 
+            CAST("tokenAddress" AS text) as "tokenAddress", 
+            CAST(usd AS double precision) as max_usd, 
+            "blockchainType", 
+            timestamp_day
+          FROM (VALUES ${quoteValues}) AS t("tokenAddress", usd, "blockchainType", timestamp_day)
+        ),`;
+      }
+    }
+    return historicQuotesCTE;
   }
 }
