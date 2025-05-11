@@ -51,6 +51,7 @@ export class DexScreenerController {
         id: token.address,
         name: token.name,
         symbol: token.symbol,
+        decimals: token.decimals,
       },
     };
   }
