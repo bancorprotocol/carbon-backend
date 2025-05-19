@@ -79,6 +79,36 @@ export class QuoteService implements OnModuleInit {
     try {
       const deployments = await this.deploymentService.getDeployments();
 
+      // First, collect all unique Ethereum token addresses from all deployments
+      const allEthereumAddresses = new Set<string>();
+      for (const deployment of deployments) {
+        if (deployment.mapEthereumTokens && Object.keys(deployment.mapEthereumTokens).length > 0) {
+          Object.values(deployment.mapEthereumTokens).forEach((addr) => {
+            allEthereumAddresses.add(addr.toLowerCase());
+          });
+        }
+      }
+
+      // If we have Ethereum token mappings, fetch their quotes first
+      if (allEthereumAddresses.size > 0) {
+        const ethereumDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+        const ethereumAddressArray = Array.from(allEthereumAddresses);
+
+        // Note: Ethereum token creation is now handled by TokenService.onModuleInit()
+        // Since token mappings are hardcoded in deployment configs and can't change at runtime,
+        // we only need to ensure tokens exist once at startup, not on every quote poll.
+
+        const ethereumPrices = await this.coingeckoService.getLatestPrices(ethereumAddressArray, ethereumDeployment);
+        const gasTokenPrice = await this.coingeckoService.getLatestGasTokenPrice(ethereumDeployment);
+        const ethereumPricesWithGas = { ...ethereumPrices, ...gasTokenPrice };
+        await this.updateQuotes(
+          await this.tokenService.getTokensByBlockchainType(BlockchainType.Ethereum),
+          ethereumPricesWithGas,
+          ethereumDeployment,
+        );
+      }
+
+      // Then process each deployment
       await Promise.all(deployments.map((deployment) => this.pollForDeployment(deployment)));
     } catch (error) {
       this.logger.error(`Error fetching and storing quotes: ${error.message}`);
@@ -115,13 +145,177 @@ export class QuoteService implements OnModuleInit {
   }
 
   async all(): Promise<Quote[]> {
-    return this.quoteRepository.find();
+    // Get all deployments that have Ethereum token mappings
+    const deployments = this.deploymentService.getDeployments();
+    const deploymentsWithMappings = deployments.filter(
+      (d) => d.mapEthereumTokens && Object.keys(d.mapEthereumTokens).length > 0,
+    );
+
+    // If no deployments have mappings, return all quotes as is
+    if (deploymentsWithMappings.length === 0) {
+      return this.quoteRepository.find();
+    }
+
+    // Get all quotes with their tokens
+    const allQuotes = await this.quoteRepository.find({ relations: ['token'] });
+
+    // Get all unique Ethereum addresses that are mapped to
+    const allEthereumAddresses = new Set<string>();
+    deploymentsWithMappings.forEach((deployment) => {
+      const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+      Object.values(lowercaseTokenMap).forEach((addr) => allEthereumAddresses.add(addr.toLowerCase()));
+    });
+
+    // If we have mapped Ethereum addresses, get their quotes
+    if (allEthereumAddresses.size > 0) {
+      const ethereumQuotes = await this.quoteRepository
+        .createQueryBuilder('quote')
+        .leftJoinAndSelect('quote.token', 'token')
+        .where('quote.blockchainType = :blockchainType', { blockchainType: BlockchainType.Ethereum })
+        .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: Array.from(allEthereumAddresses) })
+        .getMany();
+
+      // Create a map of Ethereum quotes by address
+      const ethereumQuotesByAddress = {};
+      ethereumQuotes.forEach((q) => {
+        ethereumQuotesByAddress[q.token.address.toLowerCase()] = q;
+      });
+
+      // Process each deployment's mappings
+      const finalQuotes: Quote[] = [];
+      allQuotes.forEach((quote) => {
+        let shouldUseEthereumQuotePrice = false;
+        let ethereumQuote: Quote | null = null;
+
+        // Check if this quote's token is mapped in any deployment
+        for (const deployment of deploymentsWithMappings) {
+          const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+          const originalAddress = quote.token.address.toLowerCase();
+          const mappedAddress = lowercaseTokenMap[originalAddress];
+
+          if (mappedAddress && ethereumQuotesByAddress[mappedAddress]) {
+            shouldUseEthereumQuotePrice = true;
+            ethereumQuote = ethereumQuotesByAddress[mappedAddress];
+            break;
+          }
+        }
+
+        if (shouldUseEthereumQuotePrice && ethereumQuote) {
+          // Only use the USD price from Ethereum quote, keep everything else from original
+          const mappedQuote = {
+            ...quote,
+            usd: ethereumQuote.usd,
+            provider: ethereumQuote.provider,
+          };
+          finalQuotes.push(mappedQuote);
+        } else {
+          finalQuotes.push(quote);
+        }
+      });
+
+      return finalQuotes;
+    }
+
+    return allQuotes;
   }
 
   async allByAddress(deployment: Deployment): Promise<QuotesByAddress> {
-    const all = await this.quoteRepository.find({ where: { blockchainType: deployment.blockchainType } });
+    // Get all quotes for this blockchain type
+    const all = await this.quoteRepository.find({
+      where: { blockchainType: deployment.blockchainType },
+      relations: ['token'],
+    });
+
+    // If no Ethereum token mapping, return as is
+    if (!deployment.mapEthereumTokens) {
+      const tokensByAddress = {};
+      all.forEach((q) => (tokensByAddress[q.token.address] = q));
+      return tokensByAddress;
+    }
+
+    // Get Ethereum quotes for mapped tokens
+    const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+    const mappedAddresses = Object.values(lowercaseTokenMap);
+
     const tokensByAddress = {};
-    all.forEach((q) => (tokensByAddress[q.token.address] = q));
+
+    // Get all tokens for this blockchain type to ensure we have complete token data
+    const allTokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
+    const tokensByAddress_lower = {};
+    if (allTokens && Array.isArray(allTokens)) {
+      allTokens.forEach((token) => {
+        tokensByAddress_lower[token.address.toLowerCase()] = token;
+      });
+    }
+
+    if (mappedAddresses.length > 0) {
+      // Get Ethereum quotes using query builder to properly handle the address IN condition
+      const ethereumQuotes = await this.quoteRepository
+        .createQueryBuilder('quote')
+        .leftJoinAndSelect('quote.token', 'token')
+        .where('quote.blockchainType = :blockchainType', { blockchainType: BlockchainType.Ethereum })
+        .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: mappedAddresses.map((a) => a.toLowerCase()) })
+        .getMany();
+
+      // Create a map of Ethereum quotes by address
+      const ethereumQuotesByAddress = {};
+      ethereumQuotes.forEach((q) => {
+        ethereumQuotesByAddress[q.token.address.toLowerCase()] = q;
+      });
+
+      // First, process any mapped Ethereum quotes
+      Object.entries(lowercaseTokenMap).forEach(([originalAddress, mappedAddress]) => {
+        const ethereumQuote = ethereumQuotesByAddress[mappedAddress.toLowerCase()];
+        // Find original quote if it exists
+        const originalQuote = all.find((q) => q.token.address.toLowerCase() === originalAddress.toLowerCase());
+
+        if (ethereumQuote) {
+          if (originalQuote) {
+            // Use original quote but with Ethereum price
+            tokensByAddress[originalAddress] = {
+              ...originalQuote,
+              usd: ethereumQuote.usd,
+              provider: ethereumQuote.provider,
+            };
+          } else {
+            // Get the full token information from our tokens repository
+            const fullToken = tokensByAddress_lower[originalAddress.toLowerCase()];
+
+            if (fullToken) {
+              // Create a new quote with the Ethereum price but on the target blockchain with full token data
+              tokensByAddress[originalAddress] = {
+                usd: ethereumQuote.usd,
+                provider: ethereumQuote.provider,
+                token: fullToken,
+                blockchainType: deployment.blockchainType,
+                timestamp: ethereumQuote.timestamp,
+              };
+            } else {
+              // Fallback if token isn't found (shouldn't happen in normal operation)
+              this.logger.warn(
+                `No token found for address ${originalAddress} on blockchain ${deployment.blockchainType}`,
+              );
+              tokensByAddress[originalAddress] = {
+                usd: ethereumQuote.usd,
+                provider: ethereumQuote.provider,
+                token: { address: originalAddress },
+                blockchainType: deployment.blockchainType,
+                timestamp: ethereumQuote.timestamp,
+              };
+            }
+          }
+        }
+      });
+    }
+
+    // Then add any non-mapped quotes from the original blockchain
+    all.forEach((quote) => {
+      const originalAddress = quote.token.address.toLowerCase();
+      if (!tokensByAddress[originalAddress]) {
+        tokensByAddress[originalAddress] = quote;
+      }
+    });
+
     return tokensByAddress;
   }
 
@@ -132,12 +326,69 @@ export class QuoteService implements OnModuleInit {
    * @returns quotes by address
    */
   async findQuotes(blockchainType: BlockchainType, addresses: string[]): Promise<QuotesByAddress> {
+    const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
+    const lowercaseAddresses = addresses.map((a) => a.toLowerCase());
+
+    // Get quotes for the original addresses
     const result = await this.quoteRepository
       .createQueryBuilder('quote')
       .leftJoinAndSelect('quote.token', 'token')
       .where('quote.blockchainType = :blockchainType', { blockchainType })
-      .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: addresses.map((a) => a.toLowerCase()) })
+      .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: lowercaseAddresses })
       .getMany();
+
+    // If no Ethereum token mapping, return as is
+    if (!deployment.mapEthereumTokens) {
+      const tokensByAddress = {};
+      result.forEach((q) => (tokensByAddress[q.token.address.toLowerCase()] = q));
+      return tokensByAddress;
+    }
+
+    // Get the mapping of tokens
+    const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+
+    // Find which addresses are mapped to Ethereum
+    const mappedAddresses = lowercaseAddresses.map((addr) => lowercaseTokenMap[addr]).filter((addr) => addr);
+
+    if (mappedAddresses.length > 0) {
+      // Get Ethereum quotes for mapped addresses
+      const ethereumQuotes = await this.quoteRepository
+        .createQueryBuilder('quote')
+        .leftJoinAndSelect('quote.token', 'token')
+        .where('quote.blockchainType = :blockchainType', { blockchainType: BlockchainType.Ethereum })
+        .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: mappedAddresses })
+        .getMany();
+
+      // Create a map of Ethereum quotes by address
+      const ethereumQuotesByAddress = {};
+      ethereumQuotes.forEach((q) => {
+        ethereumQuotesByAddress[q.token.address.toLowerCase()] = q;
+      });
+
+      // Build the final quotes map
+      const tokensByAddress = {};
+      result.forEach((quote) => {
+        const originalAddress = quote.token.address.toLowerCase();
+        const mappedAddress = lowercaseTokenMap[originalAddress];
+
+        if (mappedAddress && ethereumQuotesByAddress[mappedAddress]) {
+          // Only use the USD price from Ethereum quote, keep everything else from original
+          const ethereumQuote = ethereumQuotesByAddress[mappedAddress];
+          const mappedQuote = {
+            ...quote,
+            usd: ethereumQuote.usd,
+            provider: ethereumQuote.provider,
+          };
+          tokensByAddress[originalAddress] = mappedQuote;
+        } else {
+          tokensByAddress[originalAddress] = quote;
+        }
+      });
+
+      return tokensByAddress;
+    }
+
+    // Fallback to original behavior if no mapped addresses
     const tokensByAddress = {};
     result.forEach((q) => (tokensByAddress[q.token.address.toLowerCase()] = q));
     return tokensByAddress;
@@ -145,57 +396,117 @@ export class QuoteService implements OnModuleInit {
 
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>, deployment: Deployment): Promise<void> {
     try {
-      // Create a map of token IDs to their associated quotes for quick lookup
-      const existingQuotesMap = new Map<number, Quote>();
+      const now = new Date();
 
-      // Get all existing quotes for this blockchain type
-      const existingQuotes = await this.quoteRepository.find({
-        where: { blockchainType: deployment.blockchainType },
-        relations: ['token'],
-      });
+      // If this is not Ethereum and we have token mappings, get Ethereum quotes
+      let ethereumQuotesByAddress = {};
+      if (deployment.blockchainType !== BlockchainType.Ethereum && deployment.mapEthereumTokens) {
+        const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+        const mappedAddresses = Object.values(lowercaseTokenMap);
 
-      // Populate the map with token ID as key and quote entity as value
-      existingQuotes.forEach((quote) => {
-        if (quote.token && quote.token.id) {
-          existingQuotesMap.set(quote.token.id, quote);
+        if (mappedAddresses.length > 0) {
+          // Note: Ethereum token creation is now handled by TokenService.onModuleInit()
+          // Token mappings are hardcoded and tokens are created at application startup
+
+          const ethereumQuotes = await this.quoteRepository
+            .createQueryBuilder('quote')
+            .leftJoinAndSelect('quote.token', 'token')
+            .where('quote.blockchainType = :blockchainType', { blockchainType: BlockchainType.Ethereum })
+            .andWhere('LOWER(token.address) IN (:...addresses)', { addresses: mappedAddresses })
+            .getMany();
+
+          ethereumQuotesByAddress = ethereumQuotes.reduce((acc, quote) => {
+            acc[quote.token.address.toLowerCase()] = quote;
+            return acc;
+          }, {});
         }
-      });
+      }
 
-      this.logger.log(`Found ${existingQuotes.length} existing quotes for ${deployment.blockchainType}`);
+      // Get existing quotes for these tokens
+      const existingQuotes =
+        tokens.length > 0
+          ? await this.quoteRepository
+              .createQueryBuilder('quote')
+              .leftJoinAndSelect('quote.token', 'token')
+              .where('quote.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+              .andWhere('token.id IN (:...tokenIds)', { tokenIds: tokens.map((t) => t.id) })
+              .getMany()
+          : [];
 
-      const quoteEntities: Quote[] = [];
+      // Create a map of existing quotes by token ID
+      const existingQuotesByTokenId = existingQuotes.reduce((acc, quote) => {
+        acc[quote.token.id] = quote;
+        return acc;
+      }, {});
+
+      const quotesToSave = [];
 
       for (const token of tokens) {
-        const priceWithTimestamp = newPrices[token.address.toLowerCase()];
+        const tokenAddress = token.address.toLowerCase();
+        const priceData = newPrices[tokenAddress];
+        const existingQuote = existingQuotesByTokenId[token.id];
 
-        if (priceWithTimestamp) {
-          // Look up existing quote by token ID
-          let quote = existingQuotesMap.get(token.id);
+        if (!priceData) {
+          // If we have a mapping to Ethereum and an Ethereum quote exists, use that
+          if (deployment.mapEthereumTokens) {
+            const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
+            const mappedAddress = lowercaseTokenMap[tokenAddress];
 
-          if (!quote) {
-            // Only create a new Quote if one doesn't exist
-            quote = new Quote();
+            if (mappedAddress) {
+              // The TokenService should have already ensured this token exists
+              const ethereumQuote = ethereumQuotesByAddress[mappedAddress.toLowerCase()];
+
+              if (ethereumQuote) {
+                if (existingQuote) {
+                  // Only update the USD price and provider from Ethereum quote
+                  existingQuote.usd = ethereumQuote.usd;
+                  existingQuote.timestamp = now;
+                  existingQuote.provider = ethereumQuote.provider;
+                  quotesToSave.push(existingQuote);
+                } else {
+                  // Create new quote with token from original blockchain but price from Ethereum
+                  quotesToSave.push(
+                    this.quoteRepository.create({
+                      token,
+                      usd: ethereumQuote.usd,
+                      timestamp: now,
+                      provider: ethereumQuote.provider,
+                      blockchainType: deployment.blockchainType,
+                    }),
+                  );
+                }
+              }
+            }
           }
+          continue;
+        }
 
-          // Update the quote properties
-          quote.provider = priceWithTimestamp.provider;
-          quote.token = token;
-          quote.blockchainType = deployment.blockchainType;
-          quote.timestamp = new Date(priceWithTimestamp.last_updated_at * 1000);
-          quote.usd = priceWithTimestamp.usd;
-          quoteEntities.push(quote);
+        if (existingQuote) {
+          // Update existing quote
+          existingQuote.usd = priceData.usd?.toString();
+          existingQuote.timestamp = now;
+          existingQuote.provider = priceData.provider;
+          quotesToSave.push(existingQuote);
+        } else {
+          // Create new quote
+          quotesToSave.push(
+            this.quoteRepository.create({
+              token,
+              usd: priceData.usd?.toString(),
+              timestamp: now,
+              provider: priceData.provider,
+              blockchainType: deployment.blockchainType,
+            }),
+          );
         }
       }
 
-      if (quoteEntities.length > 0) {
-        this.logger.log(`Saving ${quoteEntities.length} quotes for ${deployment.blockchainType}`);
-        await this.quoteRepository.save(quoteEntities);
-      } else {
-        this.logger.log(`No quotes to update for ${deployment.blockchainType}`);
+      if (quotesToSave.length > 0) {
+        await this.quoteRepository.save(quotesToSave);
       }
     } catch (error) {
-      this.logger.error(`Error in updateQuotes for ${deployment.blockchainType}: ${error.message}`);
-      throw error; // Re-throw to be caught by the calling function
+      this.logger.error(`Error updating quotes: ${error.message}`);
+      throw error;
     }
   }
 
@@ -338,5 +649,55 @@ export class QuoteService implements OnModuleInit {
       );
       throw error;
     }
+  }
+
+  /**
+   * Deduplicates quotes by tokenId, keeping only the first occurrence of each tokenId
+   * @param quotes The quotes to deduplicate
+   * @returns Deduplicated quotes
+   */
+  private deduplicateQuotesByTokenId(quotes: QuotesByAddress): QuotesByAddress {
+    const uniqueQuotes: QuotesByAddress = {};
+    const seenTokenIds = new Set<string>();
+
+    for (const [address, quote] of Object.entries(quotes)) {
+      const tokenId = String(quote.token.id);
+      if (!seenTokenIds.has(tokenId)) {
+        seenTokenIds.add(tokenId);
+        uniqueQuotes[address] = quote;
+      }
+    }
+
+    return uniqueQuotes;
+  }
+
+  /**
+   * Deduplicates quotes by tokenId and prepares a CTE for SQL queries
+   * @param quotes The quotes to deduplicate and prepare
+   * @returns Object containing the CTE SQL string and deduplicated quotes
+   */
+  async prepareQuotesForQuery(deployment: Deployment): Promise<string> {
+    // First deduplicate the quotes
+    const allQuotes = await this.allByAddress(deployment);
+    const uniqueQuotes = this.deduplicateQuotesByTokenId(allQuotes);
+
+    // Then build the CTE
+    let quotesCTE = '';
+    if (uniqueQuotes && Object.keys(uniqueQuotes).length > 0) {
+      const quoteValues = Object.entries(uniqueQuotes)
+        .map(([address, quote]) => {
+          return `('${quote.token.id}', '${quote.usd}', '${quote.blockchainType}')`;
+        })
+        .join(',');
+
+      if (quoteValues) {
+        quotesCTE = `
+        quotes as (
+          SELECT CAST("tokenId" AS integer) as "tokenId", CAST(usd AS double precision) as usd, "blockchainType" 
+          FROM (VALUES ${quoteValues}) AS t("tokenId", usd, "blockchainType")
+        ),`;
+      }
+    }
+    return quotesCTE;
   }
 }

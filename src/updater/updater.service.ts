@@ -25,6 +25,8 @@ import { NotificationService } from '../notification/notification.service';
 import { ActivityV2Service } from '../activity/activity-v2.service';
 import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 import { CarbonPriceService } from '../carbon-price/carbon-price.service';
+import { QuoteService } from '../quote/quote.service';
+import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
@@ -58,6 +60,8 @@ export class UpdaterService {
     private protectionRemovedEventService: ProtectionRemovedEventService,
     private activityV2Service: ActivityV2Service,
     private carbonPriceService: CarbonPriceService,
+    private quoteService: QuoteService,
+    private historicQuoteService: HistoricQuoteService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -147,8 +151,9 @@ export class UpdaterService {
       await this.carbonPriceService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating carbon price for ${deployment.exchangeId}`);
 
-      // coingecko tickers
-      await this.coingeckoService.update(deployment);
+      // coingecko tickers - fetch quotes first and pass them to update method
+      const quotesCTE = await this.quoteService.prepareQuotesForQuery(deployment);
+      await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
 
       // trading fee events
@@ -207,11 +212,20 @@ export class UpdaterService {
       await this.redis.client.setex(`${CARBON_IS_UPDATING_ANALYTICS}:${deploymentKey}`, lockDuration, 1);
 
       // ROI
-      await this.roiService.update(deployment);
+      const allQuotes = await this.quoteService.allByAddress(deployment);
+      const quotes = Object.values(allQuotes);
+      await this.roiService.update(deployment, quotes);
       console.log(`CARBON SERVICE - Finished updating ROI for ${deployment.exchangeId}`);
 
       // analytics
-      await this.analyticsService.update(deployment);
+      const quotesCTE = await this.quoteService.prepareQuotesForQuery(deployment);
+      const tokens = await this.tokenService.allByAddress(deployment);
+      const historicQuotesCTE = await this.historicQuoteService.prepareHistoricQuotesForQuery(deployment, tokens);
+      await this.analyticsService.update(deployment, quotesCTE, historicQuotesCTE);
+
+      // coingecko tickers
+      await this.coingeckoService.update(deployment, quotesCTE);
+      console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
 
       // DexScreener
       await this.dexScreenerService.update(deployment);

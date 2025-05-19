@@ -5,13 +5,7 @@ import { SimulatorService } from './simulator.service';
 
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
-import {
-  BlockchainType,
-  Deployment,
-  DeploymentService,
-  ExchangeId,
-  NATIVE_TOKEN,
-} from '../../deployment/deployment.service';
+import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId?/simulator' })
@@ -41,76 +35,25 @@ export class SimulatorController {
     const baseTokenAddress = params.baseToken.toLowerCase();
     const quoteTokenAddress = params.quoteToken.toLowerCase();
 
-    // Initialize variables for the tokens and blockchain to use
-    let usedBaseToken = baseTokenAddress;
-    let usedQuoteToken = quoteTokenAddress;
-    let baseTokenBlockchainType = deployment.blockchainType;
-    let quoteTokenBlockchainType = deployment.blockchainType;
-    let mappedBaseToken = null;
-    let mappedQuoteToken = null;
-
     // Always set lowercase token values in params
     params.baseToken = baseTokenAddress;
     params.quoteToken = quoteTokenAddress;
 
-    // Handle native token aliases first
-    if (deployment.nativeTokenAlias && usedBaseToken === NATIVE_TOKEN.toLowerCase()) {
-      usedBaseToken = deployment.nativeTokenAlias.toLowerCase();
-      params.baseToken = usedBaseToken;
-    }
-
-    if (deployment.nativeTokenAlias && usedQuoteToken === NATIVE_TOKEN.toLowerCase()) {
-      usedQuoteToken = deployment.nativeTokenAlias.toLowerCase();
-      params.quoteToken = usedQuoteToken;
-    }
-
-    // Check if tokens are mapped to Ethereum tokens
-    if (deployment.mapEthereumTokens) {
-      // Convert mapEthereumTokens keys to lowercase for case-insensitive matching
-      const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
-
-      // Check if base token is mapped
-      if (lowercaseTokenMap[usedBaseToken]) {
-        mappedBaseToken = lowercaseTokenMap[usedBaseToken];
-        usedBaseToken = mappedBaseToken;
-        params.baseToken = mappedBaseToken;
-        baseTokenBlockchainType = BlockchainType.Ethereum;
-      }
-
-      // Check if quote token is mapped
-      if (lowercaseTokenMap[usedQuoteToken]) {
-        mappedQuoteToken = lowercaseTokenMap[usedQuoteToken];
-        usedQuoteToken = mappedQuoteToken;
-        params.quoteToken = mappedQuoteToken;
-        quoteTokenBlockchainType = BlockchainType.Ethereum;
-      }
-    }
-
+    // Get price data - the historic-quote service now handles token mapping internally
     const usdPrices = await this.historicQuoteService.getUsdBuckets(
-      baseTokenBlockchainType,
-      quoteTokenBlockchainType,
-      usedBaseToken,
-      usedQuoteToken,
+      deployment.blockchainType,
+      deployment.blockchainType,
+      params.baseToken,
+      params.quoteToken,
       params.start,
       params.end,
     );
 
-    // Get deployments for each token based on their blockchain type
-    const baseTokenDeployment =
-      baseTokenBlockchainType === BlockchainType.Ethereum
-        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
-        : deployment;
-
-    const quoteTokenDeployment =
-      quoteTokenBlockchainType === BlockchainType.Ethereum
-        ? this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum)
-        : deployment;
-
     const data = await this.simulatorService.generateSimulation(
       params,
       usdPrices,
-      baseTokenDeployment,
-      quoteTokenDeployment,
+      deployment, // Both base token and quote token use the same deployment now
+      deployment,
       deployment,
     );
 

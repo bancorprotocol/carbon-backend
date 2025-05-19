@@ -2,7 +2,7 @@ import { CacheTTL } from '@nestjs/cache-manager';
 import { BadRequestException, Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricQuoteDto } from './historic-quote.dto';
 import { HistoricQuoteService } from './historic-quote.service';
-import { Deployment, DeploymentService, ExchangeId, BlockchainType } from '../deployment/deployment.service';
+import { Deployment, DeploymentService, ExchangeId } from '../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../exchange-id-param.decorator';
 
 @Controller({ version: '1', path: ':exchangeId?/history/prices' })
@@ -24,54 +24,27 @@ export class HistoricQuoteController {
       });
     }
 
-    // Convert tokens to lowercase once
+    // Convert tokens to lowercase
     const baseTokenAddress = params.baseToken.toLowerCase();
     const quoteTokenAddress = params.quoteToken.toLowerCase();
 
-    // Initialize variables for the tokens and blockchain to use
-    let usedBaseToken = baseTokenAddress;
-    let usedQuoteToken = quoteTokenAddress;
-    // Initialize separate blockchain types for base and quote tokens
-    let baseTokenBlockchainType = deployment.blockchainType;
-    let quoteTokenBlockchainType = deployment.blockchainType;
-    let mappedBaseToken = null;
-    let mappedQuoteToken = null;
-
-    // Check if tokens are mapped to Ethereum tokens
-    if (deployment.mapEthereumTokens) {
-      // Convert mapEthereumTokens keys to lowercase for case-insensitive matching
-      const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
-
-      // Check if base token is mapped
-      if (lowercaseTokenMap[baseTokenAddress]) {
-        mappedBaseToken = lowercaseTokenMap[baseTokenAddress].toLowerCase();
-        usedBaseToken = mappedBaseToken;
-        baseTokenBlockchainType = BlockchainType.Ethereum;
-      }
-
-      // Check if quote token is mapped
-      if (lowercaseTokenMap[quoteTokenAddress]) {
-        mappedQuoteToken = lowercaseTokenMap[quoteTokenAddress].toLowerCase();
-        usedQuoteToken = mappedQuoteToken;
-        quoteTokenBlockchainType = BlockchainType.Ethereum;
-      }
-    }
-
-    // Get the price data
+    // Get the price data - the service handles token mapping internally
     const data = await this.historicQuoteService.getUsdBuckets(
-      baseTokenBlockchainType,
-      quoteTokenBlockchainType,
-      usedBaseToken,
-      usedQuoteToken,
+      deployment.blockchainType,
+      deployment.blockchainType,
+      baseTokenAddress,
+      quoteTokenAddress,
       params.start,
       params.end,
     );
 
     // Format the result
     const result = [];
+
     if (data && data.length > 0) {
+      // Format the price data
       data.forEach((p) => {
-        const entry = {
+        const item = {
           timestamp: p.timestamp,
           low: p.low.toString(),
           high: p.high.toString(),
@@ -80,15 +53,16 @@ export class HistoricQuoteController {
           provider: p.provider,
         };
 
-        // Add mapping information if applicable
-        if (mappedBaseToken) {
-          entry['mappedBaseToken'] = mappedBaseToken;
-        }
-        if (mappedQuoteToken) {
-          entry['mappedQuoteToken'] = mappedQuoteToken;
+        // Include mapping information in each price point if available
+        if (p.mappedBaseToken) {
+          item['mappedBaseToken'] = p.mappedBaseToken;
         }
 
-        result.push(entry);
+        if (p.mappedQuoteToken) {
+          item['mappedQuoteToken'] = p.mappedQuoteToken;
+        }
+
+        result.push(item);
       });
     }
 

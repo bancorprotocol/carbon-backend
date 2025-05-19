@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { Deployment } from '../../deployment/deployment.service';
+import { Quote } from '../../quote/quote.entity';
 
 @Injectable()
 export class RoiService {
@@ -13,8 +14,8 @@ export class RoiService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
-  async update(deployment: Deployment): Promise<void> {
-    const roi = await this.getROI(deployment);
+  async update(deployment: Deployment, quotes: Quote[]): Promise<void> {
+    const roi = await this.getROI(deployment, quotes);
     const cacheKey = this.getCacheKey(deployment);
     await this.cacheManager.set(cacheKey, roi);
   }
@@ -25,12 +26,26 @@ export class RoiService {
     return cache;
   }
 
-  private async getROI(deployment: Deployment): Promise<any> {
+  private async getROI(deployment: Deployment, quotes: Quote[]): Promise<any> {
+    // Create a temporary table with the quotes, ensuring proper type casting and null handling
+    const quoteValues = quotes
+      .filter((q) => q && q.token && q.token.address && q.usd)
+      .map((q) => `('${q.token.address.toLowerCase()}', ${q.usd}::double precision)`)
+      .join(',');
+
+    // If no quotes, return empty result
+    if (!quoteValues) {
+      return [];
+    }
+
     const query = `
-WITH created AS (
+WITH temp_quotes AS (
+  SELECT * FROM (VALUES ${quoteValues}) AS t(contract_address, price)
+),
+created AS (
     SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s."strategyId" as id, order0, order1, 
-    t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0,
-    t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1,
+    LOWER(t0.address) as token0, t0.symbol as symbol0, t0.decimals as decimals0,
+    LOWER(t1.address) as token1, t1.symbol as symbol1, t1.decimals as decimals1,
     2 as reason 
     FROM "strategy-created-events" s
     left join tokens t0 on t0.id = s."token0Id"
@@ -39,8 +54,8 @@ WITH created AS (
 ),
 updated AS (
     SELECT timestamp as evt_block_time, "blockId" as evt_block_number, s."strategyId" as id, order0, order1, 
-    t0.address as token0, t0.symbol as symbol0, t0.decimals as decimals0,
-    t1.address as token1, t1.symbol as symbol1, t1.decimals as decimals1,
+    LOWER(t0.address) as token0, t0.symbol as symbol0, t0.decimals as decimals0,
+    LOWER(t1.address) as token1, t1.symbol as symbol1, t1.decimals as decimals1,
     reason 
     FROM "strategy-updated-events" s
     left join tokens t0 on t0.id = s."token0Id"
@@ -194,13 +209,9 @@ all_tokens AS (
     SELECT token1 AS contract_address FROM current_orders4
 ),
 prices AS (
-    SELECT address AS contract_address, usd AS price
-    FROM quotes q
-    LEFT JOIN tokens t on t."id" = q."tokenId"
-    WHERE q."blockchainType" = '${deployment.blockchainType}'
-    
+    SELECT LOWER(contract_address) as contract_address, price
+    FROM temp_quotes
 ),
-
 current_orders8 AS (
     SELECT evt_block_time, evt_block_number, id, reason,
         symbol0, symbol1, liquidity0, liquidity1,

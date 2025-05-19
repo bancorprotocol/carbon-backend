@@ -18,8 +18,8 @@ export class AnalyticsService {
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
   ) {}
 
-  async update(deployment: Deployment): Promise<void> {
-    const generic = await this.getGenericMetrics(deployment);
+  async update(deployment: Deployment, quotesCTE: string, historicQuotesCTE: string): Promise<void> {
+    const generic = await this.getGenericMetrics(deployment, quotesCTE, historicQuotesCTE);
     await this.cacheManager.set(
       `${deployment.exchangeId}:${deployment.blockchainType}:${ANALYTICS_GENERIC_METRICS_KEY}`,
       generic,
@@ -65,9 +65,9 @@ export class AnalyticsService {
     return cache;
   }
 
-  private async getGenericMetrics(deployment: Deployment): Promise<any> {
-    const query = `
-WITH filtered_strategies AS (
+  private async getGenericMetrics(deployment: Deployment, quotesCTE: string, historicQuotesCTE: string): Promise<any> {
+    const query = `WITH ${quotesCTE}${historicQuotesCTE}
+ filtered_strategies AS (
     SELECT * 
     FROM strategies 
     WHERE deleted = false
