@@ -413,13 +413,13 @@ describe('HistoricQuoteService', () => {
       );
     });
 
-    it('should update quotes only when USD value differs and timestamp is newer', async () => {
+    it('should update quotes only when USD value differs', async () => {
       // Call the private method using any
       await (service as any).updateMappedEthereumTokens();
 
       // Verify repository.create was called for the tokens that should be updated
       // We expect 2 tokens to be updated:
-      // - ethtoken1 (different value and newer timestamp)
+      // - ethtoken1 (different value)
       // - ethtoken3 (new token, no existing data)
       expect(mockRepository.create).toHaveBeenCalledTimes(2);
 
@@ -1223,6 +1223,46 @@ describe('HistoricQuoteService', () => {
 
       // Verify that the existing quote was returned
       expect(result).toEqual(existingQuote);
+    });
+
+    it('should not create duplicate quotes with same USD value even with different timestamp', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken789',
+        usd: '150.25',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken789',
+        usd: '150.25', // Same USD value as existing quote
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-02T12:00:00.000Z'), // Different timestamp
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
+
+      // Verify that the timestamp difference was ignored
+      expect(result.timestamp).not.toEqual(newQuote.timestamp);
     });
   });
 

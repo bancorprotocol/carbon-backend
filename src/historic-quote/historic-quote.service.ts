@@ -117,12 +117,16 @@ export class HistoricQuoteService implements OnModuleInit {
       // Process Ethereum token mappings for all deployments
       await this.seedAllEthereumMappedTokens();
 
-      await Promise.all([
-        await this.updateCoinMarketCapQuotes(),
-        await this.updateCodexQuotes(BlockchainType.Sei),
-        await this.updateCodexQuotes(BlockchainType.Celo),
-        // await this.updateCodexQuotes(BlockchainType.Base, BASE_NETWORK_ID),
-      ]);
+      try {
+        await Promise.all([
+          await this.updateCoinMarketCapQuotes(),
+          await this.updateCodexQuotes(BlockchainType.Sei),
+          await this.updateCodexQuotes(BlockchainType.Celo),
+          // await this.updateCodexQuotes(BlockchainType.Base, BASE_NETWORK_ID),
+        ]);
+      } catch (error) {
+        this.logger.error('Error updating historic quotes:', error);
+      }
 
       // Update any mapped Ethereum tokens that might not have been updated
       await this.updateMappedEthereumTokens();
@@ -587,12 +591,17 @@ export class HistoricQuoteService implements OnModuleInit {
         JOIN TokenStats ts ON rc."tokenAddress" = ts."tokenAddress"
       ),
       BestProviderQuotes AS (
-        SELECT hq.*
+        SELECT 
+          hq.*,
+          tp.provider_rank,
+          ROW_NUMBER() OVER (
+            PARTITION BY hq."tokenAddress", time_bucket_gapfill('${bucket}', hq.timestamp, '${startPaddedQ}', '${endQ}')
+            ORDER BY hq.timestamp DESC
+          ) as time_rank
         FROM "historic-quotes" hq
         JOIN TokenProviders tp ON 
           hq."tokenAddress" = tp."tokenAddress" 
           AND hq.provider = tp.provider
-          AND tp.provider_rank = 1
         WHERE
           hq.timestamp >= '${startPaddedQ}'
           AND hq.timestamp <= '${endQ}'
@@ -600,7 +609,7 @@ export class HistoricQuoteService implements OnModuleInit {
       )
       SELECT
         bpq."tokenAddress",
-        time_bucket_gapfill('${bucket}', timestamp) AS bucket,
+        time_bucket_gapfill('${bucket}', timestamp, '${startPaddedQ}', '${endQ}') AS bucket,
         locf(first(usd, timestamp)) as open,
         locf(last(usd, timestamp)) as close,
         locf(max(usd::numeric)) as high,
@@ -610,6 +619,7 @@ export class HistoricQuoteService implements OnModuleInit {
       JOIN TokenProviders sp ON 
         bpq."tokenAddress" = sp."tokenAddress" 
         AND sp.provider_rank = 1
+      WHERE bpq.time_rank = 1
       GROUP BY bpq."tokenAddress", bucket, sp.provider
       ORDER BY bpq."tokenAddress"`;
 
@@ -1123,11 +1133,9 @@ export class HistoricQuoteService implements OnModuleInit {
           const newUsdValue = codexData[ethereumAddress].usd;
           const newTimestamp = moment.unix(codexData[ethereumAddress].last_updated_at).utc().toISOString();
 
-          // Check if we have an existing quote and if the values are different
+          // Check if we have an existing quote and if the USD value is different
           const existingQuote = latestEthereumQuotes[ethereumAddress];
-          const shouldUpdate =
-            !existingQuote ||
-            (existingQuote.usd !== newUsdValue && new Date(newTimestamp) > new Date(existingQuote.timestamp));
+          const shouldUpdate = !existingQuote || existingQuote.usd !== newUsdValue;
 
           if (shouldUpdate) {
             // Create a new quote for the Ethereum token
@@ -1142,7 +1150,7 @@ export class HistoricQuoteService implements OnModuleInit {
             );
             this.logger.log(`Added new Ethereum price data for ${ethereumAddress} from Codex`);
           } else {
-            this.logger.log(`Skipping update for ${ethereumAddress} - values haven't changed`);
+            this.logger.log(`Skipping update for ${ethereumAddress} - USD value hasn't changed`);
           }
         }
       } catch (error) {
