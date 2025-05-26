@@ -65,6 +65,7 @@ import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
     NotificationModule,
     ProtectionRemovedEventModule,
     CarbonPriceModule,
+    HistoricQuoteModule,
   ],
   providers: [UpdaterService],
 })

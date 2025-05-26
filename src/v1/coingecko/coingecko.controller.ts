@@ -11,6 +11,7 @@ import { PairService } from '../../pair/pair.service';
 import { CoingeckoService } from './coingecko.service';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { QuoteService } from '../../quote/quote.service';
 
 @Controller({ version: '1', path: ':exchangeId?/coingecko' })
 export class CoinGeckoController {
@@ -19,6 +20,7 @@ export class CoinGeckoController {
     private pairService: PairService,
     private coingeckoService: CoingeckoService,
     private deploymentService: DeploymentService,
+    private quoteService: QuoteService,
   ) {}
 
   private async getDeployment(exchangeId: ExchangeId): Promise<Deployment> {
