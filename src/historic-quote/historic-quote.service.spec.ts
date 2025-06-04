@@ -300,6 +300,238 @@ describe('HistoricQuoteService', () => {
       expect(candlesticks[0].low.toString()).toBe('95'); // Lowest price
       expect(candlesticks[0].close.toString()).toBe('95'); // Last price of the day
     });
+
+    // Tests covering OHLC consistency issues
+    it('should maintain OHLC consistency when previous day close is higher than current day first price', () => {
+      const day1 = moment().startOf('day');
+      const day2 = day1.clone().add(1, 'day');
+
+      const prices = [
+        {
+          timestamp: day1.unix(),
+          usd: new Decimal('100'), // Day 1 close will be 100
+          provider: 'test',
+        },
+        {
+          timestamp: day2.unix(),
+          usd: new Decimal('90'), // Day 2 first price is lower than day 1 close
+          provider: 'test',
+        },
+      ];
+
+      const candlesticks = service.createDailyCandlestick(prices);
+      expect(candlesticks).toHaveLength(2);
+
+      // Day 1
+      expect(candlesticks[0].open.toString()).toBe('100');
+      expect(candlesticks[0].close.toString()).toBe('100');
+      expect(candlesticks[0].high.toString()).toBe('100');
+      expect(candlesticks[0].low.toString()).toBe('100');
+
+      // Day 2: open should be day 1 close (100), but first price is 90
+      // This tests the fix where high/low are adjusted to include the open price
+      expect(candlesticks[1].open.toString()).toBe('100'); // Previous day's close
+      expect(candlesticks[1].close.toString()).toBe('90'); // Current day's price
+      expect(candlesticks[1].high.toString()).toBe('100'); // Should be max(open=100, close=90) = 100
+      expect(candlesticks[1].low.toString()).toBe('90'); // Should be min(open=100, close=90) = 90
+
+      // Verify OHLC consistency
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].open.toString()),
+      );
+      expect(parseFloat(candlesticks[1].open.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].close.toString()),
+      );
+      expect(parseFloat(candlesticks[1].close.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+    });
+
+    it('should maintain OHLC consistency when previous day close is lower than current day first price', () => {
+      const day1 = moment().startOf('day');
+      const day2 = day1.clone().add(1, 'day');
+
+      const prices = [
+        {
+          timestamp: day1.unix(),
+          usd: new Decimal('80'), // Day 1 close will be 80
+          provider: 'test',
+        },
+        {
+          timestamp: day2.unix(),
+          usd: new Decimal('100'), // Day 2 first price is higher than day 1 close
+          provider: 'test',
+        },
+      ];
+
+      const candlesticks = service.createDailyCandlestick(prices);
+      expect(candlesticks).toHaveLength(2);
+
+      // Day 1
+      expect(candlesticks[0].open.toString()).toBe('80');
+      expect(candlesticks[0].close.toString()).toBe('80');
+      expect(candlesticks[0].high.toString()).toBe('80');
+      expect(candlesticks[0].low.toString()).toBe('80');
+
+      // Day 2: open should be day 1 close (80), but first price is 100
+      expect(candlesticks[1].open.toString()).toBe('80'); // Previous day's close
+      expect(candlesticks[1].close.toString()).toBe('100'); // Current day's price
+      expect(candlesticks[1].high.toString()).toBe('100'); // Should be max(open=80, close=100) = 100
+      expect(candlesticks[1].low.toString()).toBe('80'); // Should be min(open=80, close=100) = 80
+
+      // Verify OHLC consistency
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].open.toString()),
+      );
+      expect(parseFloat(candlesticks[1].open.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].close.toString()),
+      );
+      expect(parseFloat(candlesticks[1].close.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+    });
+
+    it('should handle complex OHLC scenario with multiple prices in a day after gap', () => {
+      const day1 = moment().startOf('day');
+      const day2 = day1.clone().add(1, 'day');
+
+      const prices = [
+        {
+          timestamp: day1.unix(),
+          usd: new Decimal('95'), // Day 1 close will be 95
+          provider: 'test',
+        },
+        // Day 2 has multiple prices
+        {
+          timestamp: day2.unix(),
+          usd: new Decimal('100'), // First price of day 2
+          provider: 'test',
+        },
+        {
+          timestamp: day2.unix() + 3600,
+          usd: new Decimal('105'), // Higher price later in day
+          provider: 'test',
+        },
+        {
+          timestamp: day2.unix() + 7200,
+          usd: new Decimal('90'), // Lower price, ends up as close
+          provider: 'test',
+        },
+      ];
+
+      const candlesticks = service.createDailyCandlestick(prices);
+      expect(candlesticks).toHaveLength(2);
+
+      // Day 1
+      expect(candlesticks[0].close.toString()).toBe('95');
+
+      // Day 2: open should be day 1 close (95), multiple prices throughout day
+      expect(candlesticks[1].open.toString()).toBe('95'); // Previous day's close
+      expect(candlesticks[1].close.toString()).toBe('90'); // Last price of the day
+      expect(candlesticks[1].high.toString()).toBe('105'); // Should include highest price of the day
+      expect(candlesticks[1].low.toString()).toBe('90'); // Should include lowest price of the day
+
+      // Verify OHLC consistency
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].open.toString()),
+      );
+      expect(parseFloat(candlesticks[1].open.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+      expect(parseFloat(candlesticks[1].low.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].close.toString()),
+      );
+      expect(parseFloat(candlesticks[1].close.toString())).toBeLessThanOrEqual(
+        parseFloat(candlesticks[1].high.toString()),
+      );
+    });
+
+    it('should handle OHLC consistency when lastValidClose is used with null current price', () => {
+      const day1 = moment().startOf('day');
+      const day2 = day1.clone().add(1, 'day');
+
+      const prices = [
+        {
+          timestamp: day1.unix(),
+          usd: new Decimal('120'), // Day 1 close will be 120
+          provider: 'test',
+        },
+        {
+          timestamp: day2.unix(),
+          usd: null, // Day 2 has null price
+          provider: 'test',
+        },
+      ];
+
+      const candlesticks = service.createDailyCandlestick(prices);
+      expect(candlesticks).toHaveLength(2);
+
+      // Day 1
+      expect(candlesticks[0].close.toString()).toBe('120');
+
+      // Day 2: should use lastValidClose for open but have null close
+      expect(candlesticks[1].open.toString()).toBe('120'); // Previous day's close
+      expect(candlesticks[1].close).toBeNull();
+      expect(candlesticks[1].high.toString()).toBe('120'); // Should fallback to lastValidClose
+      expect(candlesticks[1].low.toString()).toBe('120'); // Should fallback to lastValidClose
+    });
+
+    it('should prevent open being outside high-low range edge cases', () => {
+      // This test specifically targets the bug we fixed where open could be < low or > high
+      const day1 = moment().startOf('day');
+      const day2 = day1.clone().add(1, 'day');
+      const day3 = day2.clone().add(1, 'day');
+
+      const prices = [
+        {
+          timestamp: day1.unix(),
+          usd: new Decimal('2339.94'), // Similar to the real example from the bug report
+          provider: 'coinmarketcap',
+        },
+        {
+          timestamp: day2.unix(),
+          usd: new Decimal('2360.44'), // Current day's only price
+          provider: 'coinmarketcap',
+        },
+        {
+          timestamp: day3.unix(),
+          usd: new Decimal('2350.00'), // Another day
+          provider: 'coinmarketcap',
+        },
+      ];
+
+      const candlesticks = service.createDailyCandlestick(prices);
+      expect(candlesticks).toHaveLength(3);
+
+      // Check each candlestick for OHLC consistency
+      candlesticks.forEach((candle, index) => {
+        if (candle.open !== null && candle.high !== null && candle.low !== null && candle.close !== null) {
+          const open = parseFloat(candle.open.toString());
+          const high = parseFloat(candle.high.toString());
+          const low = parseFloat(candle.low.toString());
+          const close = parseFloat(candle.close.toString());
+
+          // These are the core OHLC consistency rules that were violated before our fix
+          expect(low).toBeLessThanOrEqual(open); // open should not be < low
+          expect(open).toBeLessThanOrEqual(high); // open should not be > high
+          expect(low).toBeLessThanOrEqual(close); // close should not be < low
+          expect(close).toBeLessThanOrEqual(high); // close should not be > high
+          expect(low).toBeLessThanOrEqual(high); // low should not be > high
+        }
+      });
+
+      // Specifically check day 2 which had the problematic pattern
+      expect(candlesticks[1].open.toString()).toBe('2339.94'); // Previous day's close
+      expect(candlesticks[1].close.toString()).toBe('2360.44'); // Current day's price
+      expect(candlesticks[1].high.toString()).toBe('2360.44'); // Max of open and close
+      expect(candlesticks[1].low.toString()).toBe('2339.94'); // Min of open and close
+    });
   });
 
   // Add new test suite for the Ethereum token mapping functionality
@@ -865,6 +1097,14 @@ describe('HistoricQuoteService', () => {
       const end = moment().unix();
       const startDay = moment.unix(start).utc().startOf('day');
 
+      // Mock getDeployments to return a deployment with no mappings (to test unmapped addresses)
+      mockDeploymentService.getDeployments.mockReturnValue([
+        {
+          blockchainType: BlockchainType.Ethereum,
+          mapEthereumTokens: null,
+        },
+      ]);
+
       // Mock data to return for tokenA and tokenB
       const queryResult = [
         // TokenA with codex provider (selected due to having significantly more data)
@@ -879,7 +1119,7 @@ describe('HistoricQuoteService', () => {
         },
         {
           tokenAddress: tokenA,
-          bucket: startDay.add(1, 'day').toISOString(),
+          bucket: startDay.clone().add(1, 'day').toISOString(),
           open: '11',
           close: '12',
           high: '13',
@@ -890,7 +1130,7 @@ describe('HistoricQuoteService', () => {
         // TokenB with coinmarketcap provider (default provider order)
         {
           tokenAddress: tokenB,
-          bucket: startDay.clone().subtract(1, 'day').toISOString(),
+          bucket: startDay.clone().toISOString(),
           open: '1',
           close: '1.1',
           high: '1.2',
@@ -899,7 +1139,7 @@ describe('HistoricQuoteService', () => {
         },
         {
           tokenAddress: tokenB,
-          bucket: startDay.clone().toISOString(),
+          bucket: startDay.clone().add(1, 'day').toISOString(),
           open: '1.1',
           close: '1.2',
           high: '1.3',
@@ -913,8 +1153,8 @@ describe('HistoricQuoteService', () => {
 
       // Add a specific implementation for this test
       mockRepository.query.mockImplementation((sql) => {
-        // Only respond to the specific query that contains the provider selection logic
-        if (sql.includes('TokenStats') && sql.includes('max_points > 5 * COALESCE')) {
+        // Check if this is the main fetchHistoryQuotesBucketsData query
+        if (sql.includes('raw_counts') && sql.includes('token_stats') && sql.includes('locf')) {
           return Promise.resolve(queryResult);
         }
 

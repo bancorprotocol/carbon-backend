@@ -548,92 +548,72 @@ export class HistoricQuoteService implements OnModuleInit {
       .join(',');
 
     const query = `WITH raw_counts AS (
-  SELECT 
-    "tokenAddress",
-    provider,
-    COUNT(*) AS data_points
-  FROM "historic-quotes"
-  WHERE
-    timestamp >= '${startPaddedQ}'
-    AND timestamp <= '${endQ}'
-    AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
-    AND "blockchainType" = '${blockchainType}'
-    AND provider = ANY (ARRAY[${enabledProviders}]::text[])
-  GROUP BY "tokenAddress", provider
-),
+      SELECT 
+        "tokenAddress",
+        provider,
+        COUNT(*) AS data_points
+      FROM "historic-quotes"
+      WHERE
+        timestamp >= '${startPaddedQ}'
+        AND timestamp <= '${endQ}'
+        AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
+        AND "blockchainType" = '${blockchainType}'
+        AND provider = ANY (ARRAY[${enabledProviders}]::text[])
+      GROUP BY "tokenAddress", provider
+    ),
 
-token_stats AS (
-  SELECT
-    "tokenAddress",
-    MAX(data_points) AS max_points,
-    MIN(NULLIF(data_points, 0)) AS min_nonzero_points
-  FROM raw_counts
-  GROUP BY "tokenAddress"
-),
+    token_stats AS (
+      SELECT
+        "tokenAddress",
+        MAX(data_points) AS max_points,
+        MIN(NULLIF(data_points, 0)) AS min_nonzero_points
+      FROM raw_counts
+      GROUP BY "tokenAddress"
+    ),
 
-token_providers AS (
-  SELECT 
-    rc."tokenAddress",
-    rc.provider,
-    rc.data_points,
-    ROW_NUMBER() OVER (
-      PARTITION BY rc."tokenAddress"
-      ORDER BY 
-        CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
-        CASE 
-          WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) 
-               AND ts.max_points = rc.data_points
-          THEN 0
-          ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
-        END
-    ) AS provider_rank
-  FROM raw_counts rc
-  JOIN token_stats ts ON rc."tokenAddress" = ts."tokenAddress"
-),
+    token_providers AS (
+      SELECT 
+        rc."tokenAddress",
+        rc.provider,
+        rc.data_points,
+        ROW_NUMBER() OVER (
+          PARTITION BY rc."tokenAddress"
+          ORDER BY 
+            CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
+            CASE 
+              WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) 
+                   AND ts.max_points = rc.data_points
+              THEN 0
+              ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
+            END
+        ) AS provider_rank
+      FROM raw_counts rc
+      JOIN token_stats ts ON rc."tokenAddress" = ts."tokenAddress"
+    ),
 
-top_providers AS (
-  SELECT "tokenAddress", provider
-  FROM token_providers
-  WHERE provider_rank = 1
-),
+    top_providers AS (
+      SELECT "tokenAddress", provider
+      FROM token_providers
+      WHERE provider_rank = 1
+    )
 
-filtered_quotes AS (
-  SELECT hq.*
-  FROM "historic-quotes" hq
-  JOIN top_providers tp 
-    ON hq."tokenAddress" = tp."tokenAddress" AND hq.provider = tp.provider
-  WHERE
-    hq.timestamp >= '${startPaddedQ}'
-    AND hq.timestamp <= '${endQ}'
-    AND hq."blockchainType" = '${blockchainType}'
-),
-
-ranked_quotes AS (
-  SELECT 
-    fq.*,
-    time_bucket_gapfill('${bucket}', fq.timestamp, '${startPaddedQ}', '${endQ}') AS bucket,
-    ROW_NUMBER() OVER (
-      PARTITION BY fq."tokenAddress", time_bucket_gapfill('${bucket}', fq.timestamp, '${startPaddedQ}', '${endQ}')
-      ORDER BY fq.timestamp DESC
-    ) AS time_rank
-  FROM filtered_quotes fq
-)
-
-SELECT
-  rq."tokenAddress",
-  rq.bucket,
-  locf(first(rq.usd, rq.timestamp)) AS open,
-  locf(last(rq.usd, rq.timestamp)) AS close,
-  locf(max(rq.usd::numeric)) AS high,
-  locf(min(rq.usd::numeric)) AS low,
-  tp.provider AS selected_provider
-FROM ranked_quotes rq
-JOIN top_providers tp 
-  ON rq."tokenAddress" = tp."tokenAddress"
-WHERE rq.time_rank = 1
-GROUP BY rq."tokenAddress", rq.bucket, tp.provider
-ORDER BY rq."tokenAddress", rq.bucket;
-`;
+    SELECT 
+      hq."tokenAddress",
+      time_bucket_gapfill('${bucket}', hq.timestamp, '${startPaddedQ}', '${endQ}') AS bucket,
+      locf(first(hq.usd::numeric, hq.timestamp)) AS open,
+      locf(last(hq.usd::numeric, hq.timestamp)) AS close,
+      locf(max(hq.usd::numeric)) AS high,
+      locf(min(hq.usd::numeric)) AS low,
+      tp.provider AS selected_provider
+    FROM "historic-quotes" hq
+    JOIN top_providers tp 
+      ON hq."tokenAddress" = tp."tokenAddress" AND hq.provider = tp.provider
+    WHERE
+      hq.timestamp >= '${startPaddedQ}'
+      AND hq.timestamp <= '${endQ}'
+      AND hq."blockchainType" = '${blockchainType}'
+    GROUP BY hq."tokenAddress", bucket, tp.provider
+    ORDER BY "tokenAddress", bucket;`;
 
     return await this.repository.query(query);
   }
@@ -806,14 +786,14 @@ ORDER BY rq."tokenAddress", rq.bucket;
 
     // If both blockchain types are the same, make a single call
     if (baseTokenBlockchainType === quoteTokenBlockchainType) {
-      const data = await this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA, tokenB], start, end, '1 hour');
+      const data = await this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA, tokenB], start, end, '1 day');
       tokenAData = { [tokenA]: data[tokenA] };
       tokenBData = { [tokenB]: data[tokenB] };
     } else {
       // Run both queries in parallel for better performance
       [tokenAData, tokenBData] = await Promise.all([
-        this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA], start, end, '1 hour'),
-        this.getHistoryQuotesBuckets(quoteTokenBlockchainType, [tokenB], start, end, '1 hour'),
+        this.getHistoryQuotesBuckets(baseTokenBlockchainType, [tokenA], start, end, '1 day'),
+        this.getHistoryQuotesBuckets(quoteTokenBlockchainType, [tokenB], start, end, '1 day'),
       ]);
     }
 
@@ -928,8 +908,18 @@ ORDER BY rq."tokenAddress", rq.bucket;
         dailyData = {
           // Always use lastValidClose for continuity, fall back to first price if needed
           open: lastValidClose !== null ? lastValidClose : price.usd !== null ? new Decimal(price.usd) : null,
-          high: price.usd !== null ? new Decimal(price.usd) : null,
-          low: price.usd !== null ? new Decimal(price.usd) : null,
+          high:
+            price.usd !== null && lastValidClose !== null
+              ? Decimal.max(new Decimal(price.usd), lastValidClose)
+              : price.usd !== null
+              ? new Decimal(price.usd)
+              : lastValidClose,
+          low:
+            price.usd !== null && lastValidClose !== null
+              ? Decimal.min(new Decimal(price.usd), lastValidClose)
+              : price.usd !== null
+              ? new Decimal(price.usd)
+              : lastValidClose,
           close: price.usd !== null ? new Decimal(price.usd) : null,
           provider: price.provider,
           mappedBaseToken,
