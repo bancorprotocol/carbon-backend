@@ -547,81 +547,93 @@ export class HistoricQuoteService implements OnModuleInit {
       .map((p) => `'${p.name}'`)
       .join(',');
 
-    const query = `
-      WITH RawCounts AS (
-        SELECT 
-          "tokenAddress",
-          provider,
-          COUNT(*) as data_points
-        FROM "historic-quotes"
-        WHERE
-          timestamp >= '${startPaddedQ}'
-          AND timestamp <= '${endQ}'
-          AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
-          AND "blockchainType" = '${blockchainType}'
-          AND provider = ANY(ARRAY[${enabledProviders}]::text[])
-        GROUP BY "tokenAddress", provider
-      ),
-      TokenStats AS (
-        SELECT
-          "tokenAddress",
-          MAX(data_points) as max_points,
-          MIN(CASE WHEN data_points > 0 THEN data_points ELSE NULL END) as min_nonzero_points
-        FROM RawCounts
-        GROUP BY "tokenAddress"
-      ),
-      TokenProviders AS (
-        SELECT 
-          rc."tokenAddress",
-          rc.provider,
-          rc.data_points,
-          ROW_NUMBER() OVER (
-            PARTITION BY rc."tokenAddress"
-            ORDER BY 
-              CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
-              -- If one provider has significantly more data (>5x), prioritize it
-              -- Otherwise use the configured provider order
-              CASE 
-                WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) AND ts.max_points = rc.data_points
-                THEN 0  -- Provider with most data comes first when significant difference exists
-                ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
-              END
-          ) as provider_rank
-        FROM RawCounts rc
-        JOIN TokenStats ts ON rc."tokenAddress" = ts."tokenAddress"
-      ),
-      BestProviderQuotes AS (
-        SELECT 
-          hq.*,
-          tp.provider_rank,
-          ROW_NUMBER() OVER (
-            PARTITION BY hq."tokenAddress", time_bucket_gapfill('${bucket}', hq.timestamp, '${startPaddedQ}', '${endQ}')
-            ORDER BY hq.timestamp DESC
-          ) as time_rank
-        FROM "historic-quotes" hq
-        JOIN TokenProviders tp ON 
-          hq."tokenAddress" = tp."tokenAddress" 
-          AND hq.provider = tp.provider
-        WHERE
-          hq.timestamp >= '${startPaddedQ}'
-          AND hq.timestamp <= '${endQ}'
-          AND hq."blockchainType" = '${blockchainType}'
-      )
-      SELECT
-        bpq."tokenAddress",
-        time_bucket_gapfill('${bucket}', timestamp, '${startPaddedQ}', '${endQ}') AS bucket,
-        locf(first(usd, timestamp)) as open,
-        locf(last(usd, timestamp)) as close,
-        locf(max(usd::numeric)) as high,
-        locf(min(usd::numeric)) as low,
-        sp.provider as selected_provider
-      FROM BestProviderQuotes bpq
-      JOIN TokenProviders sp ON 
-        bpq."tokenAddress" = sp."tokenAddress" 
-        AND sp.provider_rank = 1
-      WHERE bpq.time_rank = 1
-      GROUP BY bpq."tokenAddress", bucket, sp.provider
-      ORDER BY bpq."tokenAddress"`;
+    const query = `WITH raw_counts AS (
+  SELECT 
+    "tokenAddress",
+    provider,
+    COUNT(*) AS data_points
+  FROM "historic-quotes"
+  WHERE
+    timestamp >= '${startPaddedQ}'
+    AND timestamp <= '${endQ}'
+    AND "tokenAddress" IN (${addresses.map((a) => `'${a}'`).join(',')})
+    AND "blockchainType" = '${blockchainType}'
+    AND provider = ANY (ARRAY[${enabledProviders}]::text[])
+  GROUP BY "tokenAddress", provider
+),
+
+token_stats AS (
+  SELECT
+    "tokenAddress",
+    MAX(data_points) AS max_points,
+    MIN(NULLIF(data_points, 0)) AS min_nonzero_points
+  FROM raw_counts
+  GROUP BY "tokenAddress"
+),
+
+token_providers AS (
+  SELECT 
+    rc."tokenAddress",
+    rc.provider,
+    rc.data_points,
+    ROW_NUMBER() OVER (
+      PARTITION BY rc."tokenAddress"
+      ORDER BY 
+        CASE WHEN rc.data_points > 0 THEN 1 ELSE 0 END DESC,
+        CASE 
+          WHEN ts.max_points > 5 * COALESCE(ts.min_nonzero_points, 0) 
+               AND ts.max_points = rc.data_points
+          THEN 0
+          ELSE array_position(ARRAY[${enabledProviders}]::text[], rc.provider)
+        END
+    ) AS provider_rank
+  FROM raw_counts rc
+  JOIN token_stats ts ON rc."tokenAddress" = ts."tokenAddress"
+),
+
+top_providers AS (
+  SELECT "tokenAddress", provider
+  FROM token_providers
+  WHERE provider_rank = 1
+),
+
+filtered_quotes AS (
+  SELECT hq.*
+  FROM "historic-quotes" hq
+  JOIN top_providers tp 
+    ON hq."tokenAddress" = tp."tokenAddress" AND hq.provider = tp.provider
+  WHERE
+    hq.timestamp >= '${startPaddedQ}'
+    AND hq.timestamp <= '${endQ}'
+    AND hq."blockchainType" = '${blockchainType}'
+),
+
+ranked_quotes AS (
+  SELECT 
+    fq.*,
+    time_bucket_gapfill('${bucket}', fq.timestamp, '${startPaddedQ}', '${endQ}') AS bucket,
+    ROW_NUMBER() OVER (
+      PARTITION BY fq."tokenAddress", time_bucket_gapfill('${bucket}', fq.timestamp, '${startPaddedQ}', '${endQ}')
+      ORDER BY fq.timestamp DESC
+    ) AS time_rank
+  FROM filtered_quotes fq
+)
+
+SELECT
+  rq."tokenAddress",
+  rq.bucket,
+  locf(first(rq.usd, rq.timestamp)) AS open,
+  locf(last(rq.usd, rq.timestamp)) AS close,
+  locf(max(rq.usd::numeric)) AS high,
+  locf(min(rq.usd::numeric)) AS low,
+  tp.provider AS selected_provider
+FROM ranked_quotes rq
+JOIN top_providers tp 
+  ON rq."tokenAddress" = tp."tokenAddress"
+WHERE rq.time_rank = 1
+GROUP BY rq."tokenAddress", rq.bucket, tp.provider
+ORDER BY rq."tokenAddress", rq.bucket;
+`;
 
     return await this.repository.query(query);
   }
