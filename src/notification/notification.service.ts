@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { ArbitrageExecutedEventServiceV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
@@ -23,6 +24,7 @@ export class NotificationService {
     private configService: ConfigService,
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private arbitrageExecutedEventServiceV2: ArbitrageExecutedEventServiceV2,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     private strategyCreatedEventService: StrategyCreatedEventService,
@@ -42,6 +44,7 @@ export class NotificationService {
   private registerEventServices() {
     this.eventServices.set(EventTypes.VortexTokensTradedEvent, this.vortexTokensTradedEventService);
     this.eventServices.set(EventTypes.ArbitrageExecutedEvent, this.arbitrageExecutedEventService);
+    this.eventServices.set(EventTypes.ArbitrageExecutedEventV2, this.arbitrageExecutedEventServiceV2);
     this.eventServices.set(EventTypes.VortexTradingResetEvent, this.vortexTradingResetEventService);
     this.eventServices.set(EventTypes.VortexFundsWithdrawnEvent, this.vortexFundsWithdrawnEventService);
     this.eventServices.set(EventTypes.StrategyCreatedEvent, this.strategyCreatedEventService);

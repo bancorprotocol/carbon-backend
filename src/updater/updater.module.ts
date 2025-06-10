@@ -25,6 +25,7 @@ import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
 import { CodexModule } from '../codex/codex.module';
 import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
+import { ArbitrageExecutedEventModuleV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.module';
 import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
 import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
@@ -59,6 +60,7 @@ import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
     DeploymentModule,
     CodexModule,
     ArbitrageExecutedEventModule,
+    ArbitrageExecutedEventModuleV2,
     VortexTokensTradedEventModule,
     VortexTradingResetEventModule,
     VortexFundsWithdrawnEventModule,

@@ -18,6 +18,7 @@ import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { ArbitrageExecutedEventServiceV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
@@ -53,6 +54,7 @@ export class UpdaterService {
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private arbitrageExecutedEventServiceV2: ArbitrageExecutedEventServiceV2,
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
@@ -115,6 +117,10 @@ export class UpdaterService {
       // handle ArbitrageExecuted events
       await this.arbitrageExecutedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating arbitrage executed events for ${deployment.exchangeId}`);
+
+      // handle ArbitrageExecuted V2 events
+      await this.arbitrageExecutedEventServiceV2.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating arbitrage executed V2 events for ${deployment.exchangeId}`);
 
       // handle VortexTradingReset events
       await this.vortexTradingResetEventService.update(endBlock, deployment);
