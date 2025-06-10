@@ -4,7 +4,7 @@ import { Strategy } from '../../strategy/strategy.entity';
 import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
-import { BlockchainType, Deployment } from '../../deployment/deployment.service';
+import { Deployment } from '../../deployment/deployment.service';
 
 @Injectable()
 export class DexScreenerService {
@@ -14,10 +14,8 @@ export class DexScreenerService {
   ) {}
 
   async update(deployment: Deployment): Promise<void> {
-    if (deployment.blockchainType === BlockchainType.Ethereum) {
-      const events = await this.getEvents(deployment);
-      this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:events`, events);
-    }
+    const events = await this.getEvents(deployment);
+    this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:events`, events);
 
     const pairs = await this.getPairs(deployment);
     this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:pairs`, pairs);
