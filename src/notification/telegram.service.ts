@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ArbitrageExecutedEvent } from '../events/arbitrage-executed-event/arbitrage-executed-event.entity';
+import { ArbitrageExecutedEventV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.entity';
 import { Telegraf } from 'telegraf';
 import { QuotesByAddress } from '../quote/quote.service';
 import { TokensByAddress } from '../token/token.service';
@@ -85,6 +86,10 @@ export class TelegramService {
     let botId = deployment.notifications.telegram.botToken;
     switch (eventType) {
       case EventTypes.ArbitrageExecutedEvent:
+        message = await this.formatArbitrageExecutedMessage(event, tokens, quotes, deployment);
+        threadId = deployment.notifications.telegram.threads.fastlaneId;
+        break;
+      case EventTypes.ArbitrageExecutedEventV2:
         message = await this.formatArbitrageExecutedMessage(event, tokens, quotes, deployment);
         threadId = deployment.notifications.telegram.threads.fastlaneId;
         break;

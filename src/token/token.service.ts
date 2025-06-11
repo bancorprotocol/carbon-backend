@@ -10,6 +10,7 @@ import { PairCreatedEventService } from '../events/pair-created-event/pair-creat
 import { BlockchainType, Deployment, NATIVE_TOKEN } from '../deployment/deployment.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { ArbitrageExecutedEventServiceV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
@@ -33,6 +34,7 @@ export class TokenService implements OnModuleInit {
     private pairCreatedEventService: PairCreatedEventService,
     private vortexTokensTradedEventService: VortexTokensTradedEventService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
+    private arbitrageExecutedEventServiceV2: ArbitrageExecutedEventServiceV2,
     private vortexTradingResetEventService: VortexTradingResetEventService,
     private vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService,
     private protectionRemovedEventService: ProtectionRemovedEventService,
@@ -86,6 +88,13 @@ export class TokenService implements OnModuleInit {
         deployment,
       );
 
+      // fetch arbitrage executed events v2
+      const newArbitrageExecutedEventsV2 = await this.arbitrageExecutedEventServiceV2.get(
+        currentBlock,
+        nextBlock,
+        deployment,
+      );
+
       // fetch vortex tokens traded events
       const newVortexTokensTradedEvents = await this.vortexTokensTradedEventService.get(
         currentBlock,
@@ -123,6 +132,12 @@ export class TokenService implements OnModuleInit {
           .map((e) => e.sourceTokens.map((token) => ({ address: token, blockId: e.block.id })))
           .flat(),
         ...newArbitrageExecutedEvents
+          .map((e) => e.tokenPath.map((token) => ({ address: token, blockId: e.block.id })))
+          .flat(),
+        ...newArbitrageExecutedEventsV2
+          .map((e) => e.sourceTokens.map((token) => ({ address: token, blockId: e.block.id })))
+          .flat(),
+        ...newArbitrageExecutedEventsV2
           .map((e) => e.tokenPath.map((token) => ({ address: token, blockId: e.block.id })))
           .flat(),
         ...newVortexTradingResetEvents.map((e) => ({ address: e.token, blockId: e.block.id })),

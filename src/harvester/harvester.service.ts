@@ -12,6 +12,7 @@ import { CarbonPOL } from '../abis/CarbonPOL.abi';
 import { CarbonVortex } from '../abis/CarbonVortex.abi';
 import { CarbonVoucher } from '../abis/CarbonVoucher.abi';
 import { BancorArbitrage } from '../abis/BancorArbitrage.abi';
+import { BancorArbitrageV2 } from '../abis/BancorArbitrageV2.abi';
 import moment from 'moment';
 import { MulticallAbiEthereum } from '../abis/multicall.abi';
 import { multicallAbiSei } from '../abis/multicall.abi';
@@ -33,6 +34,7 @@ export enum ContractsNames {
   CarbonVortex = 'CarbonVortex',
   CarbonVoucher = 'CarbonVoucher',
   BancorArbitrage = 'BancorArbitrage',
+  BancorArbitrageV2 = 'BancorArbitrageV2',
   LiquidityProtectionStore = 'LiquidityProtectionStore',
 }
 
@@ -43,6 +45,7 @@ const Contracts = {
   [ContractsNames.CarbonVortex]: CarbonVortex,
   [ContractsNames.CarbonVoucher]: CarbonVoucher,
   [ContractsNames.BancorArbitrage]: BancorArbitrage,
+  [ContractsNames.BancorArbitrageV2]: BancorArbitrageV2,
   [ContractsNames.LiquidityProtectionStore]: LiquidityProtectionStore,
 };
 

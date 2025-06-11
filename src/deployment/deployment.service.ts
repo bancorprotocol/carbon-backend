@@ -294,6 +294,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0x2ae2404cd44c830d278f51f053a08f54b3756e1c',
           },
+          BancorArbitrageV2: {
+            address: '0x31548B11d685a358de7f52978e099e04116B2Db0',
+          },
           CarbonVortex: {
             address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
           },

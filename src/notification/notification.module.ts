@@ -6,6 +6,7 @@ import { ConfigModule } from '@nestjs/config';
 import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.module';
 import { VortexTradingResetEventModule } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.module';
 import { ArbitrageExecutedEventModule } from '../events/arbitrage-executed-event/arbitrage-executed-event.module';
+import { ArbitrageExecutedEventModuleV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.module';
 import { VortexTokensTradedEventModule } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.module';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { DeploymentModule } from '../deployment/deployment.module';
@@ -19,6 +20,7 @@ import { ProtectionRemovedEventModule } from '../events/protection-removed-event
     ConfigModule,
     VortexTokensTradedEventModule,
     ArbitrageExecutedEventModule,
+    ArbitrageExecutedEventModuleV2,
     VortexTradingResetEventModule,
     VortexFundsWithdrawnEventModule,
     LastProcessedBlockModule,
