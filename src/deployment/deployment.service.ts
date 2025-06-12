@@ -119,6 +119,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0x41Eeba3355d7D6FF628B7982F3F9D055c39488cB',
           },
+          BancorArbitrageV2: {
+            address: '0x0f54099D787e26c90c487625B4dE819eC5A9BDAA',
+          },
           LiquidityProtectionStore: {
             address: '0xf5FAB5DBD2f3bf675dE4cB76517d4767013cfB55',
           },
@@ -163,6 +166,9 @@ export class DeploymentService {
           },
           BancorArbitrage: {
             address: '0xC56Eb3d03C5D7720DAf33a3718affb9BcAb03FBc',
+          },
+          BancorArbitrageV2: {
+            address: '0xB2a2F14979A68C21181C6a63cA55a5b3693c9D2a',
           },
           CarbonVortex: {
             address: '0x5715203B16F15d7349Cb1E3537365E9664EAf933',
@@ -209,6 +215,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
           },
+          BancorArbitrageV2: {
+            address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
+          },
           CarbonVortex: {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
@@ -250,6 +259,9 @@ export class DeploymentService {
           },
           BancorArbitrage: {
             address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          BancorArbitrageV2: {
+            address: '0x4A0c4eF72e0BA9d6A2d34dAD6E794378d9Ad4130',
           },
           CarbonVortex: {
             address: '0x0f54099D787e26c90c487625B4dE819eC5A9BDAA',
@@ -381,6 +393,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
           },
+          BancorArbitrageV2: {
+            address: '0x63e353AE90f95C72bf1E78e45456fb78B0c97525',
+          },
           CarbonVortex: {
             address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
           },
@@ -459,6 +474,9 @@ export class DeploymentService {
           BancorArbitrage: {
             address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
           },
+          BancorArbitrageV2: {
+            address: '0x37A65Dda75A4C32959834C9b391a24dCa17eeC10',
+          },
           CarbonVortex: {
             address: '0x5bCA3389786385a35bca14C2D0582adC6cb2482e',
           },
@@ -535,6 +553,12 @@ export class DeploymentService {
           CarbonVoucher: {
             address: '0x248594Be9BE605905B8912cf575f03fE42d89054',
           },
+          BancorArbitrage: {
+            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          BancorArbitrageV2: {
+            address: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
+          },
         },
       },
       {
@@ -560,6 +584,9 @@ export class DeploymentService {
           },
           BancorArbitrage: {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
+          },
+          BancorArbitrageV2: {
+            address: '0x2ec4cCAA4394633eCdCcc987E0E9A398F837e3DD',
           },
         },
         notifications: {
@@ -603,6 +630,9 @@ export class DeploymentService {
           },
           BancorArbitrage: {
             address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
+          },
+          BancorArbitrageV2: {
+            address: '0xeAA4368A09E5e7889C6Ae3D44A7F5eb8587a456c',
           },
           Vortex: {
             address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
