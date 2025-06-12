@@ -560,6 +560,17 @@ export class DeploymentService {
             address: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
           },
         },
+        notifications: {
+          explorerUrl: this.configService.get('BERACHAIN_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('BERACHAIN_WALLET_URL'),
+          title: 'Berachain',
+          telegram: {
+            botToken: this.configService.get('BERACHAIN_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              fastlaneId: this.configService.get('BERACHAIN_FASTLANE_THREAD_ID'),
+            },
+          },
+        },
       },
       {
         exchangeId: ExchangeId.OGCoti,
@@ -597,6 +608,7 @@ export class DeploymentService {
             botToken: this.configService.get('COTI_TELEGRAM_BOT_TOKEN'),
             threads: {
               carbonThreadId: this.configService.get('COTI_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('COTI_FASTLANE_THREAD_ID'),
             },
           },
         },
