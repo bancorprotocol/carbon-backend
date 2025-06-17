@@ -1,19 +1,20 @@
-import { Controller, Get, Header, Query } from '@nestjs/common';
+import { Controller, Get, Header, Query, Param } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { toTimestamp } from '../../utilities';
-import { DexScreenerService } from './dex-screener.service';
+import { DexScreenerService } from '../dex-screener/dex-screener.service';
 import { BlockService } from '../../block/block.service';
-import { AssetDto } from './asset.dto';
+import { AssetQueryDto, AssetResponse } from './asset.dto';
 import { TokenService } from '../../token/token.service';
 import { toChecksumAddress } from 'web3-utils';
-import { PairDto } from './pair.dto';
-import { EventDto } from './event.dto';
+import { PairQueryDto, PairResponse } from './pair.dto';
+import { EventsQueryDto, EventsResponse } from './events.dto';
+import { LatestBlockResponse } from './latest-block.dto';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 
-@Controller({ version: '1', path: ':exchangeId?/dex-screener' })
-export class DexScreenerController {
+@Controller({ version: '1', path: ':exchangeId?/gecko-terminal' })
+export class GeckoTerminalController {
   constructor(
     private dexScreenerService: DexScreenerService,
     private blockService: BlockService,
@@ -25,9 +26,10 @@ export class DexScreenerController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
   @ApiExchangeIdParam()
-  async latestBlock(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+  async latestBlock(@ExchangeIdParam() exchangeId: ExchangeId): Promise<LatestBlockResponse> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    const lastBlock = await this.blockService.getLastBlock(deployment);
+    const lastBlockNumber = await this.dexScreenerService.getLastProcessedBlock(deployment);
+    const lastBlock = await this.blockService.getBlock(lastBlockNumber, deployment);
     return {
       block: {
         blockNumber: lastBlock.id,
@@ -40,7 +42,7 @@ export class DexScreenerController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
   @ApiExchangeIdParam()
-  async asset(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: AssetDto): Promise<any> {
+  async asset(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: AssetQueryDto): Promise<AssetResponse> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const address = toChecksumAddress(params.id);
     const tokens = await this.tokenService.allByAddress(deployment);
@@ -60,15 +62,15 @@ export class DexScreenerController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
   @ApiExchangeIdParam()
-  async pair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: PairDto): Promise<any> {
+  async pair(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: PairQueryDto): Promise<PairResponse> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { id } = params;
     const pairs = await this.dexScreenerService.getCachedPairs(deployment);
-    const pair = pairs.find((p) => p.id === parseInt(id));
+    const pair = pairs.find((p) => p.id === parseInt(id.split('-')[1]));
 
     return {
       pair: {
-        id: pair.id.toString(),
+        id,
         dexKey: 'carbondefi',
         asset0Id: pair.asset0id,
         asset1Id: pair.asset1id,
@@ -84,7 +86,7 @@ export class DexScreenerController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
   @ApiExchangeIdParam()
-  async events(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: EventDto): Promise<any> {
+  async events(@ExchangeIdParam() exchangeId: ExchangeId, @Query() params: EventsQueryDto): Promise<EventsResponse> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { fromBlock, toBlock } = params;
     const events = await this.dexScreenerService.getCachedEvents(deployment);
@@ -94,6 +96,9 @@ export class DexScreenerController {
 
     return {
       events: filteredEvents.map((e) => {
+        // Format pairId as carbonController-index for gecko-terminal
+        const pairId = `${deployment.contracts.CarbonController.address}-${e.pairid}`;
+
         if (e.eventtype === 'swap') {
           return {
             block: {
@@ -105,11 +110,11 @@ export class DexScreenerController {
             txnIndex: e.txnindex,
             eventIndex: e.eventindex,
             maker: e.maker,
-            pairId: e.pairid.toString(),
-            asset0In: e.asset0in,
-            asset1In: e.asset1in,
-            asset0Out: e.asset0out,
-            asset1Out: e.asset1out,
+            pairId: pairId,
+            asset0In: e.asset0in || undefined,
+            asset1In: e.asset1in || undefined,
+            asset0Out: e.asset0out || undefined,
+            asset1Out: e.asset1out || undefined,
             priceNative: e.pricenative,
             reserves: {
               asset0: e.reserves0,
@@ -127,7 +132,7 @@ export class DexScreenerController {
             txnIndex: e.txnindex,
             eventIndex: e.eventindex,
             maker: e.maker,
-            pairId: e.pairid.toString(),
+            pairId: pairId,
             amount0: e.amount0,
             amount1: e.amount1,
             reserves: {

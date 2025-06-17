@@ -5,15 +5,18 @@ import { Repository } from 'typeorm';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 import { BlockchainType, Deployment } from '../../deployment/deployment.service';
+import { LastProcessedBlockService } from 'src/last-processed-block/last-processed-block.service';
 
 @Injectable()
 export class DexScreenerService {
   constructor(
     @InjectRepository(Strategy) private strategy: Repository<Strategy>,
     @Inject(CACHE_MANAGER) private cacheManager: Cache,
+    private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
   async update(deployment: Deployment): Promise<void> {
+    const lastBlock = await this.lastProcessedBlockService.getState(deployment);
     if (deployment.blockchainType === BlockchainType.Ethereum) {
       const events = await this.getEvents(deployment);
       this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:events`, events);
@@ -21,6 +24,10 @@ export class DexScreenerService {
 
     const pairs = await this.getPairs(deployment);
     this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:pairs`, pairs);
+
+    // update last processed block
+    const lastUpdatedParam = await this.lastProccesedBlockParam(deployment);
+    await this.lastProcessedBlockService.update(lastUpdatedParam, lastBlock.lastBlock);
   }
 
   async getCachedEvents(deployment: Deployment): Promise<any> {
@@ -29,6 +36,15 @@ export class DexScreenerService {
 
   async getCachedPairs(deployment: Deployment): Promise<any> {
     return this.cacheManager.get(`${deployment.blockchainType}:${deployment.exchangeId}:pairs`);
+  }
+
+  async getLastProcessedBlock(deployment: Deployment): Promise<number> {
+    const param = this.lastProccesedBlockParam(deployment);
+    return this.lastProcessedBlockService.get(param);
+  }
+
+  lastProccesedBlockParam(deployment: Deployment): string {
+    return `${deployment.blockchainType}-${deployment.exchangeId}-dex-screener`;
   }
 
   private async getEvents(deployment: Deployment): Promise<any> {

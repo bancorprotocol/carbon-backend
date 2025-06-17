@@ -63,6 +63,7 @@ export class LastProcessedBlockService {
       SELECT MIN("last_processed_block"."block") AS "lastBlock", MIN("updatedAt") AS timestamp 
       FROM last_processed_block
       WHERE "param" LIKE '%${deployment.blockchainType}-${deployment.exchangeId}%'
+      AND "param" NOT LIKE '%notifications%'
     `);
 
     return state[0];
