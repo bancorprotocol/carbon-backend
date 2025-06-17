@@ -54,8 +54,6 @@ export class GeckoTerminalController {
         name: token.name,
         symbol: token.symbol,
         decimals: token.decimals,
-        // Optional fields are omitted as they're not available in current token structure
-        // totalSupply, circulatingSupply, coinGeckoId, metadata can be added when available
       },
     };
   }
@@ -68,14 +66,11 @@ export class GeckoTerminalController {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { id } = params;
     const pairs = await this.dexScreenerService.getCachedPairs(deployment);
-    const pair = pairs.find((p) => p.id === parseInt(id));
-
-    // Format pairId as carbonController-index for gecko-terminal
-    const pairId = `${deployment.contracts.CarbonController.address}-${pair.id}`;
+    const pair = pairs.find((p) => p.id === parseInt(id.split('-')[1]));
 
     return {
       pair: {
-        id: pairId,
+        id,
         dexKey: 'carbondefi',
         asset0Id: pair.asset0id,
         asset1Id: pair.asset1id,
@@ -83,8 +78,6 @@ export class GeckoTerminalController {
         createdAtBlockTimestamp: toTimestamp(pair.createdatblocktimestamp),
         createdAtTxnId: pair.createdattxnid,
         feeBps: pair.feebps,
-        // Optional fields are omitted as they're not available in current pair structure
-        // creator, pool, metadata can be added when available
       },
     };
   }
