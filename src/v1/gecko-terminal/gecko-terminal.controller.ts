@@ -120,8 +120,6 @@ export class GeckoTerminalController {
               asset0: e.reserves0,
               asset1: e.reserves1,
             },
-            // metadata field is optional as per GeckoTerminal spec
-            // Can be added when available
           };
         } else {
           return {
@@ -141,8 +139,6 @@ export class GeckoTerminalController {
               asset0: e.reserves0,
               asset1: e.reserves1,
             },
-            // metadata field is optional as per GeckoTerminal spec
-            // Can be added when available
           };
         }
       }),
