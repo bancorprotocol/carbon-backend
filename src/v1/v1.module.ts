@@ -7,6 +7,7 @@ import { V1Controller } from './v1.controller';
 import { SimulatorModule } from './simulator/simulator.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { DexScreenerModule } from './dex-screener/dex-screener.module';
+import { GeckoTerminalModule } from './gecko-terminal/gecko-terminal.module';
 import { ActivityModule } from './activity/activity.module';
 import { StateModule } from './state/state.module';
 
@@ -19,6 +20,7 @@ import { StateModule } from './state/state.module';
     SimulatorModule,
     AnalyticsModule,
     DexScreenerModule,
+    GeckoTerminalModule,
     ActivityModule,
     StateModule,
   ],

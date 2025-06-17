@@ -85,7 +85,18 @@ export class BlockService {
   }
 
   async getBlock(number: number, deployment: Deployment): Promise<Block> {
-    return this.block.findOne({ where: { id: number, blockchainType: deployment.blockchainType } });
+    let block = await this.block.findOne({ where: { id: number, blockchainType: deployment.blockchainType } });
+    if (!block) {
+      const rawBlock = await this.getBlockchainData(number, deployment);
+      block = {
+        id: Number(rawBlock.number),
+        timestamp: new Date(parseInt(rawBlock.timestamp) * 1000),
+        blockchainType: deployment.blockchainType,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+    }
+    return block;
   }
 
   async getLastBlock(deployment: Deployment): Promise<Block> {
