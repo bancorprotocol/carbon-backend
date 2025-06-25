@@ -35,7 +35,7 @@ type StrategyLiquidityStatesMap = Map<string, StrategyLiquidityState>;
 
 @Injectable()
 export class DexScreenerV2Service {
-  private readonly BATCH_SIZE = 1000; // Number of blocks per batch
+  private readonly BATCH_SIZE = 100000; // Number of blocks per batch
   private readonly SAVE_BATCH_SIZE = 1000; // Number of events to save at once
 
   constructor(

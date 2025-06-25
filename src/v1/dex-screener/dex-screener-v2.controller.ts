@@ -67,10 +67,10 @@ export class DexScreenerV2Controller {
 
     return {
       events: events.map((e) => {
-        // Helper function to convert string to number, null to 0
-        const toNumber = (value: string | null): number => {
-          if (value === null) return 0;
-          return parseFloat(value);
+        // Helper function to convert null to "0", keep strings as strings
+        const toString = (value: string | null): string => {
+          if (value === null) return '0';
+          return value;
         };
 
         // Helper function to format event index (remove .0 suffix)
@@ -90,14 +90,14 @@ export class DexScreenerV2Controller {
             eventIndex: formatEventIndex(e.eventIndex),
             maker: e.maker,
             pairId: e.pairId.toString(),
-            asset0In: toNumber(e.asset0In),
-            asset1In: toNumber(e.asset1In),
-            asset0Out: toNumber(e.asset0Out),
-            asset1Out: toNumber(e.asset1Out),
-            priceNative: toNumber(e.priceNative),
+            asset0In: toString(e.asset0In),
+            asset1In: toString(e.asset1In),
+            asset0Out: toString(e.asset0Out),
+            asset1Out: toString(e.asset1Out),
+            priceNative: toString(e.priceNative),
             reserves: {
-              asset0: toNumber(e.reserves0),
-              asset1: toNumber(e.reserves1),
+              asset0: toString(e.reserves0),
+              asset1: toString(e.reserves1),
             },
           };
         } else {
@@ -112,11 +112,11 @@ export class DexScreenerV2Controller {
             eventIndex: formatEventIndex(e.eventIndex),
             maker: e.maker,
             pairId: e.pairId.toString(),
-            amount0: toNumber(e.amount0),
-            amount1: toNumber(e.amount1),
+            amount0: toString(e.amount0),
+            amount1: toString(e.amount1),
             reserves: {
-              asset0: toNumber(e.reserves0),
-              asset1: toNumber(e.reserves1),
+              asset0: toString(e.reserves0),
+              asset1: toString(e.reserves1),
             },
           };
         }

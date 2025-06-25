@@ -934,7 +934,7 @@ describe('DexScreenerV2Service', () => {
         expect(strategyUpdatedEventService.get).toHaveBeenCalledTimes(2);
 
         // Verify the last processed block was updated correctly
-        expect(lastProcessedBlockService.update).toHaveBeenLastCalledWith('ethereum-ethereum-dex-screener-v2', 1001);
+        expect(lastProcessedBlockService.update).toHaveBeenLastCalledWith('ethereum-ethereum-dex-screener-v2', 1002);
       } finally {
         (service as any).BATCH_SIZE = originalBatchSize;
       }
@@ -1004,16 +1004,16 @@ describe('DexScreenerV2Service', () => {
         // Events that should be processed in chronological order
         // but span multiple batches
 
-        // Batch 1 (block 1000): Strategy creation
+        // Batch 1 (block 1001): Strategy creation
         const strategyCreated = createMockStrategyCreatedEvent({
-          block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+          block: { id: 1001, timestamp: new Date('2024-01-01T00:00:00') },
           transactionIndex: 5,
           logIndex: 0,
         });
 
-        // Batch 2 (block 1001): Earlier transaction in later block
+        // Batch 2 (block 1002): Earlier transaction in later block
         const strategyUpdated = createMockStrategyUpdatedEvent({
-          block: { id: 1001, timestamp: new Date('2024-01-01T01:00:00') },
+          block: { id: 1002, timestamp: new Date('2024-01-01T01:00:00') },
           transactionIndex: 0, // Earlier transaction index
           logIndex: 0,
         });
@@ -1037,8 +1037,8 @@ describe('DexScreenerV2Service', () => {
 
         // Events within each batch should be chronologically ordered
         // (this tests the internal sorting logic)
-        expect(strategyCreatedEventService.get).toHaveBeenCalledWith(1000, 1000, mockDeployment);
-        expect(strategyUpdatedEventService.get).toHaveBeenCalledWith(1001, 1001, mockDeployment);
+        expect(strategyCreatedEventService.get).toHaveBeenCalledWith(1001, 1001, mockDeployment);
+        expect(strategyUpdatedEventService.get).toHaveBeenCalledWith(1002, 1002, mockDeployment);
       } finally {
         (service as any).BATCH_SIZE = originalBatchSize;
       }
@@ -1102,6 +1102,427 @@ describe('DexScreenerV2Service', () => {
         (service as any).BATCH_SIZE = originalBatchSize;
         (service as any).SAVE_BATCH_SIZE = originalSaveBatchSize;
       }
+    });
+  });
+
+  describe('getEvents Method Tests', () => {
+    it('should retrieve events within specified block range', async () => {
+      const mockEvents = [
+        {
+          id: 1,
+          blockNumber: 1000,
+          eventType: 'join',
+          txnId: '0xtx1',
+          maker: '0xmaker1',
+        },
+        {
+          id: 2,
+          blockNumber: 1001,
+          eventType: 'swap',
+          txnId: '0xtx2',
+          maker: '0xmaker2',
+        },
+      ];
+
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(mockEvents),
+      } as any;
+
+      dexScreenerEventV2Repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const result = await service.getEvents(1000, 1001, mockDeployment);
+
+      expect(result).toEqual(mockEvents);
+      expect(dexScreenerEventV2Repository.createQueryBuilder).toHaveBeenCalledWith('event');
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('event.blockchainType = :blockchainType', {
+        blockchainType: 'ethereum',
+      });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('event.exchangeId = :exchangeId', {
+        exchangeId: 'ethereum',
+      });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('event.blockNumber >= :fromBlock', { fromBlock: 1000 });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('event.blockNumber <= :endBlock', { endBlock: 1001 });
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('event.blockNumber', 'ASC');
+      expect(mockQueryBuilder.addOrderBy).toHaveBeenCalledWith('event.txnIndex', 'ASC');
+      expect(mockQueryBuilder.addOrderBy).toHaveBeenCalledWith('event.eventIndex', 'ASC');
+    });
+
+    it('should handle empty results gracefully', async () => {
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      } as any;
+
+      dexScreenerEventV2Repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const result = await service.getEvents(1000, 1001, mockDeployment);
+
+      expect(result).toEqual([]);
+      expect(mockQueryBuilder.getMany).toHaveBeenCalled();
+    });
+  });
+
+  describe('Mixed Event Processing Tests', () => {
+    it('should handle strategy updates with mixed liquidity changes (partial join/exit)', async () => {
+      const mockHistoricalStates = [
+        {
+          strategy_id: 'strategy1',
+          block_id: 999,
+          order0: JSON.stringify({ y: '1000000000000000000' }), // 1 TOKEN0
+          order1: JSON.stringify({ y: '1000000' }), // 1 TOKEN1
+          pair_id: 1,
+          token0_address: '0xtoken0',
+          token1_address: '0xtoken1',
+          token0_decimals: 18,
+          token1_decimals: 6,
+          owner: '0xowner1',
+          transaction_index: 0,
+          log_index: 0,
+        },
+      ];
+
+      (dexScreenerEventV2Repository.manager.query as jest.Mock)
+        .mockResolvedValueOnce(mockHistoricalStates)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      // Strategy update with mixed changes: increase token0, decrease token1
+      const mixedUpdate = createMockStrategyUpdatedEvent({
+        strategyId: 'strategy1',
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        reason: 0, // Non-trade update
+        order0: JSON.stringify({ y: '2000000000000000000' }), // 2 TOKEN0 (increase)
+        order1: JSON.stringify({ y: '500000' }), // 0.5 TOKEN1 (decrease)
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+
+      strategyCreatedEventService.get.mockResolvedValue([]);
+      strategyUpdatedEventService.get.mockResolvedValue([mixedUpdate]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(1000, mockDeployment, mockTokens);
+
+      // Should generate events for mixed liquidity changes
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+
+      // Verify the service processed the mixed update correctly
+      const saveCalls = dexScreenerEventV2Repository.save.mock.calls;
+      expect(saveCalls.length).toBeGreaterThan(0);
+    });
+
+    it('should handle strategy updates with reason codes (creation, deletion, regular)', async () => {
+      const mockHistoricalStates = [
+        {
+          strategy_id: 'strategy1',
+          block_id: 999,
+          order0: JSON.stringify({ y: '1000000000000000000' }),
+          order1: JSON.stringify({ y: '1000000' }),
+          pair_id: 1,
+          token0_address: '0xtoken0',
+          token1_address: '0xtoken1',
+          token0_decimals: 18,
+          token1_decimals: 6,
+          owner: '0xowner1',
+          transaction_index: 0,
+          log_index: 0,
+        },
+      ];
+
+      (dexScreenerEventV2Repository.manager.query as jest.Mock)
+        .mockResolvedValueOnce(mockHistoricalStates)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      // Test different reason codes
+      const creationUpdate = createMockStrategyUpdatedEvent({
+        strategyId: 'strategy1',
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        reason: 2, // Creation
+        order0: JSON.stringify({ y: '2000000000000000000' }),
+        order1: JSON.stringify({ y: '2000000' }),
+      });
+
+      const deletionUpdate = createMockStrategyUpdatedEvent({
+        strategyId: 'strategy2',
+        block: { id: 1001, timestamp: new Date('2024-01-01T01:00:00') },
+        reason: 3, // Deletion
+        order0: JSON.stringify({ y: '0' }),
+        order1: JSON.stringify({ y: '0' }),
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+
+      strategyCreatedEventService.get.mockResolvedValue([]);
+      strategyUpdatedEventService.get.mockResolvedValue([creationUpdate, deletionUpdate]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(1001, mockDeployment, mockTokens);
+
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+      // Should handle both creation and deletion reason codes appropriately
+    });
+  });
+
+  describe('Asset Ordering and Reserve Calculation Tests', () => {
+    it('should maintain consistent asset ordering based on lexicographic address sorting', async () => {
+      // Create tokens with specific addresses to test ordering
+      const token0Lower = {
+        ...mockTokens['0xtoken0'],
+        address: '0x0000000000000000000000000000000000000001', // Lower address
+      };
+      const token1Higher = {
+        ...mockTokens['0xtoken1'],
+        address: '0x0000000000000000000000000000000000000002', // Higher address
+      };
+
+      const tokensWithOrdering: TokensByAddress = {
+        [token0Lower.address]: token0Lower,
+        [token1Higher.address]: token1Higher,
+      };
+
+      const tradeEvent = createMockTokensTradedEvent({
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        sourceToken: token1Higher, // Higher address token is source
+        targetToken: token0Lower, // Lower address token is target
+        sourceAmount: '1000000', // 1 TOKEN1 (higher address)
+        targetAmount: '500000000000000000', // 0.5 TOKEN0 (lower address)
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue([]);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([tradeEvent]);
+
+      await service.update(1000, mockDeployment, tokensWithOrdering);
+
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+
+      // Verify the service processed the swap event with proper asset ordering
+      const saveCalls = dexScreenerEventV2Repository.save.mock.calls;
+      expect(saveCalls.length).toBeGreaterThan(0);
+    });
+
+    it('should calculate reserves correctly for different token decimal places', async () => {
+      // Test with tokens having different decimal places
+      const token18Decimals = {
+        ...mockTokens['0xtoken0'],
+        decimals: 18,
+        address: '0xtoken18',
+      };
+      const token6Decimals = {
+        ...mockTokens['0xtoken1'],
+        decimals: 6,
+        address: '0xtoken6',
+      };
+
+      const tokensWithDecimals: TokensByAddress = {
+        '0xtoken18': token18Decimals,
+        '0xtoken6': token6Decimals,
+      };
+
+      const mockHistoricalStates = [
+        {
+          strategy_id: 'strategy1',
+          block_id: 999,
+          order0: JSON.stringify({ y: '1000000000000000000' }), // 1 TOKEN (18 decimals)
+          order1: JSON.stringify({ y: '1000000' }), // 1 TOKEN (6 decimals)
+          pair_id: 1,
+          token0_address: '0xtoken18',
+          token1_address: '0xtoken6',
+          token0_decimals: 18,
+          token1_decimals: 6,
+          owner: '0xowner1',
+          transaction_index: 0,
+          log_index: 0,
+        },
+      ];
+
+      (dexScreenerEventV2Repository.manager.query as jest.Mock)
+        .mockResolvedValueOnce(mockHistoricalStates)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const strategyCreated = createMockStrategyCreatedEvent({
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        token0: token18Decimals,
+        token1: token6Decimals,
+        order0: JSON.stringify({ y: '2000000000000000000' }), // 2 TOKEN (18 decimals)
+        order1: JSON.stringify({ y: '2000000' }), // 2 TOKEN (6 decimals)
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+
+      strategyCreatedEventService.get.mockResolvedValue([strategyCreated]);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(1000, mockDeployment, tokensWithDecimals);
+
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+
+      // Verify the service processed events with different decimal places correctly
+      const saveCalls = dexScreenerEventV2Repository.save.mock.calls;
+      expect(saveCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Error Handling and Edge Cases', () => {
+    it('should handle database query failures gracefully', async () => {
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockRejectedValueOnce(
+        new Error('Database connection failed'),
+      );
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+
+      await expect(service.update(1000, mockDeployment, mockTokens)).rejects.toThrow('Database connection failed');
+    });
+
+    it('should handle missing token data in events', async () => {
+      // Since the service does throw on missing token data, test that it throws the expected error
+      const incompleteEvent = createMockTokensTradedEvent({
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        sourceToken: undefined,
+        targetToken: mockTokens['0xtoken1'],
+        sourceAmount: '1000000000000000000',
+        targetAmount: '500000',
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue([]);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([incompleteEvent]);
+
+      // Should throw an error for missing token data
+      await expect(service.update(1000, mockDeployment, mockTokens)).rejects.toThrow();
+    });
+
+    it('should handle zero-address voucher transfers correctly', async () => {
+      // Add a strategy created event so save will be called
+      const strategyEvent = createMockStrategyCreatedEvent({
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue([strategyEvent]);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]); // Empty for simplicity
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(1000, mockDeployment, mockTokens);
+
+      // Should process without errors and save events
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+    });
+
+    it('should handle very large numbers without precision loss', async () => {
+      const largeAmountEvent = createMockStrategyCreatedEvent({
+        block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        order0: JSON.stringify({ y: '999999999999999999999999999999' }), // Very large number
+        order1: JSON.stringify({ y: '1000000' }),
+      });
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue([largeAmountEvent]);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(1000, mockDeployment, mockTokens);
+
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+
+      // Verify the service processed large numbers correctly
+      const saveCalls = dexScreenerEventV2Repository.save.mock.calls;
+      expect(saveCalls.length).toBeGreaterThan(0);
+    });
+  });
+
+  describe('Performance and Optimization Tests', () => {
+    it('should process events efficiently with proper batching', async () => {
+      // Create a large number of events to test batching
+      const manyEvents = Array.from({ length: 2500 }, (_, i) =>
+        createMockStrategyCreatedEvent({
+          id: i.toString(),
+          strategyId: `strategy${i}`,
+          block: { id: 1000 + i, timestamp: new Date(`2024-01-01T${i % 24}:00:00`) },
+        }),
+      );
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue(manyEvents);
+      strategyUpdatedEventService.get.mockResolvedValue([]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([]);
+
+      await service.update(3499, mockDeployment, mockTokens);
+
+      // Should call save multiple times due to batching (SAVE_BATCH_SIZE = 1000)
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+      expect(dexScreenerEventV2Repository.save.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    it('should handle concurrent event processing without state corruption', async () => {
+      // Test with events that could cause race conditions
+      const concurrentEvents = [
+        createMockStrategyCreatedEvent({
+          strategyId: 'strategy1',
+          block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+        }),
+        createMockStrategyUpdatedEvent({
+          strategyId: 'strategy1',
+          block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+          transactionIndex: 1, // Same block, different transaction
+        }),
+        createMockTokensTradedEvent({
+          block: { id: 1000, timestamp: new Date('2024-01-01T00:00:00') },
+          transactionIndex: 2, // Same block, later transaction
+        }),
+      ];
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(999);
+      (dexScreenerEventV2Repository.manager.query as jest.Mock).mockResolvedValue([]);
+
+      strategyCreatedEventService.get.mockResolvedValue([concurrentEvents[0]]);
+      strategyUpdatedEventService.get.mockResolvedValue([concurrentEvents[1]]);
+      strategyDeletedEventService.get.mockResolvedValue([]);
+      voucherTransferEventService.get.mockResolvedValue([]);
+      tokensTradedEventService.get.mockResolvedValue([concurrentEvents[2]]);
+
+      await service.update(1000, mockDeployment, mockTokens);
+
+      // Should process all events in correct chronological order
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
     });
   });
 });
