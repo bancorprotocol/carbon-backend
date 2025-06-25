@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Decimal } from 'decimal.js';
 import { DexScreenerEventV2 } from './dex-screener-event-v2.entity';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
 import { Deployment } from '../../deployment/deployment.service';
@@ -10,35 +9,33 @@ import { StrategyUpdatedEventService } from '../../events/strategy-updated-event
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
 import { TokensTradedEventService } from '../../events/tokens-traded-event/tokens-traded-event.service';
-import { TokenService, TokensByAddress } from '../../token/token.service';
+import { TokensByAddress } from '../../token/token.service';
+import { Decimal } from 'decimal.js';
 import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
 import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
 import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
 import { TokensTradedEvent } from '../../events/tokens-traded-event/tokens-traded-event.entity';
 
-interface StrategyState {
-  id: string;
+interface StrategyLiquidityState {
+  strategyId: string;
   pairId: number;
-  order0: any;
-  order1: any;
   token0Address: string;
   token1Address: string;
   token0Decimals: number;
   token1Decimals: number;
-  y0: number;
-  y1: number;
-  reserves0: number;
-  reserves1: number;
+  liquidity0: Decimal; // y0 value (raw)
+  liquidity1: Decimal; // y1 value (raw)
+  lastProcessedBlock: number;
+  currentOwner: string;
+  creationWallet: string;
 }
 
-interface TokenReserves {
-  [tokenAddress: string]: number;
-}
+type StrategyLiquidityStatesMap = Map<string, StrategyLiquidityState>;
 
 @Injectable()
 export class DexScreenerV2Service {
-  private readonly BATCH_SIZE = 50000; // Number of blocks per batch
+  private readonly BATCH_SIZE = 1000; // Number of blocks per batch
   private readonly SAVE_BATCH_SIZE = 1000; // Number of events to save at once
 
   constructor(
@@ -48,12 +45,12 @@ export class DexScreenerV2Service {
     private strategyUpdatedEventService: StrategyUpdatedEventService,
     private strategyDeletedEventService: StrategyDeletedEventService,
     private voucherTransferEventService: VoucherTransferEventService,
-    private tokensTradeEventService: TokensTradedEventService,
+    private tokensTradedEventService: TokensTradedEventService,
     private lastProcessedBlockService: LastProcessedBlockService,
-    private tokenService: TokenService,
   ) {}
 
-  async update(endBlock: number, deployment: Deployment): Promise<void> {
+  async update(endBlock: number, deployment: Deployment, tokens: TokensByAddress): Promise<void> {
+    const strategyStates: StrategyLiquidityStatesMap = new Map<string, StrategyLiquidityState>();
     const key = `${deployment.blockchainType}-${deployment.exchangeId}-dex-screener-v2`;
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
 
@@ -66,35 +63,31 @@ export class DexScreenerV2Service {
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
 
-    const tokens = await this.tokenService.allByAddress(deployment);
-    const strategyStates = new Map<string, StrategyState>();
-
-    // Initialize strategy states from last processed block
-    await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates, tokens);
+    await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates);
 
     // Process blocks in batches
     for (let batchStart = lastProcessedBlock; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       // Fetch events in parallel
-      const [createdEvents, updatedEvents, deletedEvents, transferEvents, tradeEvents] = await Promise.all([
+      const [createdEvents, updatedEvents, deletedEvents, transferEvents, tradedEvents] = await Promise.all([
         this.strategyCreatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyUpdatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyDeletedEventService.get(batchStart, batchEnd, deployment),
         this.voucherTransferEventService.get(batchStart, batchEnd, deployment),
-        this.tokensTradeEventService.get(batchStart, batchEnd, deployment),
+        this.tokensTradedEventService.get(batchStart, batchEnd, deployment),
       ]);
 
-      // Process events into dex-screener events
+      // Process events into dex screener events
       const dexScreenerEvents = this.processEvents(
         createdEvents,
         updatedEvents,
         deletedEvents,
         transferEvents,
-        tradeEvents,
-        strategyStates,
-        tokens,
+        tradedEvents,
         deployment,
+        tokens,
+        strategyStates,
       );
 
       // Save events in smaller batches
@@ -108,1056 +101,544 @@ export class DexScreenerV2Service {
     }
   }
 
-  async getEvents(fromBlock: number, toBlock: number, deployment: Deployment): Promise<DexScreenerEventV2[]> {
-    return this.dexScreenerEventRepository
-      .createQueryBuilder('event')
-      .where('event.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
-      .andWhere('event.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
-      .andWhere('event.blockNumber >= :fromBlock', { fromBlock })
-      .andWhere('event.blockNumber <= :toBlock', { toBlock })
-      .orderBy('event.blockNumber', 'ASC')
-      .addOrderBy('event.txnIndex', 'ASC')
-      .addOrderBy('event.eventIndex', 'ASC')
-      .getMany();
-  }
-
-  private async initializeStrategyStates(
-    lastProcessedBlock: number,
-    deployment: Deployment,
-    strategyStates: Map<string, StrategyState>,
-    tokens: TokensByAddress,
-  ): Promise<void> {
-    // Get the latest state of all strategies as of the last processed block
-    const query = `
-      WITH strategy_events AS (
-        SELECT 
-          sce."strategyId" as strategy_id,
-          sce."pairId" as pair_id,
-          sce.order0,
-          sce.order1,
-          t0.address as token0_address,
-          t1.address as token1_address,
-          t0.decimals as token0_decimals,
-          t1.decimals as token1_decimals,
-          sce."blockId" as block_number,
-          2 as reason
-        FROM "strategy-created-events" sce
-        LEFT JOIN tokens t0 ON t0.id = sce."token0Id"
-        LEFT JOIN tokens t1 ON t1.id = sce."token1Id"
-        WHERE sce."blockchainType" = $1 AND sce."exchangeId" = $2 AND sce."blockId" < $3
-        
-        UNION ALL
-        
-        SELECT 
-          sue."strategyId" as strategy_id,
-          sue."pairId" as pair_id,
-          sue.order0,
-          sue.order1,
-          t0.address as token0_address,
-          t1.address as token1_address,
-          t0.decimals as token0_decimals,
-          t1.decimals as token1_decimals,
-          sue."blockId" as block_number,
-          sue.reason
-        FROM "strategy-updated-events" sue
-        LEFT JOIN tokens t0 ON t0.id = sue."token0Id"
-        LEFT JOIN tokens t1 ON t1.id = sue."token1Id"
-        WHERE sue."blockchainType" = $1 AND sue."exchangeId" = $2 AND sue."blockId" < $3
-        
-        UNION ALL
-        
-        SELECT 
-          sde."strategyId" as strategy_id,
-          sde."pairId" as pair_id,
-          sde.order0,
-          sde.order1,
-          t0.address as token0_address,
-          t1.address as token1_address,
-          t0.decimals as token0_decimals,
-          t1.decimals as token1_decimals,
-          sde."blockId" as block_number,
-          3 as reason
-        FROM "strategy-deleted-events" sde
-        LEFT JOIN tokens t0 ON t0.id = sde."token0Id"
-        LEFT JOIN tokens t1 ON t1.id = sde."token1Id"
-        WHERE sde."blockchainType" = $1 AND sde."exchangeId" = $2 AND sde."blockId" < $3
-      ),
-      latest_strategy_states AS (
-        SELECT DISTINCT ON (strategy_id)
-          strategy_id,
-          pair_id,
-          order0,
-          order1,
-          token0_address,
-          token1_address,
-          token0_decimals,
-          token1_decimals,
-          reason
-        FROM strategy_events
-        ORDER BY strategy_id, block_number DESC
-      )
-      SELECT * FROM latest_strategy_states WHERE reason != 3
-    `;
-
-    const results = await this.dexScreenerEventRepository.query(query, [
-      deployment.blockchainType,
-      deployment.exchangeId,
-      lastProcessedBlock,
-    ]);
-
-    // Calculate cumulative reserves for each strategy
-    for (const result of results) {
-      const y0 = result.order0?.y ? new Decimal(result.order0.y).toNumber() : 0;
-      const y1 = result.order1?.y ? new Decimal(result.order1.y).toNumber() : 0;
-
-      strategyStates.set(result.strategy_id, {
-        id: result.strategy_id,
-        pairId: result.pair_id,
-        order0: result.order0,
-        order1: result.order1,
-        token0Address: result.token0_address,
-        token1Address: result.token1_address,
-        token0Decimals: result.token0_decimals,
-        token1Decimals: result.token1_decimals,
-        y0,
-        y1,
-        reserves0: 0, // Will be calculated
-        reserves1: 0, // Will be calculated
-      });
-    }
-
-    // Calculate cumulative reserves
-    this.calculateCumulativeReserves(strategyStates);
-  }
-
   private processEvents(
     createdEvents: StrategyCreatedEvent[],
     updatedEvents: StrategyUpdatedEvent[],
     deletedEvents: StrategyDeletedEvent[],
     transferEvents: VoucherTransferEvent[],
-    tradeEvents: TokensTradedEvent[],
-    strategyStates: Map<string, StrategyState>,
-    tokens: TokensByAddress,
+    tradedEvents: TokensTradedEvent[],
     deployment: Deployment,
+    tokens: TokensByAddress,
+    strategyStates: StrategyLiquidityStatesMap,
   ): DexScreenerEventV2[] {
     const events: DexScreenerEventV2[] = [];
 
-    // Process strategy events (created, updated, deleted) to generate join/exit events
-    const strategyEvents = this.processStrategyEvents(
-      createdEvents,
-      updatedEvents,
-      deletedEvents,
-      transferEvents,
-      strategyStates,
-      tokens,
-      deployment,
-    );
-
-    // Process trade events to generate swap events with reserves calculated using the original approach
-    const swapEvents = this.processTradeEventsWithOriginalLogic(
-      tradeEvents,
-      createdEvents,
-      updatedEvents,
-      deletedEvents,
-      tokens,
-      deployment,
-    );
-
-    events.push(...strategyEvents, ...swapEvents);
-
-    // Sort by block number, transaction index, and event index
-    return events.sort((a, b) => {
-      if (a.blockNumber !== b.blockNumber) return a.blockNumber - b.blockNumber;
-      if (a.txnIndex !== b.txnIndex) return a.txnIndex - b.txnIndex;
-      return a.eventIndex - b.eventIndex;
-    });
-  }
-
-  private buildLiquidityTimeline(
-    createdEvents: StrategyCreatedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    deletedEvents: StrategyDeletedEvent[],
-    tokens: TokensByAddress,
-  ): Map<
-    string,
-    Array<{
-      timestamp: number;
-      blockId: number;
-      pairId: number;
-      y_delta: number;
-      tokenAddress: string;
-    }>
-  > {
-    const timeline = new Map<
-      string,
-      Array<{
-        timestamp: number;
-        blockId: number;
-        pairId: number;
-        y_delta: number;
-        tokenAddress: string;
-      }>
-    >();
-
-    // Track strategy states for delta calculations
-    const strategyStates = new Map<string, { y0: number; y1: number }>();
-
-    // Combine all strategy events and sort by timestamp
+    // Combine ALL events (strategy + trade) and sort chronologically
     const allEvents = [
-      ...createdEvents.map((e) => ({ ...e, type: 'created', reason: 2 })),
-      ...updatedEvents.filter((e) => e.reason !== 1).map((e) => ({ ...e, type: 'updated', reason: e.reason })), // Filter out trade-induced updates
-      ...deletedEvents.map((e) => ({ ...e, type: 'deleted', reason: 3 })),
+      ...createdEvents.map((e) => ({ type: 'created' as const, event: e })),
+      ...updatedEvents.map((e) => ({ type: 'updated' as const, event: e })),
+      ...deletedEvents.map((e) => ({ type: 'deleted' as const, event: e })),
+      ...transferEvents.map((e) => ({ type: 'transfer' as const, event: e })),
+      ...tradedEvents.map((e) => ({ type: 'trade' as const, event: e })),
     ].sort((a, b) => {
-      if (a.block.id !== b.block.id) return a.block.id - b.block.id;
-      if (a.transactionIndex !== b.transactionIndex) return a.transactionIndex - b.transactionIndex;
-      return a.logIndex - b.logIndex;
+      if (a.event.block.id !== b.event.block.id) return a.event.block.id - b.event.block.id;
+      if (a.event.transactionIndex !== b.event.transactionIndex)
+        return a.event.transactionIndex - b.event.transactionIndex;
+      return a.event.logIndex - b.event.logIndex;
     });
 
-    for (const event of allEvents) {
-      const strategyId = event.strategyId.toString();
-      const currentState = strategyStates.get(strategyId);
+    // Process all events in chronological order
+    for (const { type, event } of allEvents) {
+      switch (type) {
+        case 'created': {
+          const createdEvent = event as StrategyCreatedEvent;
 
-      const token0 = tokens[event.token0.address];
-      const token1 = tokens[event.token1.address];
+          // Generate join event for strategy creation BEFORE adding to state
+          // so reserves reflect pre-creation state
+          const state = this.createStrategyState(createdEvent);
+          const joinEvent = this.createJoinExitEvent(
+            createdEvent.block.id,
+            createdEvent.timestamp,
+            createdEvent.transactionHash,
+            createdEvent.transactionIndex,
+            createdEvent.logIndex,
+            'join',
+            createdEvent.owner,
+            createdEvent.pair.id,
+            state,
+            deployment,
+            strategyStates, // This still has the pre-creation state
+          );
+          events.push(joinEvent);
 
-      if (!token0 || !token1) continue;
-
-      const order0 = typeof event.order0 === 'string' ? JSON.parse(event.order0) : event.order0;
-      const order1 = typeof event.order1 === 'string' ? JSON.parse(event.order1) : event.order1;
-      const y0 = order0?.y ? parseFloat(order0.y) : 0;
-      const y1 = order1?.y ? parseFloat(order1.y) : 0;
-
-      let y_delta0 = 0;
-      let y_delta1 = 0;
-
-      if (event.reason === 2) {
-        // Created
-        y_delta0 = y0;
-        y_delta1 = y1;
-      } else if (event.reason === 3) {
-        // Deleted
-        y_delta0 = currentState ? -currentState.y0 : 0;
-        y_delta1 = currentState ? -currentState.y1 : 0;
-      } else {
-        // Updated
-        y_delta0 = currentState ? y0 - currentState.y0 : y0;
-        y_delta1 = currentState ? y1 - currentState.y1 : y1;
-      }
-
-      // Update strategy state
-      if (event.reason === 3) {
-        strategyStates.delete(strategyId);
-      } else {
-        strategyStates.set(strategyId, { y0, y1 });
-      }
-
-      // Add entries for each token separately (like the original SQL partitioning)
-      const entries = [
-        {
-          timestamp: event.block.timestamp.getTime(),
-          blockId: event.block.id,
-          pairId: event.pair.id,
-          y_delta: y_delta0 / Math.pow(10, token0.decimals),
-          tokenAddress: token0.address,
-        },
-        {
-          timestamp: event.block.timestamp.getTime(),
-          blockId: event.block.id,
-          pairId: event.pair.id,
-          y_delta: y_delta1 / Math.pow(10, token1.decimals),
-          tokenAddress: token1.address,
-        },
-      ];
-
-      for (const entry of entries) {
-        if (!timeline.has(entry.tokenAddress)) {
-          timeline.set(entry.tokenAddress, []);
+          // Now add to state after reserves are calculated
+          strategyStates.set(createdEvent.strategyId, state);
+          break;
         }
-        timeline.get(entry.tokenAddress)!.push(entry);
-      }
-    }
-
-    // Sort each timeline by timestamp
-    for (const [, events] of timeline) {
-      events.sort((a, b) => {
-        if (a.blockId !== b.blockId) return a.blockId - b.blockId;
-        return a.timestamp - b.timestamp;
-      });
-    }
-
-    return timeline;
-  }
-
-  private processTradeEventsWithOriginalLogic(
-    tradeEvents: TokensTradedEvent[],
-    createdEvents: StrategyCreatedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    deletedEvents: StrategyDeletedEvent[],
-    tokens: TokensByAddress,
-    deployment: Deployment,
-  ): DexScreenerEventV2[] {
-    const events: DexScreenerEventV2[] = [];
-
-    // Build a comprehensive list of all strategy events with their deltas (like the original SQL)
-    const allStrategyEvents = this.buildStrategyEventsList(createdEvents, updatedEvents, deletedEvents, tokens);
-
-    for (const tradeEvent of tradeEvents) {
-      const sourceToken = tokens[tradeEvent.sourceToken.address];
-      const targetToken = tokens[tradeEvent.targetToken.address];
-
-      if (!sourceToken || !targetToken) continue;
-
-      const sourceAmountDecimal = new Decimal(tradeEvent.sourceAmount).div(new Decimal(10).pow(sourceToken.decimals));
-      const targetAmountDecimal = new Decimal(tradeEvent.targetAmount).div(new Decimal(10).pow(targetToken.decimals));
-
-      const isSourceAsset0 = sourceToken.address <= targetToken.address;
-
-      const asset0In = isSourceAsset0 ? sourceAmountDecimal.toNumber() : 0;
-      const asset1In = !isSourceAsset0 ? sourceAmountDecimal.toNumber() : 0;
-      const asset0Out = isSourceAsset0 ? 0 : targetAmountDecimal.toNumber();
-      const asset1Out = !isSourceAsset0 ? 0 : targetAmountDecimal.toNumber();
-
-      const priceNative = isSourceAsset0
-        ? !targetAmountDecimal.isZero()
-          ? sourceAmountDecimal.div(targetAmountDecimal).toNumber()
-          : 0
-        : !sourceAmountDecimal.isZero()
-        ? targetAmountDecimal.div(sourceAmountDecimal).toNumber()
-        : 0;
-
-      // Calculate reserves using the exact same logic as the original SQL window function
-      const reserves = this.calculateReservesUsingWindowFunction(
-        sourceToken.address,
-        targetToken.address,
-        tradeEvent.block.timestamp,
-        tradeEvent.block.id,
-        tradeEvent.transactionIndex,
-        tradeEvent.logIndex,
-        allStrategyEvents,
-      );
-
-      events.push({
-        blockchainType: deployment.blockchainType,
-        exchangeId: deployment.exchangeId,
-        blockNumber: tradeEvent.block.id,
-        blockTimestamp: tradeEvent.block.timestamp,
-        eventType: 'swap',
-        txnId: tradeEvent.transactionHash,
-        txnIndex: tradeEvent.transactionIndex,
-        eventIndex: tradeEvent.logIndex,
-        maker: tradeEvent.callerId,
-        pairId: tradeEvent.pair.id,
-        asset0In: asset0In ? asset0In.toString() : null,
-        asset1In: asset1In ? asset1In.toString() : null,
-        asset0Out: asset0Out ? asset0Out.toString() : null,
-        asset1Out: asset1Out ? asset1Out.toString() : null,
-        priceNative: priceNative.toString(),
-        amount0: null,
-        amount1: null,
-        reserves0: reserves.reserves0.toString(),
-        reserves1: reserves.reserves1.toString(),
-      } as DexScreenerEventV2);
-    }
-
-    return events;
-  }
-
-  private buildStrategyEventsList(
-    createdEvents: StrategyCreatedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    deletedEvents: StrategyDeletedEvent[],
-    tokens: TokensByAddress,
-  ): Array<{
-    blockId: number;
-    blockTimestamp: Date;
-    transactionIndex: number;
-    logIndex: number;
-    token0Address: string;
-    token1Address: string;
-    y_delta0: number;
-    y_delta1: number;
-    pairId: number;
-  }> {
-    const strategyEvents: Array<{
-      blockId: number;
-      blockTimestamp: Date;
-      transactionIndex: number;
-      logIndex: number;
-      token0Address: string;
-      token1Address: string;
-      y_delta0: number;
-      y_delta1: number;
-      pairId: number;
-    }> = [];
-
-    // Track strategy states for delta calculations
-    const strategyStates = new Map<string, { y0: number; y1: number }>();
-
-    // Combine all strategy events and sort by timestamp (like the original SQL ORDER BY)
-    const allEvents = [
-      ...createdEvents.map((e) => ({ ...e, type: 'created', reason: 2 })),
-      ...updatedEvents.filter((e) => e.reason !== 1).map((e) => ({ ...e, type: 'updated', reason: e.reason })), // Filter out trade-induced updates
-      ...deletedEvents.map((e) => ({ ...e, type: 'deleted', reason: 3 })),
-    ].sort((a, b) => {
-      if (a.block.id !== b.block.id) return a.block.id - b.block.id;
-      if (a.transactionIndex !== b.transactionIndex) return a.transactionIndex - b.transactionIndex;
-      return a.logIndex - b.logIndex;
-    });
-
-    for (const event of allEvents) {
-      const strategyId = event.strategyId.toString();
-      const currentState = strategyStates.get(strategyId);
-
-      const token0 = tokens[event.token0.address];
-      const token1 = tokens[event.token1.address];
-
-      if (!token0 || !token1) continue;
-
-      const order0 = typeof event.order0 === 'string' ? JSON.parse(event.order0) : event.order0;
-      const order1 = typeof event.order1 === 'string' ? JSON.parse(event.order1) : event.order1;
-      const y0 = order0?.y ? parseFloat(order0.y) : 0;
-      const y1 = order1?.y ? parseFloat(order1.y) : 0;
-
-      let y_delta0 = 0;
-      let y_delta1 = 0;
-
-      if (event.reason === 2) {
-        // Created
-        y_delta0 = y0;
-        y_delta1 = y1;
-      } else if (event.reason === 3) {
-        // Deleted
-        y_delta0 = currentState ? -currentState.y0 : 0;
-        y_delta1 = currentState ? -currentState.y1 : 0;
-      } else {
-        // Updated
-        y_delta0 = currentState ? y0 - currentState.y0 : y0;
-        y_delta1 = currentState ? y1 - currentState.y1 : y1;
-      }
-
-      // Update strategy state
-      if (event.reason === 3) {
-        strategyStates.delete(strategyId);
-      } else {
-        strategyStates.set(strategyId, { y0, y1 });
-      }
-
-      // Add to events list with normalized deltas
-      strategyEvents.push({
-        blockId: event.block.id,
-        blockTimestamp: event.block.timestamp,
-        transactionIndex: event.transactionIndex,
-        logIndex: event.logIndex,
-        token0Address: token0.address,
-        token1Address: token1.address,
-        y_delta0: y_delta0 / Math.pow(10, token0.decimals),
-        y_delta1: y_delta1 / Math.pow(10, token1.decimals),
-        pairId: event.pair.id,
-      });
-    }
-
-    return strategyEvents;
-  }
-
-  private calculateReservesUsingWindowFunction(
-    sourceTokenAddress: string,
-    targetTokenAddress: string,
-    tradeTimestamp: Date,
-    tradeBlockId: number,
-    tradeTransactionIndex: number,
-    tradeLogIndex: number,
-    allStrategyEvents: Array<{
-      blockId: number;
-      blockTimestamp: Date;
-      transactionIndex: number;
-      logIndex: number;
-      token0Address: string;
-      token1Address: string;
-      y_delta0: number;
-      y_delta1: number;
-      pairId: number;
-    }>,
-  ): { reserves0: number; reserves1: number } {
-    // Determine asset ordering (asset0 < asset1)
-    const [asset0Address, asset1Address] = [sourceTokenAddress, targetTokenAddress].sort();
-
-    let reserves0 = 0;
-    let reserves1 = 0;
-
-    // Replicate the SQL window function: SUM(y_delta0) OVER (PARTITION BY address0 ORDER BY blockTimestamp)
-    // This means: for each token, sum all deltas that happened before or at this trade's timestamp
-
-    for (const strategyEvent of allStrategyEvents) {
-      // Only include events that happened before this trade
-      // Use strict ordering: block number, then transaction index, then log index
-      const isBeforeTrade =
-        strategyEvent.blockId < tradeBlockId ||
-        (strategyEvent.blockId === tradeBlockId && strategyEvent.blockTimestamp.getTime() < tradeTimestamp.getTime()) ||
-        (strategyEvent.blockId === tradeBlockId &&
-          strategyEvent.blockTimestamp.getTime() === tradeTimestamp.getTime() &&
-          strategyEvent.transactionIndex < tradeTransactionIndex) ||
-        (strategyEvent.blockId === tradeBlockId &&
-          strategyEvent.blockTimestamp.getTime() === tradeTimestamp.getTime() &&
-          strategyEvent.transactionIndex === tradeTransactionIndex &&
-          strategyEvent.logIndex < tradeLogIndex);
-
-      if (!isBeforeTrade) continue;
-
-      // Check if this strategy event involves our asset0 token
-      if (strategyEvent.token0Address === asset0Address) {
-        reserves0 += strategyEvent.y_delta0;
-      }
-      if (strategyEvent.token1Address === asset0Address) {
-        reserves0 += strategyEvent.y_delta1;
-      }
-
-      // Check if this strategy event involves our asset1 token
-      if (strategyEvent.token0Address === asset1Address) {
-        reserves1 += strategyEvent.y_delta0;
-      }
-      if (strategyEvent.token1Address === asset1Address) {
-        reserves1 += strategyEvent.y_delta1;
-      }
-    }
-
-    return { reserves0, reserves1 };
-  }
-
-  private processTradeEventsWithTimeline(
-    tradeEvents: TokensTradedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    liquidityTimeline: Map<
-      string,
-      Array<{
-        timestamp: number;
-        blockId: number;
-        pairId: number;
-        y_delta: number;
-        tokenAddress: string;
-      }>
-    >,
-    tokens: TokensByAddress,
-    deployment: Deployment,
-  ): DexScreenerEventV2[] {
-    const events: DexScreenerEventV2[] = [];
-
-    for (const event of tradeEvents) {
-      const sourceToken = tokens[event.sourceToken.address];
-      const targetToken = tokens[event.targetToken.address];
-
-      if (!sourceToken || !targetToken) continue;
-
-      const sourceAmountDecimal = new Decimal(event.sourceAmount).div(new Decimal(10).pow(sourceToken.decimals));
-      const targetAmountDecimal = new Decimal(event.targetAmount).div(new Decimal(10).pow(targetToken.decimals));
-
-      const isSourceAsset0 = sourceToken.address <= targetToken.address;
-
-      const asset0In = isSourceAsset0 ? sourceAmountDecimal.toNumber() : 0;
-      const asset1In = !isSourceAsset0 ? sourceAmountDecimal.toNumber() : 0;
-      const asset0Out = isSourceAsset0 ? 0 : targetAmountDecimal.toNumber();
-      const asset1Out = !isSourceAsset0 ? 0 : targetAmountDecimal.toNumber();
-
-      const priceNative = isSourceAsset0
-        ? !targetAmountDecimal.isZero()
-          ? sourceAmountDecimal.div(targetAmountDecimal).toNumber()
-          : 0
-        : !sourceAmountDecimal.isZero()
-        ? targetAmountDecimal.div(sourceAmountDecimal).toNumber()
-        : 0;
-
-      // Calculate reserves using timeline (cumulative sum up to this point)
-      const reserves = this.calculateReservesFromTimeline(
-        sourceToken.address,
-        targetToken.address,
-        event.block.timestamp.getTime(),
-        event.block.id,
-        liquidityTimeline,
-      );
-
-      events.push({
-        blockchainType: deployment.blockchainType,
-        exchangeId: deployment.exchangeId,
-        blockNumber: event.block.id,
-        blockTimestamp: event.block.timestamp,
-        eventType: 'swap',
-        txnId: event.transactionHash,
-        txnIndex: event.transactionIndex,
-        eventIndex: event.logIndex,
-        maker: event.callerId,
-        pairId: event.pair.id,
-        asset0In: asset0In ? asset0In.toString() : null,
-        asset1In: asset1In ? asset1In.toString() : null,
-        asset0Out: asset0Out ? asset0Out.toString() : null,
-        asset1Out: asset1Out ? asset1Out.toString() : null,
-        priceNative: priceNative.toString(),
-        amount0: null,
-        amount1: null,
-        reserves0: reserves.reserves0.toString(),
-        reserves1: reserves.reserves1.toString(),
-      } as DexScreenerEventV2);
-    }
-
-    return events;
-  }
-
-  private calculateReservesFromTimeline(
-    sourceTokenAddress: string,
-    targetTokenAddress: string,
-    tradeTimestamp: number,
-    tradeBlockId: number,
-    liquidityTimeline: Map<
-      string,
-      Array<{
-        timestamp: number;
-        blockId: number;
-        pairId: number;
-        y_delta: number;
-        tokenAddress: string;
-      }>
-    >,
-  ): { reserves0: number; reserves1: number } {
-    // Determine asset ordering (asset0 < asset1)
-    const [asset0Address, asset1Address] = [sourceTokenAddress, targetTokenAddress].sort();
-
-    let reserves0 = 0;
-    let reserves1 = 0;
-
-    // Calculate cumulative reserves for asset0
-    const asset0Timeline = liquidityTimeline.get(asset0Address) || [];
-    for (const entry of asset0Timeline) {
-      // Include events that happened before or at the same time as the trade
-      if (entry.blockId < tradeBlockId || (entry.blockId === tradeBlockId && entry.timestamp <= tradeTimestamp)) {
-        reserves0 += entry.y_delta;
-      }
-    }
-
-    // Calculate cumulative reserves for asset1
-    const asset1Timeline = liquidityTimeline.get(asset1Address) || [];
-    for (const entry of asset1Timeline) {
-      // Include events that happened before or at the same time as the trade
-      if (entry.blockId < tradeBlockId || (entry.blockId === tradeBlockId && entry.timestamp <= tradeTimestamp)) {
-        reserves1 += entry.y_delta;
-      }
-    }
-
-    return { reserves0, reserves1 };
-  }
-
-  private calculateCumulativeReserves(strategyStates: Map<string, StrategyState>): void {
-    // Group strategies by token addresses
-    const tokenReserves = new Map<string, Decimal>();
-
-    for (const [, state] of strategyStates) {
-      const token0Reserves = tokenReserves.get(state.token0Address) || new Decimal(0);
-      const token1Reserves = tokenReserves.get(state.token1Address) || new Decimal(0);
-
-      const y0Normalized = new Decimal(state.y0).div(new Decimal(10).pow(state.token0Decimals));
-      const y1Normalized = new Decimal(state.y1).div(new Decimal(10).pow(state.token1Decimals));
-
-      tokenReserves.set(state.token0Address, token0Reserves.add(y0Normalized));
-      tokenReserves.set(state.token1Address, token1Reserves.add(y1Normalized));
-    }
-
-    // Update strategy states with calculated reserves
-    for (const [, state] of strategyStates) {
-      const isAddress0Asset0 = state.token0Address <= state.token1Address;
-
-      if (isAddress0Asset0) {
-        state.reserves0 = (tokenReserves.get(state.token0Address) || new Decimal(0)).toNumber();
-        state.reserves1 = (tokenReserves.get(state.token1Address) || new Decimal(0)).toNumber();
-      } else {
-        state.reserves0 = (tokenReserves.get(state.token1Address) || new Decimal(0)).toNumber();
-        state.reserves1 = (tokenReserves.get(state.token0Address) || new Decimal(0)).toNumber();
-      }
-    }
-  }
-
-  private processStrategyEvents(
-    createdEvents: StrategyCreatedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    deletedEvents: StrategyDeletedEvent[],
-    transferEvents: VoucherTransferEvent[],
-    strategyStates: Map<string, StrategyState>,
-    tokens: TokensByAddress,
-    deployment: Deployment,
-  ): DexScreenerEventV2[] {
-    const events: DexScreenerEventV2[] = [];
-
-    // Filter out updated events with reason = 1 (trade-induced updates)
-    // These should not generate join/exit events, only the trade event itself
-    const filteredUpdatedEvents = updatedEvents.filter((e) => e.reason !== 1);
-
-    // Combine and sort all strategy events by block number, transaction index, log index
-    const allEvents = [
-      ...createdEvents.map((e) => ({ ...e, type: 'created', reason: 2 })),
-      ...filteredUpdatedEvents.map((e) => ({ ...e, type: 'updated', reason: e.reason })),
-      ...deletedEvents.map((e) => ({ ...e, type: 'deleted', reason: 3 })),
-    ].sort((a, b) => {
-      if (a.block.id !== b.block.id) return a.block.id - b.block.id;
-      if (a.transactionIndex !== b.transactionIndex) return a.transactionIndex - b.transactionIndex;
-      return a.logIndex - b.logIndex;
-    });
-
-    for (const event of allEvents) {
-      const strategyId = event.strategyId.toString();
-      const currentState = strategyStates.get(strategyId);
-
-      const token0 = tokens[event.token0.address];
-      const token1 = tokens[event.token1.address];
-
-      if (!token0 || !token1) continue;
-
-      const order0 = typeof event.order0 === 'string' ? JSON.parse(event.order0) : event.order0;
-      const order1 = typeof event.order1 === 'string' ? JSON.parse(event.order1) : event.order1;
-      const y0 = order0?.y ? parseFloat(order0.y) : 0;
-      const y1 = order1?.y ? parseFloat(order1.y) : 0;
-
-      let y_delta0 = 0;
-      let y_delta1 = 0;
-
-      if (event.reason === 2) {
-        // Created
-        y_delta0 = y0;
-        y_delta1 = y1;
-      } else if (event.reason === 3) {
-        // Deleted
-        y_delta0 = currentState ? -currentState.y0 : 0;
-        y_delta1 = currentState ? -currentState.y1 : 0;
-      } else {
-        // Updated
-        y_delta0 = currentState ? y0 - currentState.y0 : y0;
-        y_delta1 = currentState ? y1 - currentState.y1 : y1;
-      }
-
-      // Update strategy state
-      if (event.reason === 3) {
-        strategyStates.delete(strategyId);
-      } else {
-        strategyStates.set(strategyId, {
-          id: strategyId,
-          pairId: event.pair.id,
-          order0: order0,
-          order1: order1,
-          token0Address: token0.address,
-          token1Address: token1.address,
-          token0Decimals: token0.decimals,
-          token1Decimals: token1.decimals,
-          y0,
-          y1,
-          reserves0: 0, // Will be calculated
-          reserves1: 0, // Will be calculated
-        });
-      }
-
-      // Calculate liquidity deltas normalized by decimals
-      const y_delta0_normalized = y_delta0 / Math.pow(10, token0.decimals);
-      const y_delta1_normalized = y_delta1 / Math.pow(10, token1.decimals);
-
-      // Determine asset ordering (asset0 < asset1)
-      const isAddress0Asset0 = token0.address <= token1.address;
-      const amount0 = isAddress0Asset0 ? y_delta0_normalized : y_delta1_normalized;
-      const amount1 = isAddress0Asset0 ? y_delta1_normalized : y_delta0_normalized;
-
-      // Recalculate reserves after state change
-      this.calculateCumulativeReserves(strategyStates);
-      const reserves = this.getReservesForPair(event.pair.id, strategyStates, isAddress0Asset0);
-
-      // Determine event type based on deltas
-      const joinExitType = this.determineJoinExitType(amount0, amount1, event.reason);
-
-      // Find the maker (strategy owner)
-      const maker = this.findMaker(event, transferEvents, deployment);
-
-      if (joinExitType.length > 0) {
-        for (let i = 0; i < joinExitType.length; i++) {
-          const { eventType, amount0: eventAmount0, amount1: eventAmount1, eventIndexOffset } = joinExitType[i];
-
-          events.push({
-            blockchainType: deployment.blockchainType,
-            exchangeId: deployment.exchangeId,
-            blockNumber: event.block.id,
-            blockTimestamp: event.block.timestamp,
-            eventType,
-            txnId: event.transactionHash,
-            txnIndex: event.transactionIndex,
-            eventIndex: event.logIndex + eventIndexOffset,
-            maker,
-            pairId: event.pair.id,
-            asset0In: null,
-            asset1In: null,
-            asset0Out: null,
-            asset1Out: null,
-            priceNative: null,
-            amount0: eventAmount0?.toString() || null,
-            amount1: eventAmount1?.toString() || null,
-            reserves0: reserves.reserves0.toString(),
-            reserves1: reserves.reserves1.toString(),
-          } as DexScreenerEventV2);
+        case 'updated': {
+          const updatedEvent = event as StrategyUpdatedEvent;
+          const state = strategyStates.get(updatedEvent.strategyId);
+          if (state) {
+            if (updatedEvent.reason === 1) {
+              // Trade update - update state but don't generate join/exit events
+              const newOrder0 = JSON.parse(updatedEvent.order0);
+              const newOrder1 = JSON.parse(updatedEvent.order1);
+              state.liquidity0 = new Decimal(newOrder0.y || 0);
+              state.liquidity1 = new Decimal(newOrder1.y || 0);
+              state.lastProcessedBlock = updatedEvent.block.id;
+            } else {
+              // Non-trade update - generate join/exit events and update state
+              const { deltaAmount0, deltaAmount1 } = this.calculateLiquidityDelta(updatedEvent, state);
+
+              // Generate join/exit event based on delta BEFORE updating state
+              // so reserves reflect pre-update state
+              const eventTypes = this.determineJoinExitType(deltaAmount0, deltaAmount1);
+              if (eventTypes) {
+                for (const eventType of eventTypes) {
+                  const joinExitEvent = this.createJoinExitEventWithDeltas(
+                    updatedEvent.block.id,
+                    updatedEvent.timestamp,
+                    updatedEvent.transactionHash,
+                    updatedEvent.transactionIndex,
+                    updatedEvent.logIndex,
+                    eventType.type,
+                    state.currentOwner,
+                    updatedEvent.pair.id,
+                    eventType.amount0,
+                    eventType.amount1,
+                    state,
+                    deployment,
+                    strategyStates, // This still has the pre-update state
+                  );
+                  events.push(...joinExitEvent);
+                }
+              }
+
+              // Now update state after reserves are calculated
+              state.liquidity0 = state.liquidity0.plus(deltaAmount0);
+              state.liquidity1 = state.liquidity1.plus(deltaAmount1);
+              state.lastProcessedBlock = updatedEvent.block.id;
+            }
+          }
+          break;
+        }
+        case 'deleted': {
+          const deletedEvent = event as StrategyDeletedEvent;
+          const state = strategyStates.get(deletedEvent.strategyId);
+          if (state) {
+            // Generate exit event for strategy deletion BEFORE removing from state
+            // so reserves reflect pre-deletion state
+            const exitEvent = this.createJoinExitEvent(
+              deletedEvent.block.id,
+              deletedEvent.timestamp,
+              deletedEvent.transactionHash,
+              deletedEvent.transactionIndex,
+              deletedEvent.logIndex,
+              'exit',
+              state.currentOwner,
+              deletedEvent.pair.id,
+              state,
+              deployment,
+              strategyStates, // This still has the pre-deletion state
+            );
+            events.push(exitEvent);
+
+            // Now remove from state after reserves are calculated
+            strategyStates.delete(deletedEvent.strategyId);
+          }
+          break;
+        }
+        case 'transfer': {
+          const transferEvent = event as VoucherTransferEvent;
+          // Skip zero address transfers
+          if (
+            transferEvent.to.toLowerCase() === '0x0000000000000000000000000000000000000000' ||
+            transferEvent.from.toLowerCase() === '0x0000000000000000000000000000000000000000'
+          ) {
+            break;
+          }
+          const state = strategyStates.get(transferEvent.strategyId);
+          if (state) {
+            state.currentOwner = transferEvent.to;
+            state.lastProcessedBlock = transferEvent.block.id;
+          }
+          break;
+        }
+        case 'trade': {
+          const tradeEvent = event as TokensTradedEvent;
+          // Generate swap event with current state of reserves
+          const swapEvent = this.createSwapEvent(tradeEvent, deployment, tokens, strategyStates);
+          events.push(swapEvent);
+          break;
         }
       }
     }
 
+    // Events are already in chronological order from processing, no need to sort again
     return events;
   }
 
-  private processTradeEvents(
-    tradeEvents: TokensTradedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    strategyStates: Map<string, StrategyState>,
-    tokens: TokensByAddress,
-    deployment: Deployment,
-  ): DexScreenerEventV2[] {
-    const events: DexScreenerEventV2[] = [];
+  private createStrategyState(event: StrategyCreatedEvent): StrategyLiquidityState {
+    const order0 = JSON.parse(event.order0);
+    const order1 = JSON.parse(event.order1);
 
-    // Create a map of trade-induced strategy updates (reason = 1) by transaction hash and pair
-    const tradeUpdates = new Map<string, StrategyUpdatedEvent[]>();
-    for (const updateEvent of updatedEvents) {
-      if (updateEvent.reason === 1) {
-        const key = `${updateEvent.transactionHash}-${updateEvent.pair.id}`;
-        if (!tradeUpdates.has(key)) {
-          tradeUpdates.set(key, []);
-        }
-        tradeUpdates.get(key)!.push(updateEvent);
-      }
+    return {
+      strategyId: event.strategyId,
+      pairId: event.pair.id,
+      token0Address: event.token0.address,
+      token1Address: event.token1.address,
+      token0Decimals: event.token0.decimals,
+      token1Decimals: event.token1.decimals,
+      liquidity0: new Decimal(order0.y || 0),
+      liquidity1: new Decimal(order1.y || 0),
+      lastProcessedBlock: event.block.id,
+      currentOwner: event.owner,
+      creationWallet: event.owner,
+    };
+  }
+
+  private calculateLiquidityDelta(
+    event: StrategyUpdatedEvent,
+    state: StrategyLiquidityState,
+  ): { deltaAmount0: Decimal; deltaAmount1: Decimal } {
+    const newOrder0 = JSON.parse(event.order0);
+    const newOrder1 = JSON.parse(event.order1);
+
+    const newLiquidity0 = new Decimal(newOrder0.y || 0);
+    const newLiquidity1 = new Decimal(newOrder1.y || 0);
+
+    // Calculate delta based on strategy creation vs update
+    let deltaAmount0: Decimal;
+    let deltaAmount1: Decimal;
+
+    if (event.reason === 2) {
+      // Strategy creation
+      deltaAmount0 = newLiquidity0;
+      deltaAmount1 = newLiquidity1;
+    } else if (event.reason === 3) {
+      // Strategy deletion
+      deltaAmount0 = newLiquidity0.negated();
+      deltaAmount1 = newLiquidity1.negated();
+    } else {
+      // Regular update
+      deltaAmount0 = newLiquidity0.minus(state.liquidity0);
+      deltaAmount1 = newLiquidity1.minus(state.liquidity1);
     }
 
-    for (const event of tradeEvents) {
-      const sourceToken = tokens[event.sourceToken.address];
-      const targetToken = tokens[event.targetToken.address];
-
-      if (!sourceToken || !targetToken) continue;
-
-      const sourceAmountDecimal = new Decimal(event.sourceAmount).div(new Decimal(10).pow(sourceToken.decimals));
-      const targetAmountDecimal = new Decimal(event.targetAmount).div(new Decimal(10).pow(targetToken.decimals));
-
-      const isSourceAsset0 = sourceToken.address <= targetToken.address;
-
-      const asset0In = isSourceAsset0 ? sourceAmountDecimal.toNumber() : null;
-      const asset1In = !isSourceAsset0 ? sourceAmountDecimal.toNumber() : null;
-      const asset0Out = isSourceAsset0 ? null : targetAmountDecimal.toNumber();
-      const asset1Out = !isSourceAsset0 ? null : targetAmountDecimal.toNumber();
-
-      const priceNative = isSourceAsset0
-        ? !targetAmountDecimal.isZero()
-          ? sourceAmountDecimal.div(targetAmountDecimal).toNumber()
-          : 0
-        : !sourceAmountDecimal.isZero()
-        ? targetAmountDecimal.div(sourceAmountDecimal).toNumber()
-        : 0;
-
-      // Get reserves from current strategy states for this pair
-      const reserves = this.getReservesForPair(event.pair.id, strategyStates, isSourceAsset0);
-
-      events.push({
-        blockchainType: deployment.blockchainType,
-        exchangeId: deployment.exchangeId,
-        blockNumber: event.block.id,
-        blockTimestamp: event.block.timestamp,
-        eventType: 'swap',
-        txnId: event.transactionHash,
-        txnIndex: event.transactionIndex,
-        eventIndex: event.logIndex,
-        maker: event.callerId,
-        pairId: event.pair.id,
-        asset0In: asset0In ? asset0In.toString() : null,
-        asset1In: asset1In ? asset1In.toString() : null,
-        asset0Out: asset0Out ? asset0Out.toString() : null,
-        asset1Out: asset1Out ? asset1Out.toString() : null,
-        priceNative: priceNative.toString(),
-        amount0: null,
-        amount1: null,
-        reserves0: reserves.reserves0.toString(),
-        reserves1: reserves.reserves1.toString(),
-      } as DexScreenerEventV2);
-    }
-
-    return events;
+    return { deltaAmount0, deltaAmount1 };
   }
 
   private determineJoinExitType(
-    amount0: number,
-    amount1: number,
-    reason: number,
-  ): Array<{
-    eventType: string;
-    amount0: number | null;
-    amount1: number | null;
-    eventIndexOffset: number;
-  }> {
-    if (reason === 2) {
-      // Created
-      return [
-        {
-          eventType: 'join',
-          amount0,
-          amount1,
-          eventIndexOffset: 0,
-        },
-      ];
+    deltaAmount0: Decimal,
+    deltaAmount1: Decimal,
+  ): { type: 'join' | 'exit'; amount0: Decimal | null; amount1: Decimal | null }[] | null {
+    if (deltaAmount0.isZero() && deltaAmount1.isZero()) {
+      return null; // No liquidity change
     }
 
-    if (reason === 3) {
-      // Deleted
-      return [
-        {
-          eventType: 'exit',
-          amount0: Math.abs(amount0),
-          amount1: Math.abs(amount1),
-          eventIndexOffset: 0,
-        },
-      ];
+    // Handle simple cases: both positive (join) or both negative (exit)
+    if (deltaAmount0.gte(0) && deltaAmount1.gte(0)) {
+      return [{ type: 'join', amount0: deltaAmount0, amount1: deltaAmount1 }];
+    }
+    if (deltaAmount0.lte(0) && deltaAmount1.lte(0)) {
+      return [{ type: 'exit', amount0: deltaAmount0.abs(), amount1: deltaAmount1.abs() }];
     }
 
-    // Updated (reason === 0 or 1)
-    if (amount0 >= 0 && amount1 >= 0) {
-      return [
-        {
-          eventType: 'join',
-          amount0,
-          amount1,
-          eventIndexOffset: 0,
-        },
-      ];
+    // Handle mixed cases: one positive, one negative (requires two events)
+    const events: { type: 'join' | 'exit'; amount0: Decimal | null; amount1: Decimal | null }[] = [];
+
+    if (deltaAmount0.lt(0) && deltaAmount1.gt(0)) {
+      // Exit token0, join token1
+      events.push({ type: 'exit', amount0: deltaAmount0.abs(), amount1: null });
+      events.push({ type: 'join', amount0: null, amount1: deltaAmount1 });
+    } else if (deltaAmount0.gt(0) && deltaAmount1.lt(0)) {
+      // Join token0, exit token1
+      events.push({ type: 'join', amount0: deltaAmount0, amount1: null });
+      events.push({ type: 'exit', amount0: null, amount1: deltaAmount1.abs() });
     }
 
-    if (amount0 <= 0 && amount1 <= 0) {
-      return [
-        {
-          eventType: 'exit',
-          amount0: Math.abs(amount0),
-          amount1: Math.abs(amount1),
-          eventIndexOffset: 0,
-        },
-      ];
-    }
-
-    if (amount0 < 0 && amount1 > 0) {
-      return [
-        {
-          eventType: 'join',
-          amount0: null,
-          amount1,
-          eventIndexOffset: 0,
-        },
-        {
-          eventType: 'exit',
-          amount0: Math.abs(amount0),
-          amount1: null,
-          eventIndexOffset: 0.5,
-        },
-      ];
-    }
-
-    if (amount0 > 0 && amount1 < 0) {
-      return [
-        {
-          eventType: 'exit',
-          amount0: null,
-          amount1: Math.abs(amount1),
-          eventIndexOffset: 0,
-        },
-        {
-          eventType: 'join',
-          amount0,
-          amount1: null,
-          eventIndexOffset: 0.5,
-        },
-      ];
-    }
-
-    return [];
+    return events;
   }
 
-  private findMaker(event: any, transferEvents: VoucherTransferEvent[], deployment: Deployment): string {
-    if (event.type === 'created') {
-      return event.owner;
-    }
-
-    // For updated/deleted events, find the latest voucher transfer
-    const latestTransfer = transferEvents
-      .filter((t) => t.strategyId.toString() === event.strategyId.toString() && t.block.id < event.block.id)
-      .sort((a, b) => b.block.id - a.block.id)[0];
-
-    return latestTransfer?.to || event.owner || '';
-  }
-
-  private getReservesForPair(
+  private createJoinExitEvent(
+    blockNumber: number,
+    blockTimestamp: Date,
+    txnId: string,
+    txnIndex: number,
+    eventIndex: number,
+    eventType: 'join' | 'exit',
+    maker: string,
     pairId: number,
-    strategyStates: Map<string, StrategyState>,
-    isAddress0Asset0: boolean,
-  ): { reserves0: number; reserves1: number } {
-    let reserves0 = new Decimal(0);
-    let reserves1 = new Decimal(0);
+    state: StrategyLiquidityState,
+    deployment: Deployment,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): DexScreenerEventV2 {
+    const normalizedLiquidity0 = state.liquidity0.div(new Decimal(10).pow(state.token0Decimals));
+    const normalizedLiquidity1 = state.liquidity1.div(new Decimal(10).pow(state.token1Decimals));
+
+    const event = new DexScreenerEventV2();
+    event.blockchainType = deployment.blockchainType;
+    event.exchangeId = deployment.exchangeId;
+    event.blockNumber = blockNumber;
+    event.blockTimestamp = blockTimestamp;
+    event.eventType = eventType;
+    event.txnId = txnId;
+    event.txnIndex = txnIndex;
+    event.eventIndex = eventIndex;
+    event.maker = maker;
+    event.pairId = pairId;
+    event.asset0In = null;
+    event.asset1In = null;
+    event.asset0Out = null;
+    event.asset1Out = null;
+    event.priceNative = null;
+    event.amount0 = normalizedLiquidity0.toFixed();
+    event.amount1 = normalizedLiquidity1.toFixed();
+
+    // Apply consistent asset ordering for reserves calculation
+    const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
+    const asset0Address = isToken0Asset0 ? state.token0Address : state.token1Address;
+    const asset1Address = isToken0Asset0 ? state.token1Address : state.token0Address;
+
+    event.reserves0 = this.calculateReserves0ForPair(pairId, asset0Address, strategyStates);
+    event.reserves1 = this.calculateReserves1ForPair(pairId, asset1Address, strategyStates);
+
+    return event;
+  }
+
+  private createJoinExitEventWithDeltas(
+    blockNumber: number,
+    blockTimestamp: Date,
+    txnId: string,
+    txnIndex: number,
+    eventIndex: number,
+    eventType: 'join' | 'exit',
+    maker: string,
+    pairId: number,
+    amount0: Decimal | null,
+    amount1: Decimal | null,
+    state: StrategyLiquidityState,
+    deployment: Deployment,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): DexScreenerEventV2[] {
+    const events: DexScreenerEventV2[] = [];
+
+    // Normalize amounts upfront
+    const normalizedAmount0 = amount0?.div(new Decimal(10).pow(state.token0Decimals)).toFixed() || null;
+    const normalizedAmount1 = amount1?.div(new Decimal(10).pow(state.token1Decimals)).toFixed() || null;
+
+    // For mixed cases, we might need to generate two events
+    // Apply consistent asset ordering for reserves calculation
+    const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
+    const asset0Address = isToken0Asset0 ? state.token0Address : state.token1Address;
+    const asset1Address = isToken0Asset0 ? state.token1Address : state.token0Address;
+
+    const baseEvent = {
+      blockchainType: deployment.blockchainType,
+      exchangeId: deployment.exchangeId,
+      blockNumber,
+      blockTimestamp,
+      eventType,
+      txnId,
+      txnIndex,
+      maker,
+      pairId,
+      asset0In: null,
+      asset1In: null,
+      asset0Out: null,
+      asset1Out: null,
+      priceNative: null,
+      reserves0: this.calculateReserves0ForPair(pairId, asset0Address, strategyStates),
+      reserves1: this.calculateReserves1ForPair(pairId, asset1Address, strategyStates),
+    };
+
+    if (normalizedAmount0 !== null && normalizedAmount1 !== null) {
+      // Single event with both amounts
+      const event = new DexScreenerEventV2();
+      Object.assign(event, baseEvent);
+      event.eventIndex = eventIndex;
+      event.amount0 = normalizedAmount0;
+      event.amount1 = normalizedAmount1;
+      events.push(event);
+    } else {
+      // Separate events for each token
+      if (normalizedAmount0 !== null) {
+        const event0 = new DexScreenerEventV2();
+        Object.assign(event0, baseEvent);
+        event0.eventIndex = eventIndex;
+        event0.amount0 = normalizedAmount0;
+        event0.amount1 = null;
+        events.push(event0);
+      }
+      if (normalizedAmount1 !== null) {
+        const event1 = new DexScreenerEventV2();
+        Object.assign(event1, baseEvent);
+        event1.eventIndex = eventIndex + 0.5;
+        event1.amount0 = null;
+        event1.amount1 = normalizedAmount1;
+        events.push(event1);
+      }
+    }
+
+    return events;
+  }
+
+  private createSwapEvent(
+    tradeEvent: TokensTradedEvent,
+    deployment: Deployment,
+    tokens: TokensByAddress,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): DexScreenerEventV2 {
+    const sourceToken = tradeEvent.sourceToken;
+    const targetToken = tradeEvent.targetToken;
+
+    // Normalize amounts
+    const sourceAmount = new Decimal(tradeEvent.sourceAmount).div(new Decimal(10).pow(sourceToken.decimals));
+    const targetAmount = new Decimal(tradeEvent.targetAmount).div(new Decimal(10).pow(targetToken.decimals));
+
+    // Determine asset ordering
+    const isSourceAsset0 = sourceToken.address.toLowerCase() <= targetToken.address.toLowerCase();
+
+    // Calculate price
+    const priceNative = targetAmount.isZero()
+      ? new Decimal(0)
+      : isSourceAsset0
+      ? sourceAmount.div(targetAmount)
+      : targetAmount.div(sourceAmount);
+
+    // Convert to fixed strings upfront
+    const sourceAmountFixed = sourceAmount.toFixed();
+    const targetAmountFixed = targetAmount.toFixed();
+    const priceNativeFixed = priceNative.toFixed();
+
+    const event = new DexScreenerEventV2();
+    event.blockchainType = deployment.blockchainType;
+    event.exchangeId = deployment.exchangeId;
+    event.blockNumber = tradeEvent.block.id;
+    event.blockTimestamp = tradeEvent.timestamp;
+    event.eventType = 'swap';
+    event.txnId = tradeEvent.transactionHash;
+    event.txnIndex = tradeEvent.transactionIndex;
+    event.eventIndex = tradeEvent.logIndex;
+    event.maker = tradeEvent.trader;
+    event.pairId = tradeEvent.pair.id;
+    event.asset0In = isSourceAsset0 ? sourceAmountFixed : null;
+    event.asset1In = !isSourceAsset0 ? sourceAmountFixed : null;
+    event.asset0Out = !isSourceAsset0 ? targetAmountFixed : null;
+    event.asset1Out = isSourceAsset0 ? targetAmountFixed : null;
+    event.priceNative = priceNativeFixed;
+    event.amount0 = null;
+    event.amount1 = null;
+
+    // Calculate reserves scoped to this specific pair with consistent asset ordering
+    const asset0Address = isSourceAsset0 ? sourceToken.address : targetToken.address;
+    const asset1Address = isSourceAsset0 ? targetToken.address : sourceToken.address;
+
+    event.reserves0 = this.calculateReserves0ForPair(tradeEvent.pair.id, asset0Address, strategyStates);
+    event.reserves1 = this.calculateReserves1ForPair(tradeEvent.pair.id, asset1Address, strategyStates);
+
+    return event;
+  }
+
+  private calculateReserves0ForPair(
+    pairId: number,
+    asset0Address: string,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): string {
+    let totalReserves = new Decimal(0);
 
     for (const [, state] of strategyStates) {
       if (state.pairId === pairId) {
-        const normalizedY0 = new Decimal(state.y0).div(new Decimal(10).pow(state.token0Decimals));
-        const normalizedY1 = new Decimal(state.y1).div(new Decimal(10).pow(state.token1Decimals));
+        // Apply consistent asset ordering: asset0 is the lexicographically smaller address
+        const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
+        const stateAsset0Address = isToken0Asset0 ? state.token0Address : state.token1Address;
 
-        if (isAddress0Asset0) {
-          reserves0 = reserves0.add(normalizedY0);
-          reserves1 = reserves1.add(normalizedY1);
-        } else {
-          reserves0 = reserves0.add(normalizedY1);
-          reserves1 = reserves1.add(normalizedY0);
+        if (stateAsset0Address.toLowerCase() === asset0Address.toLowerCase()) {
+          // Sum the liquidity for asset0, which could be token0 or token1 depending on ordering
+          const liquidity = isToken0Asset0 ? state.liquidity0 : state.liquidity1;
+          const decimals = isToken0Asset0 ? state.token0Decimals : state.token1Decimals;
+          totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
         }
       }
     }
 
-    return { reserves0: reserves0.toNumber(), reserves1: reserves1.toNumber() };
+    return totalReserves.toFixed();
   }
 
-  private getReservesFromTradeUpdates(
-    transactionHash: string,
+  private calculateReserves1ForPair(
     pairId: number,
-    tradeUpdates: Map<string, StrategyUpdatedEvent[]>,
-    sourceTokenAddress: string,
-    targetTokenAddress: string,
-    tokens: TokensByAddress,
-  ): { reserves0: number; reserves1: number } {
-    const key = `${transactionHash}-${pairId}`;
-    const updates = tradeUpdates.get(key) || [];
+    asset1Address: string,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): string {
+    let totalReserves = new Decimal(0);
 
-    // Get the cumulative reserves for the pair from the trade-induced strategy updates
-    // These updates contain the total reserves after the trade
-    let totalReserves0 = 0;
-    let totalReserves1 = 0;
+    for (const [, state] of strategyStates) {
+      if (state.pairId === pairId) {
+        // Apply consistent asset ordering: asset1 is the lexicographically larger address
+        const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
+        const stateAsset1Address = isToken0Asset0 ? state.token1Address : state.token0Address;
 
-    for (const update of updates) {
-      const token0 = tokens[update.token0.address];
-      const token1 = tokens[update.token1.address];
-
-      if (!token0 || !token1) continue;
-
-      const order0 = JSON.parse(update.order0);
-      const order1 = JSON.parse(update.order1);
-
-      const y0 = parseFloat(order0.y || '0');
-      const y1 = parseFloat(order1.y || '0');
-
-      // Normalize by decimals
-      const normalizedY0 = y0 / Math.pow(10, token0.decimals);
-      const normalizedY1 = y1 / Math.pow(10, token1.decimals);
-
-      // Check if this strategy's tokens match the trade tokens
-      const isMatchingStrategy =
-        (token0.address === sourceTokenAddress || token0.address === targetTokenAddress) &&
-        (token1.address === sourceTokenAddress || token1.address === targetTokenAddress);
-
-      if (isMatchingStrategy) {
-        // Order according to asset0/asset1 convention (lexicographic order)
-        const isToken0Asset0 = token0.address <= token1.address;
-
-        if (isToken0Asset0) {
-          totalReserves0 += normalizedY0;
-          totalReserves1 += normalizedY1;
-        } else {
-          totalReserves0 += normalizedY1;
-          totalReserves1 += normalizedY0;
+        if (stateAsset1Address.toLowerCase() === asset1Address.toLowerCase()) {
+          // Sum the liquidity for asset1, which could be token0 or token1 depending on ordering
+          const liquidity = isToken0Asset0 ? state.liquidity1 : state.liquidity0;
+          const decimals = isToken0Asset0 ? state.token1Decimals : state.token0Decimals;
+          totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
         }
       }
     }
 
-    return { reserves0: totalReserves0, reserves1: totalReserves1 };
+    return totalReserves.toFixed();
+  }
+
+  private async initializeStrategyStates(
+    lastProcessedBlock: number,
+    deployment: Deployment,
+    strategyStates: StrategyLiquidityStatesMap,
+  ): Promise<void> {
+    // Get all strategy created events up to the last processed block
+    const createdEvents = await this.strategyCreatedEventService.get(
+      deployment.startBlock,
+      lastProcessedBlock,
+      deployment,
+    );
+
+    // Initialize states from created events
+    for (const event of createdEvents) {
+      const state = this.createStrategyState(event);
+      strategyStates.set(event.strategyId, state);
+    }
+
+    // Apply all updates up to the last processed block
+    const updatedEvents = await this.strategyUpdatedEventService.get(
+      deployment.startBlock,
+      lastProcessedBlock,
+      deployment,
+    );
+    for (const event of updatedEvents) {
+      const state = strategyStates.get(event.strategyId);
+      if (state) {
+        const order0 = JSON.parse(event.order0);
+        const order1 = JSON.parse(event.order1);
+        state.liquidity0 = new Decimal(order0.y || 0);
+        state.liquidity1 = new Decimal(order1.y || 0);
+        state.lastProcessedBlock = event.block.id;
+      }
+    }
+
+    // Apply deletions up to the last processed block
+    const deletedEvents = await this.strategyDeletedEventService.get(
+      deployment.startBlock,
+      lastProcessedBlock,
+      deployment,
+    );
+    for (const event of deletedEvents) {
+      strategyStates.delete(event.strategyId);
+    }
+
+    // Apply transfers up to the last processed block
+    const transferEvents = await this.voucherTransferEventService.get(
+      deployment.startBlock,
+      lastProcessedBlock,
+      deployment,
+    );
+    for (const event of transferEvents) {
+      const state = strategyStates.get(event.strategyId);
+      if (state) {
+        state.currentOwner = event.to;
+      }
+    }
+  }
+
+  async getEvents(fromBlock: number, endBlock: number, deployment: Deployment): Promise<any[]> {
+    return await this.dexScreenerEventRepository
+      .createQueryBuilder('event')
+      .where('event.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('event.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
+      .andWhere('event.blockNumber >= :fromBlock', { fromBlock })
+      .andWhere('event.blockNumber <= :endBlock', { endBlock })
+      .orderBy('event.blockNumber', 'ASC')
+      .addOrderBy('event.txnIndex', 'ASC')
+      .addOrderBy('event.eventIndex', 'ASC')
+      .getMany();
   }
 }

@@ -164,6 +164,10 @@ export class UpdaterService {
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
 
+      // DexScreener V2 - incremental processing
+      await this.dexScreenerV2Service.update(endBlock, deployment, tokens);
+      console.log(`CARBON SERVICE - Finished updating DexScreener V2 for ${deployment.exchangeId}`);
+
       // trading fee events
       await this.tradingFeePpmUpdatedEventService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating trading fee events for ${deployment.exchangeId}`);
@@ -238,14 +242,6 @@ export class UpdaterService {
       // DexScreener
       await this.dexScreenerService.update(deployment);
       console.log(`CARBON SERVICE - Finished updating DexScreener for ${deployment.exchangeId}`);
-
-      // DexScreener V2 - incremental processing
-      const endBlock =
-        this.configService.get('IS_FORK') === '1'
-          ? await this.harvesterService.latestBlock(deployment)
-          : (await this.harvesterService.latestBlock(deployment)) - 12;
-      await this.dexScreenerV2Service.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating DexScreener V2 for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished updating analytics for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingAnalytics[deploymentKey] = false;

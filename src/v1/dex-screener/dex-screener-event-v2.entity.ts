@@ -41,33 +41,33 @@ export class DexScreenerEventV2 {
   @Index()
   pairId: number;
 
-  // Swap-specific fields
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  // Swap-specific fields (large amounts - use text)
+  @Column('text', { nullable: true })
   asset0In: string;
 
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  @Column('text', { nullable: true })
   asset1In: string;
 
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  @Column('text', { nullable: true })
   asset0Out: string;
 
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  @Column('text', { nullable: true })
   asset1Out: string;
 
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  @Column('text', { nullable: true })
   priceNative: string;
 
-  // Join/Exit-specific fields
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  // Join/Exit-specific fields (large amounts - use text)
+  @Column('text', { nullable: true })
   amount0: string;
 
-  @Column('decimal', { precision: 78, scale: 18, nullable: true })
+  @Column('text', { nullable: true })
   amount1: string;
 
-  // Reserve fields (common to all event types)
-  @Column('decimal', { precision: 78, scale: 18 })
+  // Reserve fields (large amounts - use text)
+  @Column('text')
   reserves0: string;
 
-  @Column('decimal', { precision: 78, scale: 18 })
+  @Column('text')
   reserves1: string;
 }
