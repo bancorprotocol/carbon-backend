@@ -143,99 +143,99 @@ export class DeploymentService {
           },
         },
       },
-      // {
-      //   exchangeId: ExchangeId.OGSei,
-      //   blockchainType: BlockchainType.Sei,
-      //   rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
-      //   harvestEventsBatchSize: 500,
-      //   harvestConcurrency: 1,
-      //   multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
-      //   startBlock: 79146720,
-      //   gasToken: {
-      //     name: 'Sei',
-      //     symbol: 'SEI',
-      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-      //   },
-      //   nativeTokenAlias: '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7',
-      //   contracts: {
-      //     CarbonController: {
-      //       address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
-      //     },
-      //     CarbonVoucher: {
-      //       address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
-      //     },
-      //     BancorArbitrage: {
-      //       address: '0xC56Eb3d03C5D7720DAf33a3718affb9BcAb03FBc',
-      //     },
-      //     BancorArbitrageV2: {
-      //       address: '0xB2a2F14979A68C21181C6a63cA55a5b3693c9D2a',
-      //     },
-      //     CarbonVortex: {
-      //       address: '0x5715203B16F15d7349Cb1E3537365E9664EAf933',
-      //     },
-      //   },
-      //   mapEthereumTokens: {
-      //     '0x9151434b16b9763660705744891fA906F660EcC5': '0xdac17f958d2ee523a2206206994597c13d831ec7', // usdt0
-      //   },
-      //   notifications: {
-      //     explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
-      //     carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
-      //     title: 'Sei',
-      //     telegram: {
-      //       botToken: this.configService.get('SEI_TELEGRAM_BOT_TOKEN'),
-      //       threads: {
-      //         carbonThreadId: this.configService.get('SEI_CARBON_THREAD_ID'),
-      //         fastlaneId: this.configService.get('SEI_FASTLANE_THREAD_ID'),
-      //         vortexId: this.configService.get('SEI_VORTEX_THREAD_ID'),
-      //       },
-      //     },
-      //   },
-      // },
-      // {
-      //   exchangeId: ExchangeId.OGCelo,
-      //   blockchainType: BlockchainType.Celo,
-      //   rpcEndpoint: this.configService.get('CELO_RPC_ENDPOINT'),
-      //   harvestEventsBatchSize: 1000,
-      //   harvestConcurrency: 1,
-      //   multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-      //   startBlock: 26808466,
-      //   gasToken: {
-      //     name: 'Celo',
-      //     symbol: 'CELO',
-      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-      //   },
-      //   nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
-      //   contracts: {
-      //     CarbonController: {
-      //       address: '0x6619871118D144c1c28eC3b23036FC1f0829ed3a',
-      //     },
-      //     CarbonVoucher: {
-      //       address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
-      //     },
-      //     BancorArbitrage: {
-      //       address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
-      //     },
-      //     BancorArbitrageV2: {
-      //       address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
-      //     },
-      //     CarbonVortex: {
-      //       address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
-      //     },
-      //   },
-      //   notifications: {
-      //     explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
-      //     carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
-      //     title: 'Celo',
-      //     telegram: {
-      //       botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
-      //       threads: {
-      //         carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
-      //         fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
-      //         vortexId: this.configService.get('CELO_VORTEX_THREAD_ID'),
-      //       },
-      //     },
-      //   },
-      // },
+      {
+        exchangeId: ExchangeId.OGSei,
+        blockchainType: BlockchainType.Sei,
+        rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 500,
+        harvestConcurrency: 1,
+        multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
+        startBlock: 79146720,
+        gasToken: {
+          name: 'Sei',
+          symbol: 'SEI',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7',
+        contracts: {
+          CarbonController: {
+            address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
+          },
+          CarbonVoucher: {
+            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+          },
+          BancorArbitrage: {
+            address: '0xC56Eb3d03C5D7720DAf33a3718affb9BcAb03FBc',
+          },
+          BancorArbitrageV2: {
+            address: '0xB2a2F14979A68C21181C6a63cA55a5b3693c9D2a',
+          },
+          CarbonVortex: {
+            address: '0x5715203B16F15d7349Cb1E3537365E9664EAf933',
+          },
+        },
+        mapEthereumTokens: {
+          '0x9151434b16b9763660705744891fA906F660EcC5': '0xdac17f958d2ee523a2206206994597c13d831ec7', // usdt0
+        },
+        notifications: {
+          explorerUrl: this.configService.get('SEI_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('SEI_CARBON_WALLET_URL'),
+          title: 'Sei',
+          telegram: {
+            botToken: this.configService.get('SEI_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('SEI_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('SEI_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('SEI_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
+      {
+        exchangeId: ExchangeId.OGCelo,
+        blockchainType: BlockchainType.Celo,
+        rpcEndpoint: this.configService.get('CELO_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 1,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 26808466,
+        gasToken: {
+          name: 'Celo',
+          symbol: 'CELO',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
+        contracts: {
+          CarbonController: {
+            address: '0x6619871118D144c1c28eC3b23036FC1f0829ed3a',
+          },
+          CarbonVoucher: {
+            address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
+          },
+          BancorArbitrage: {
+            address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
+          },
+          BancorArbitrageV2: {
+            address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
+          },
+          CarbonVortex: {
+            address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
+          },
+        },
+        notifications: {
+          explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
+          title: 'Celo',
+          telegram: {
+            botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
+              vortexId: this.configService.get('CELO_VORTEX_THREAD_ID'),
+            },
+          },
+        },
+      },
       // {
       //   exchangeId: ExchangeId.OGBlast,
       //   blockchainType: BlockchainType.Blast,

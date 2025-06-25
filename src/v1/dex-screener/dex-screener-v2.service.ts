@@ -40,7 +40,7 @@ export class DexScreenerV2Service {
 
   constructor(
     @InjectRepository(DexScreenerEventV2)
-    private dexScreenerEventRepository: Repository<DexScreenerEventV2>,
+    private dexScreenerEventV2Repository: Repository<DexScreenerEventV2>,
     private strategyCreatedEventService: StrategyCreatedEventService,
     private strategyUpdatedEventService: StrategyUpdatedEventService,
     private strategyDeletedEventService: StrategyDeletedEventService,
@@ -55,7 +55,7 @@ export class DexScreenerV2Service {
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
 
     // Clean up existing events for this batch range
-    await this.dexScreenerEventRepository
+    await this.dexScreenerEventV2Repository
       .createQueryBuilder()
       .delete()
       .where('"blockNumber" >= :lastProcessedBlock', { lastProcessedBlock })
@@ -66,7 +66,7 @@ export class DexScreenerV2Service {
     await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates);
 
     // Process blocks in batches
-    for (let batchStart = lastProcessedBlock; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
+    for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       // Fetch events in parallel
@@ -90,10 +90,10 @@ export class DexScreenerV2Service {
         strategyStates,
       );
 
-      // Save events in smaller batches
+      // Save events in batches
       for (let i = 0; i < dexScreenerEvents.length; i += this.SAVE_BATCH_SIZE) {
         const eventBatch = dexScreenerEvents.slice(i, i + this.SAVE_BATCH_SIZE);
-        await this.dexScreenerEventRepository.save(eventBatch);
+        await this.dexScreenerEventV2Repository.save(eventBatch);
       }
 
       // Update the last processed block for this batch
@@ -575,62 +575,136 @@ export class DexScreenerV2Service {
     deployment: Deployment,
     strategyStates: StrategyLiquidityStatesMap,
   ): Promise<void> {
-    // Get all strategy created events up to the last processed block
-    const createdEvents = await this.strategyCreatedEventService.get(
-      deployment.startBlock,
-      lastProcessedBlock,
-      deployment,
+    // Get latest created/updated event per strategy for liquidity state with pair/token data
+    const latestLiquidityStates = await this.dexScreenerEventV2Repository.manager.query(
+      `
+      SELECT DISTINCT ON (strategy_id) 
+        strategy_id, 
+        block_id, 
+        order0, 
+        order1, 
+        pair_id, 
+        token0_address, 
+        token1_address, 
+        token0_decimals, 
+        token1_decimals, 
+        owner, 
+        transaction_index, 
+        log_index
+      FROM (
+        SELECT 
+          c."strategyId" as strategy_id, 
+          c."blockId" as block_id, 
+          c.order0, 
+          c.order1, 
+          c."pairId" as pair_id, 
+          t0.address as token0_address,
+          t1.address as token1_address,
+          t0.decimals as token0_decimals,
+          t1.decimals as token1_decimals,
+          c.owner, 
+          c."transactionIndex" as transaction_index, 
+          c."logIndex" as log_index 
+        FROM "strategy-created-events" c
+        LEFT JOIN pairs p ON c."pairId" = p.id
+        LEFT JOIN tokens t0 ON p."token0Id" = t0.id  
+        LEFT JOIN tokens t1 ON p."token1Id" = t1.id
+        WHERE c."blockId" <= $1 
+          AND c."blockchainType" = $2 
+          AND c."exchangeId" = $3
+        UNION ALL
+        SELECT 
+          u."strategyId" as strategy_id, 
+          u."blockId" as block_id, 
+          u.order0, 
+          u.order1, 
+          u."pairId" as pair_id, 
+          t0.address as token0_address,
+          t1.address as token1_address,
+          t0.decimals as token0_decimals,
+          t1.decimals as token1_decimals,
+          null as owner, 
+          u."transactionIndex" as transaction_index, 
+          u."logIndex" as log_index 
+        FROM "strategy-updated-events" u
+        LEFT JOIN pairs p ON u."pairId" = p.id
+        LEFT JOIN tokens t0 ON p."token0Id" = t0.id  
+        LEFT JOIN tokens t1 ON p."token1Id" = t1.id
+        WHERE u."blockId" <= $1 
+          AND u."blockchainType" = $2 
+          AND u."exchangeId" = $3
+      ) combined
+      ORDER BY strategy_id, block_id DESC, transaction_index DESC, log_index DESC
+    `,
+      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId],
     );
 
-    // Initialize states from created events
-    for (const event of createdEvents) {
-      const state = this.createStrategyState(event);
-      strategyStates.set(event.strategyId, state);
+    // Get latest transfer event per strategy for ownership
+    const latestOwnershipStates = await this.dexScreenerEventV2Repository.manager.query(
+      `
+      SELECT DISTINCT ON ("strategyId") 
+        "strategyId" as strategy_id, 
+        "to" as current_owner
+      FROM "voucher-transfer-events" 
+      WHERE "blockId" <= $1
+        AND "blockchainType" = $2 
+        AND "exchangeId" = $3
+      ORDER BY "strategyId", "blockId" DESC, "transactionIndex" DESC, "logIndex" DESC
+    `,
+      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId],
+    );
+
+    // Get list of deleted strategies
+    const deletedStrategies = await this.dexScreenerEventV2Repository.manager.query(
+      `
+      SELECT DISTINCT "strategyId" as strategy_id 
+      FROM "strategy-deleted-events" 
+      WHERE "blockId" <= $1
+        AND "blockchainType" = $2 
+        AND "exchangeId" = $3
+    `,
+      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId],
+    );
+
+    // Build ownership map for quick lookup
+    const ownershipMap = new Map<string, string>();
+    for (const ownership of latestOwnershipStates) {
+      ownershipMap.set(ownership.strategy_id, ownership.current_owner);
     }
 
-    // Apply all updates up to the last processed block
-    const updatedEvents = await this.strategyUpdatedEventService.get(
-      deployment.startBlock,
-      lastProcessedBlock,
-      deployment,
-    );
-    for (const event of updatedEvents) {
-      const state = strategyStates.get(event.strategyId);
-      if (state) {
-        const order0 = JSON.parse(event.order0);
-        const order1 = JSON.parse(event.order1);
-        state.liquidity0 = new Decimal(order0.y || 0);
-        state.liquidity1 = new Decimal(order1.y || 0);
-        state.lastProcessedBlock = event.block.id;
-      }
-    }
+    // Build deleted strategies set for quick lookup
+    const deletedStrategyIds = new Set(deletedStrategies.map((d) => d.strategy_id));
 
-    // Apply deletions up to the last processed block
-    const deletedEvents = await this.strategyDeletedEventService.get(
-      deployment.startBlock,
-      lastProcessedBlock,
-      deployment,
-    );
-    for (const event of deletedEvents) {
-      strategyStates.delete(event.strategyId);
-    }
+    // Build strategy states from latest liquidity states
+    for (const liquidityState of latestLiquidityStates) {
+      const strategyId = liquidityState.strategy_id;
 
-    // Apply transfers up to the last processed block
-    const transferEvents = await this.voucherTransferEventService.get(
-      deployment.startBlock,
-      lastProcessedBlock,
-      deployment,
-    );
-    for (const event of transferEvents) {
-      const state = strategyStates.get(event.strategyId);
-      if (state) {
-        state.currentOwner = event.to;
-      }
+      // Skip deleted strategies by setting their liquidity to 0
+      const isDeleted = deletedStrategyIds.has(strategyId);
+
+      const order0 = isDeleted ? { y: '0' } : JSON.parse(liquidityState.order0);
+      const order1 = isDeleted ? { y: '0' } : JSON.parse(liquidityState.order1);
+
+      const state: StrategyLiquidityState = {
+        strategyId,
+        pairId: liquidityState.pair_id,
+        token0Address: liquidityState.token0_address,
+        token1Address: liquidityState.token1_address,
+        token0Decimals: liquidityState.token0_decimals,
+        token1Decimals: liquidityState.token1_decimals,
+        liquidity0: new Decimal(order0.y || 0),
+        liquidity1: new Decimal(order1.y || 0),
+        lastProcessedBlock: liquidityState.block_id,
+        currentOwner: ownershipMap.get(strategyId) || liquidityState.owner || '',
+        creationWallet: liquidityState.owner || '',
+      };
+
+      strategyStates.set(strategyId, state);
     }
   }
 
   async getEvents(fromBlock: number, endBlock: number, deployment: Deployment): Promise<any[]> {
-    return await this.dexScreenerEventRepository
+    return await this.dexScreenerEventV2Repository
       .createQueryBuilder('event')
       .where('event.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('event.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
