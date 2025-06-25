@@ -20,6 +20,7 @@ import { HistoricQuoteModule } from '../historic-quote/historic-quote.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
 import { AnalyticsModule } from '../v1/analytics/analytics.module';
 import { DexScreenerModule } from '../v1/dex-screener/dex-screener.module';
+import { DexScreenerV2Module } from '../v1/dex-screener/dex-screener-v2.module';
 import { VolumeModule } from '../volume/volume.module';
 import { TvlModule } from '../tvl/tvl.module';
 import { DeploymentModule } from '../deployment/deployment.module';
@@ -55,6 +56,7 @@ import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
     VoucherTransferEventModule,
     AnalyticsModule,
     DexScreenerModule,
+    DexScreenerV2Module,
     VolumeModule,
     TvlModule,
     DeploymentModule,

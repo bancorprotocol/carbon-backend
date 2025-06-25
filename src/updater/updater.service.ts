@@ -15,6 +15,7 @@ import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-upda
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
+import { DexScreenerV2Service } from '../v1/dex-screener/dex-screener-v2.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
@@ -51,6 +52,7 @@ export class UpdaterService {
     private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
     private dexScreenerService: DexScreenerService,
+    private dexScreenerV2Service: DexScreenerV2Service,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
     private arbitrageExecutedEventService: ArbitrageExecutedEventService,
@@ -161,6 +163,10 @@ export class UpdaterService {
       const quotesCTE = await this.quoteService.prepareQuotesForQuery(deployment);
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
+
+      // DexScreener V2 - incremental processing
+      await this.dexScreenerV2Service.update(endBlock, deployment, tokens);
+      console.log(`CARBON SERVICE - Finished updating DexScreener V2 for ${deployment.exchangeId}`);
 
       // trading fee events
       await this.tradingFeePpmUpdatedEventService.update(endBlock, deployment);
