@@ -2,7 +2,6 @@ import { Controller, Get, Header, Query } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { toTimestamp } from '../../utilities';
 import { DexScreenerV2Service } from './dex-screener-v2.service';
-import { BlockService } from '../../block/block.service';
 import { AssetDto } from './asset.dto';
 import { TokenService } from '../../token/token.service';
 import { toChecksumAddress } from 'web3-utils';
@@ -10,14 +9,15 @@ import { EventDto } from './event.dto';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
+import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
 
 @Controller({ version: '1', path: ':exchangeId?/dex-screener-v2' })
 export class DexScreenerV2Controller {
   constructor(
     private dexScreenerV2Service: DexScreenerV2Service,
-    private blockService: BlockService,
     private tokenService: TokenService,
     private deploymentService: DeploymentService,
+    private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
   @Get('latest-block')
@@ -26,10 +26,10 @@ export class DexScreenerV2Controller {
   @ApiExchangeIdParam()
   async latestBlock(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    const lastBlock = await this.blockService.getLastBlock(deployment);
+    const lastBlock = await this.lastProcessedBlockService.getState(deployment);
     return {
       block: {
-        blockNumber: lastBlock.id,
+        blockNumber: lastBlock.lastBlock,
         blockTimestamp: toTimestamp(lastBlock.timestamp),
       },
     };
@@ -74,8 +74,8 @@ export class DexScreenerV2Controller {
         };
 
         // Helper function to format event index (remove .0 suffix)
-        const formatEventIndex = (value: number): string => {
-          return value.toString().replace('.0', '');
+        const formatEventIndex = (value: number): number => {
+          return parseInt(value.toString().replace('.0', ''));
         };
 
         if (e.eventType === 'swap') {
