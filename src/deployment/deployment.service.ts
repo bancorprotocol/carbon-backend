@@ -617,6 +617,8 @@ export class DeploymentService {
           '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
           '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
           '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc.e
+          '0x639acc80569c5fc83c6fbf2319a6cc38bbfe26d1': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
+          '0x8c39b1fd0e6260fdf20652fc436d25026832bfea': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // usdc.e
         },
       },
       {
