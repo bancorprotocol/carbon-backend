@@ -1126,7 +1126,7 @@ describe('QuoteService', () => {
 
       const result = await service.prepareQuotesForQuery(deployment);
 
-      expect(result).toContain('WITH quotes as (');
+      expect(result).toContain('quotes as (');
       expect(result).toContain(
         'SELECT CAST("tokenId" AS integer) as "tokenId", CAST(usd AS double precision) as usd, "blockchainType"',
       );

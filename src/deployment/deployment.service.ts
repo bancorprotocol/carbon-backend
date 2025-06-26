@@ -17,6 +17,7 @@ export enum BlockchainType {
   Berachain = 'berachain',
   Coti = 'coti',
   Iota = 'iota',
+  Tac = 'tac',
 }
 
 export enum ExchangeId {
@@ -33,6 +34,7 @@ export enum ExchangeId {
   BerachainGraphene = 'berachain-graphene',
   OGCoti = 'coti',
   IotaGraphene = 'iota-graphene',
+  OGTac = 'tac',
 }
 
 export interface GasToken {
@@ -663,6 +665,48 @@ export class DeploymentService {
             },
           },
         },
+      },
+      {
+        exchangeId: ExchangeId.OGTac,
+        blockchainType: BlockchainType.Tac,
+        rpcEndpoint: this.configService.get('TAC_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 1,
+        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+        startBlock: 975648,
+        gasToken: {
+          name: 'TAC',
+          symbol: 'TAC',
+          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+        },
+        nativeTokenAlias: '0xB63B9f0eb4A6E6f191529D71d4D88cc8900Df2C9',
+        contracts: {
+          CarbonController: {
+            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+          },
+          CarbonVoucher: {
+            address: '0xb0d39990E1C38B50D0b7f6911525535Fbacb4C26',
+          },
+          BancorArbitrageV2: {
+            address: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
+          },
+        },
+        mapEthereumTokens: {
+          '0xb76d91340f5ce3577f0a056d29f6e3eb4e88b140': '0x582d872a1b094fc48f5de31d3b73f2d9be47def1', // ton -> wtoncoin
+          '0xaf988c3f7cb2aceabb15f96b19388a259b6c438f': '0xdac17f958d2ee523a2206206994597c13d831ec7', // usdt
+        },
+        // notifications: {
+        //   explorerUrl: this.configService.get('TAC_EXPLORER_URL'),
+        //   carbonWalletUrl: this.configService.get('TAC_CARBON_WALLET_URL'),
+        //   title: 'TAC',
+        //   telegram: {
+        //     botToken: this.configService.get('TAC_TELEGRAM_BOT_TOKEN'),
+        //     threads: {
+        //       carbonThreadId: this.configService.get('TAC_CARBON_THREAD_ID'),
+        //       fastlaneId: this.configService.get('TAC_FASTLANE_THREAD_ID'),
+        //     },
+        //   },
+        // },
       },
     ];
   }

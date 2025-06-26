@@ -60,6 +60,7 @@ export class HistoricQuoteService implements OnModuleInit {
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Coti]: [{ name: 'carbon-defi', enabled: true }],
     [BlockchainType.Iota]: [],
+    [BlockchainType.Tac]: [{ name: 'carbon-defi', enabled: true }],
   };
 
   constructor(
@@ -1243,8 +1244,12 @@ export class HistoricQuoteService implements OnModuleInit {
     // Build the CTE
     let historicQuotesCTE = '';
     if (buckets && buckets.length > 0) {
-      const quoteValues = buckets
-        .filter((bucket) => bucket.high) // Only include buckets with valid close prices
+      const validBuckets = buckets.filter((bucket) => {
+        // Only include buckets with valid close prices and defined token addresses
+        return bucket.high && bucket.tokenAddress && bucket.tokenAddress !== 'undefined';
+      });
+
+      const quoteValues = validBuckets
         .map(
           (bucket) =>
             `('${bucket.tokenAddress}', '${bucket.close}', '${deployment.blockchainType}', '${moment
@@ -1252,6 +1257,14 @@ export class HistoricQuoteService implements OnModuleInit {
               .format('YYYY-MM-DD')}')`,
         )
         .join(',');
+
+      if (validBuckets.length < buckets.length) {
+        this.logger.warn(
+          `Filtered out ${buckets.length - validBuckets.length} historic quotes with invalid data for ${
+            deployment.blockchainType
+          }:${deployment.exchangeId}`,
+        );
+      }
 
       if (quoteValues) {
         historicQuotesCTE = `
