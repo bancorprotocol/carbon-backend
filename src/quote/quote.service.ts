@@ -661,6 +661,12 @@ export class QuoteService implements OnModuleInit {
     const seenTokenIds = new Set<string>();
 
     for (const [address, quote] of Object.entries(quotes)) {
+      // Skip quotes with undefined or null token IDs
+      if (!quote.token || quote.token.id === undefined || quote.token.id === null) {
+        this.logger.warn(`Skipping quote for address ${address} due to undefined token ID`);
+        continue;
+      }
+
       const tokenId = String(quote.token.id);
       if (!seenTokenIds.has(tokenId)) {
         seenTokenIds.add(tokenId);
@@ -684,11 +690,29 @@ export class QuoteService implements OnModuleInit {
     // Then build the CTE
     let quotesCTE = '';
     if (uniqueQuotes && Object.keys(uniqueQuotes).length > 0) {
-      const quoteValues = Object.entries(uniqueQuotes)
+      const totalQuotes = Object.keys(uniqueQuotes).length;
+      const validEntries = Object.entries(uniqueQuotes).filter(([address, quote]) => {
+        // Filter out quotes where token.id is undefined or null
+        const isValid = quote.token && quote.token.id !== undefined && quote.token.id !== null;
+        if (!isValid) {
+          this.logger.warn(`No token found for address ${address} on blockchain ${deployment.blockchainType}`);
+        }
+        return isValid;
+      });
+
+      const quoteValues = validEntries
         .map(([address, quote]) => {
           return `('${quote.token.id}', '${quote.usd}', '${quote.blockchainType}')`;
         })
         .join(',');
+
+      if (validEntries.length < totalQuotes) {
+        this.logger.warn(
+          `Filtered out ${totalQuotes - validEntries.length} quotes with undefined token IDs for ${
+            deployment.blockchainType
+          }:${deployment.exchangeId}`,
+        );
+      }
 
       if (quoteValues) {
         quotesCTE = `
