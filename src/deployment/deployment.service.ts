@@ -677,6 +677,7 @@ export class DeploymentService {
           symbol: 'TAC',
           address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
         },
+        nativeTokenAlias: '0xB63B9f0eb4A6E6f191529D71d4D88cc8900Df2C9',
         contracts: {
           CarbonController: {
             address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
