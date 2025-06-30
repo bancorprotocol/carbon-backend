@@ -791,6 +791,44 @@ describe('DexScreenerV2Service', () => {
       expect(reserves0).toBe('1'); // 1e18 / 1e18 = 1
       expect(reserves1).toBe('2'); // 2e6 / 1e6 = 2
     });
+
+    it('should use correct decimals when token ordering is not lexicographic', () => {
+      // This test covers the bug where decimals were incorrectly assigned based on lexicographic ordering
+      const strategyStates = new Map();
+
+      strategyStates.set('strategy1', {
+        strategyId: 'strategy1',
+        pairId: 1,
+        // NOTE: token0Address > token1Address (reverse lexicographic order)
+        token0Address: '0xZZZ', // Larger address (token0 in pair)
+        token1Address: '0xAAA', // Smaller address (token1 in pair)
+        token0Decimals: 6, // token0 has 6 decimals
+        token1Decimals: 18, // token1 has 18 decimals
+        liquidity0: new Decimal('1000000'), // 1 token0 (6 decimals)
+        liquidity1: new Decimal('2000000000000000000'), // 2 token1 (18 decimals)
+        lastProcessedBlock: 2000,
+        currentOwner: '0xowner1',
+        creationWallet: '0xowner1',
+      });
+
+      // When asking for reserves of token0 (0xZZZ), should use token0Decimals (6)
+      const reserves0 = service['calculateReserves0ForPair'](1, '0xZZZ', strategyStates);
+      // When asking for reserves of token1 (0xAAA), should use token1Decimals (18)
+      const reserves1 = service['calculateReserves1ForPair'](1, '0xAAA', strategyStates);
+
+      // Should correctly normalize: 1000000 / 10^6 = 1 for token0
+      expect(reserves0).toBe('1');
+      // Should correctly normalize: 2000000000000000000 / 10^18 = 2 for token1
+      expect(reserves1).toBe('2');
+
+      // Also test the reverse scenario - asking for token1 as asset0 and token0 as asset1
+      const reserves0Alt = service['calculateReserves0ForPair'](1, '0xAAA', strategyStates);
+      const reserves1Alt = service['calculateReserves1ForPair'](1, '0xZZZ', strategyStates);
+
+      // Should still get correct values when addresses are swapped
+      expect(reserves0Alt).toBe('2'); // token1's liquidity with token1's decimals
+      expect(reserves1Alt).toBe('1'); // token0's liquidity with token0's decimals
+    });
   });
 
   describe('initializeStrategyStates', () => {
