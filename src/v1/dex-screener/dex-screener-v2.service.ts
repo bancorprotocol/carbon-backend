@@ -500,7 +500,7 @@ export class DexScreenerV2Service {
     event.txnId = tradeEvent.transactionHash;
     event.txnIndex = tradeEvent.transactionIndex;
     event.eventIndex = tradeEvent.logIndex;
-    event.maker = tradeEvent.trader;
+    event.maker = tradeEvent.callerId;
     event.pairId = tradeEvent.pair.id;
     event.asset0In = isSourceAsset0 ? sourceAmountFixed : null;
     event.asset1In = !isSourceAsset0 ? sourceAmountFixed : null;
@@ -529,14 +529,16 @@ export class DexScreenerV2Service {
 
     for (const [, state] of strategyStates) {
       if (state.pairId === pairId) {
-        // Apply consistent asset ordering: asset0 is the lexicographically smaller address
-        const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
-        const stateAsset0Address = isToken0Asset0 ? state.token0Address : state.token1Address;
-
-        if (stateAsset0Address.toLowerCase() === asset0Address.toLowerCase()) {
-          // Sum the liquidity for asset0, which could be token0 or token1 depending on ordering
-          const liquidity = isToken0Asset0 ? state.liquidity0 : state.liquidity1;
-          const decimals = isToken0Asset0 ? state.token0Decimals : state.token1Decimals;
+        // Directly match token addresses to avoid ordering assumptions
+        if (state.token0Address.toLowerCase() === asset0Address.toLowerCase()) {
+          // We want token0's liquidity, so use liquidity0 and token0Decimals
+          const liquidity = state.liquidity0;
+          const decimals = state.token0Decimals;
+          totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
+        } else if (state.token1Address.toLowerCase() === asset0Address.toLowerCase()) {
+          // We want token1's liquidity, so use liquidity1 and token1Decimals
+          const liquidity = state.liquidity1;
+          const decimals = state.token1Decimals;
           totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
         }
       }
@@ -554,14 +556,16 @@ export class DexScreenerV2Service {
 
     for (const [, state] of strategyStates) {
       if (state.pairId === pairId) {
-        // Apply consistent asset ordering: asset1 is the lexicographically larger address
-        const isToken0Asset0 = state.token0Address.toLowerCase() <= state.token1Address.toLowerCase();
-        const stateAsset1Address = isToken0Asset0 ? state.token1Address : state.token0Address;
-
-        if (stateAsset1Address.toLowerCase() === asset1Address.toLowerCase()) {
-          // Sum the liquidity for asset1, which could be token0 or token1 depending on ordering
-          const liquidity = isToken0Asset0 ? state.liquidity1 : state.liquidity0;
-          const decimals = isToken0Asset0 ? state.token1Decimals : state.token0Decimals;
+        // Directly match token addresses to avoid ordering assumptions
+        if (state.token0Address.toLowerCase() === asset1Address.toLowerCase()) {
+          // We want token0's liquidity, so use liquidity0 and token0Decimals
+          const liquidity = state.liquidity0;
+          const decimals = state.token0Decimals;
+          totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
+        } else if (state.token1Address.toLowerCase() === asset1Address.toLowerCase()) {
+          // We want token1's liquidity, so use liquidity1 and token1Decimals
+          const liquidity = state.liquidity1;
+          const decimals = state.token1Decimals;
           totalReserves = totalReserves.plus(liquidity.div(new Decimal(10).pow(decimals)));
         }
       }
