@@ -163,8 +163,17 @@ export class DexScreenerV2Service {
               // Trade update - update state but don't generate join/exit events
               const newOrder0 = JSON.parse(updatedEvent.order0);
               const newOrder1 = JSON.parse(updatedEvent.order1);
-              state.liquidity0 = new Decimal(newOrder0.y || 0);
-              state.liquidity1 = new Decimal(newOrder1.y || 0);
+
+              // Determine lexicographic ordering of strategy tokens (pairs are always saved lexicographically)
+              const isToken0Smaller =
+                updatedEvent.token0.address.toLowerCase() <= updatedEvent.token1.address.toLowerCase();
+
+              // Map strategy orders to pair tokens (pair token0 = smaller address, pair token1 = larger address)
+              const newLiquidityForPairToken0 = isToken0Smaller ? newOrder0.y : newOrder1.y; // smaller address
+              const newLiquidityForPairToken1 = isToken0Smaller ? newOrder1.y : newOrder0.y; // larger address
+
+              state.liquidity0 = new Decimal(newLiquidityForPairToken0 || 0);
+              state.liquidity1 = new Decimal(newLiquidityForPairToken1 || 0);
               state.lastProcessedBlock = updatedEvent.block.id;
             } else {
               // Non-trade update - generate join/exit events and update state
@@ -262,15 +271,28 @@ export class DexScreenerV2Service {
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
+    // Determine lexicographic ordering of strategy tokens (pairs are always saved lexicographically)
+    const isToken0Smaller = event.token0.address.toLowerCase() <= event.token1.address.toLowerCase();
+
+    // Map strategy orders to pair tokens (pair token0 = smaller address, pair token1 = larger address)
+    const liquidityForPairToken0 = isToken0Smaller ? order0.y : order1.y; // smaller address
+    const liquidityForPairToken1 = isToken0Smaller ? order1.y : order0.y; // larger address
+
+    // Get lexicographically ordered addresses and decimals
+    const pairToken0Address = isToken0Smaller ? event.token0.address : event.token1.address;
+    const pairToken1Address = isToken0Smaller ? event.token1.address : event.token0.address;
+    const pairToken0Decimals = isToken0Smaller ? event.token0.decimals : event.token1.decimals;
+    const pairToken1Decimals = isToken0Smaller ? event.token1.decimals : event.token0.decimals;
+
     return {
       strategyId: event.strategyId,
       pairId: event.pair.id,
-      token0Address: event.token0.address,
-      token1Address: event.token1.address,
-      token0Decimals: event.token0.decimals,
-      token1Decimals: event.token1.decimals,
-      liquidity0: new Decimal(order0.y || 0),
-      liquidity1: new Decimal(order1.y || 0),
+      token0Address: pairToken0Address,
+      token1Address: pairToken1Address,
+      token0Decimals: pairToken0Decimals,
+      token1Decimals: pairToken1Decimals,
+      liquidity0: new Decimal(liquidityForPairToken0 || 0),
+      liquidity1: new Decimal(liquidityForPairToken1 || 0),
       lastProcessedBlock: event.block.id,
       currentOwner: event.owner,
       creationWallet: event.owner,
@@ -284,8 +306,15 @@ export class DexScreenerV2Service {
     const newOrder0 = JSON.parse(event.order0);
     const newOrder1 = JSON.parse(event.order1);
 
-    const newLiquidity0 = new Decimal(newOrder0.y || 0);
-    const newLiquidity1 = new Decimal(newOrder1.y || 0);
+    // Determine lexicographic ordering of strategy tokens (pairs are always saved lexicographically)
+    const isToken0Smaller = event.token0.address.toLowerCase() <= event.token1.address.toLowerCase();
+
+    // Map strategy orders to pair tokens (pair token0 = smaller address, pair token1 = larger address)
+    const newLiquidityForPairToken0 = isToken0Smaller ? newOrder0.y : newOrder1.y; // smaller address
+    const newLiquidityForPairToken1 = isToken0Smaller ? newOrder1.y : newOrder0.y; // larger address
+
+    const newLiquidity0 = new Decimal(newLiquidityForPairToken0 || 0);
+    const newLiquidity1 = new Decimal(newLiquidityForPairToken1 || 0);
 
     // Calculate delta based on strategy creation vs update
     let deltaAmount0: Decimal;
@@ -579,7 +608,7 @@ export class DexScreenerV2Service {
     deployment: Deployment,
     strategyStates: StrategyLiquidityStatesMap,
   ): Promise<void> {
-    // Get latest created/updated event per strategy for liquidity state with pair/token data
+    // Get latest created/updated event per strategy for liquidity state with token data
     const latestLiquidityStates = await this.dexScreenerEventV2Repository.manager.query(
       `
       SELECT DISTINCT ON (strategy_id) 
@@ -591,7 +620,7 @@ export class DexScreenerV2Service {
         token0_address, 
         token1_address, 
         token0_decimals, 
-        token1_decimals, 
+        token1_decimals,
         owner, 
         transaction_index, 
         log_index
@@ -610,9 +639,8 @@ export class DexScreenerV2Service {
           c."transactionIndex" as transaction_index, 
           c."logIndex" as log_index 
         FROM "strategy-created-events" c
-        LEFT JOIN pairs p ON c."pairId" = p.id
-        LEFT JOIN tokens t0 ON p."token0Id" = t0.id  
-        LEFT JOIN tokens t1 ON p."token1Id" = t1.id
+        LEFT JOIN tokens t0 ON c."token0Id" = t0.id  
+        LEFT JOIN tokens t1 ON c."token1Id" = t1.id
         WHERE c."blockId" <= $1 
           AND c."blockchainType" = $2 
           AND c."exchangeId" = $3
@@ -631,9 +659,8 @@ export class DexScreenerV2Service {
           u."transactionIndex" as transaction_index, 
           u."logIndex" as log_index 
         FROM "strategy-updated-events" u
-        LEFT JOIN pairs p ON u."pairId" = p.id
-        LEFT JOIN tokens t0 ON p."token0Id" = t0.id  
-        LEFT JOIN tokens t1 ON p."token1Id" = t1.id
+        LEFT JOIN tokens t0 ON u."token0Id" = t0.id  
+        LEFT JOIN tokens t1 ON u."token1Id" = t1.id
         WHERE u."blockId" <= $1 
           AND u."blockchainType" = $2 
           AND u."exchangeId" = $3
@@ -689,15 +716,29 @@ export class DexScreenerV2Service {
       const order0 = isDeleted ? { y: '0' } : JSON.parse(liquidityState.order0);
       const order1 = isDeleted ? { y: '0' } : JSON.parse(liquidityState.order1);
 
+      // Determine lexicographic ordering of strategy tokens (pairs are always saved lexicographically)
+      const isToken0Smaller =
+        liquidityState.token0_address.toLowerCase() <= liquidityState.token1_address.toLowerCase();
+
+      // Map strategy orders to pair tokens (pair token0 = smaller address, pair token1 = larger address)
+      const liquidityForPairToken0 = isToken0Smaller ? order0.y : order1.y; // smaller address
+      const liquidityForPairToken1 = isToken0Smaller ? order1.y : order0.y; // larger address
+
+      // Get lexicographically ordered addresses and decimals
+      const pairToken0Address = isToken0Smaller ? liquidityState.token0_address : liquidityState.token1_address;
+      const pairToken1Address = isToken0Smaller ? liquidityState.token1_address : liquidityState.token0_address;
+      const pairToken0Decimals = isToken0Smaller ? liquidityState.token0_decimals : liquidityState.token1_decimals;
+      const pairToken1Decimals = isToken0Smaller ? liquidityState.token1_decimals : liquidityState.token0_decimals;
+
       const state: StrategyLiquidityState = {
         strategyId,
         pairId: liquidityState.pair_id,
-        token0Address: liquidityState.token0_address,
-        token1Address: liquidityState.token1_address,
-        token0Decimals: liquidityState.token0_decimals,
-        token1Decimals: liquidityState.token1_decimals,
-        liquidity0: new Decimal(order0.y || 0),
-        liquidity1: new Decimal(order1.y || 0),
+        token0Address: pairToken0Address,
+        token1Address: pairToken1Address,
+        token0Decimals: pairToken0Decimals,
+        token1Decimals: pairToken1Decimals,
+        liquidity0: new Decimal(liquidityForPairToken0 || 0),
+        liquidity1: new Decimal(liquidityForPairToken1 || 0),
         lastProcessedBlock: liquidityState.block_id,
         currentOwner: ownershipMap.get(strategyId) || liquidityState.owner || '',
         creationWallet: liquidityState.owner || '',
