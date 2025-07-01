@@ -87,9 +87,13 @@ describe('DexScreenerV2Service', () => {
     ({
       strategyId: 'strategy1',
       owner: '0xowner1',
-      pair: { id: 1 },
-      token0: { address: '0xtoken0', decimals: 18 },
-      token1: { address: '0xtoken1', decimals: 6 },
+      pair: {
+        id: 1,
+        token0: { address: '0xtoken0', decimals: 18 },
+        token1: { address: '0xtoken1', decimals: 6 },
+      },
+      token0: { address: '0xtoken0', decimals: 18 }, // Strategy's token0 (same as pair's token0 in this mock)
+      token1: { address: '0xtoken1', decimals: 6 }, // Strategy's token1 (same as pair's token1 in this mock)
       order0: JSON.stringify({ y: '1000000000000000000' }), // 1 token0
       order1: JSON.stringify({ y: '2000000' }), // 2 token1
       ...createMockEvent(),
@@ -100,7 +104,13 @@ describe('DexScreenerV2Service', () => {
     ({
       strategyId: 'strategy1',
       reason: 0, // Regular update
-      pair: { id: 1 },
+      pair: {
+        id: 1,
+        token0: { address: '0xtoken0', decimals: 18 },
+        token1: { address: '0xtoken1', decimals: 6 },
+      },
+      token0: { address: '0xtoken0', decimals: 18 }, // Strategy's token0 (same as pair's token0 in this mock)
+      token1: { address: '0xtoken1', decimals: 6 }, // Strategy's token1 (same as pair's token1 in this mock)
       order0: JSON.stringify({ y: '2000000000000000000' }), // 2 token0
       order1: JSON.stringify({ y: '1000000' }), // 1 token1
       ...createMockEvent(),
@@ -128,6 +138,7 @@ describe('DexScreenerV2Service', () => {
     ({
       pair: { id: 1 },
       trader: '0xtrader',
+      callerId: '0xtrader', // Add callerId field used by createSwapEvent for maker
       sourceToken: { address: '0xtoken0', decimals: 18 },
       targetToken: { address: '0xtoken1', decimals: 6 },
       sourceAmount: '1000000000000000000', // 1 token0
@@ -576,6 +587,59 @@ describe('DexScreenerV2Service', () => {
       expect(result[3].blockNumber).toBe(2001);
       expect(result[3].eventIndex).toBe(0); // Trade event
     });
+
+    it('should process trade updates before trade events in same transaction for post-trade reserves', () => {
+      // Create strategy first
+      const strategyCreated = createMockStrategyCreatedEvent({
+        block: { id: 1000 },
+        transactionIndex: 0,
+        logIndex: 0,
+        strategyId: 'test-strategy',
+        order0: JSON.stringify({ y: '1000000', z: '0', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '2000000', z: '0', A: '0', B: '0' }),
+      });
+
+      // Trade event in transaction 1, logIndex 0
+      const tradeEvent = createMockTokensTradedEvent({
+        block: { id: 1001 },
+        transactionIndex: 1,
+        logIndex: 0,
+        pair: { id: 1 },
+      });
+
+      // Strategy update from trade in transaction 1, logIndex 1 (after trade event chronologically)
+      const tradeUpdate = createMockStrategyUpdatedEvent({
+        block: { id: 1001 },
+        transactionIndex: 1,
+        logIndex: 1,
+        strategyId: 'test-strategy',
+        reason: 1, // Trade update
+        order0: JSON.stringify({ y: '800000000000000000', z: '0', A: '0', B: '0' }), // Reduced after trade (18 decimals)
+        order1: JSON.stringify({ y: '2200000', z: '0', A: '0', B: '0' }), // Increased after trade (6 decimals)
+      });
+
+      const result = service['processEvents'](
+        [strategyCreated],
+        [tradeUpdate],
+        [],
+        [],
+        [tradeEvent],
+        mockDeployment,
+        mockTokensByAddress,
+        new Map(),
+      );
+
+      // Should be processed in order: created, trade update (reason=1), then trade event
+      expect(result).toHaveLength(2);
+      expect(result[0].eventType).toBe('join'); // Strategy creation
+      expect(result[1].eventType).toBe('swap'); // Trade event
+
+      // The trade event should show post-trade reserves (after the strategy update)
+      // The reserves should reflect the updated strategy state
+      const swapEvent = result[1];
+      expect(swapEvent.reserves0).toBe('0.8'); // 800000000000000000 / 10^18 = 0.8 (TOKEN0 with 18 decimals)
+      expect(swapEvent.reserves1).toBe('2.2'); // 2200000 / 10^6 = 2.2 (TOKEN1 with 6 decimals)
+    });
   });
 
   describe('createStrategyState', () => {
@@ -604,6 +668,30 @@ describe('DexScreenerV2Service', () => {
 
       expect(state.liquidity0.toString()).toBe('0');
       expect(state.liquidity1.toString()).toBe('0');
+    });
+
+    it('should correctly map strategy orders to pair tokens when token ordering differs', () => {
+      // Create a scenario where strategy tokens are in reverse lexicographic order
+      const createdEvent = createMockStrategyCreatedEvent({
+        token0: { address: '0xBBBB', decimals: 6 }, // Strategy token0 (lexicographically larger)
+        token1: { address: '0xAAAA', decimals: 18 }, // Strategy token1 (lexicographically smaller)
+        order0: JSON.stringify({ y: '1000000' }), // 1 BBBB token (6 decimals) - for larger address
+        order1: JSON.stringify({ y: '2000000000000000000' }), // 2 AAAA tokens (18 decimals) - for smaller address
+      });
+
+      const state = service['createStrategyState'](createdEvent);
+
+      // Verify state uses lexicographic token ordering (pairs are always saved this way)
+      expect(state.token0Address).toBe('0xAAAA'); // Should be lexicographically smaller address
+      expect(state.token1Address).toBe('0xBBBB'); // Should be lexicographically larger address
+      expect(state.token0Decimals).toBe(18); // Should be decimals for smaller address
+      expect(state.token1Decimals).toBe(6); // Should be decimals for larger address
+
+      // Verify liquidity is mapped correctly:
+      // order0 (1000000) corresponds to strategy's token0 (0xBBBB) which maps to pair's token1 (larger address)
+      // order1 (2000000000000000000) corresponds to strategy's token1 (0xAAAA) which maps to pair's token0 (smaller address)
+      expect(state.liquidity0.toString()).toBe('2000000000000000000'); // Should be order1.y (for smaller address = pair token0)
+      expect(state.liquidity1.toString()).toBe('1000000'); // Should be order0.y (for larger address = pair token1)
     });
   });
 
