@@ -114,6 +114,7 @@ export class DexScreenerV2Service {
     const events: DexScreenerEventV2[] = [];
 
     // Combine ALL events (strategy + trade) and sort chronologically
+    // Special handling: process trade updates (reason=1) before trade events in same transaction
     const allEvents = [
       ...createdEvents.map((e) => ({ type: 'created' as const, event: e })),
       ...updatedEvents.map((e) => ({ type: 'updated' as const, event: e })),
@@ -124,6 +125,17 @@ export class DexScreenerV2Service {
       if (a.event.block.id !== b.event.block.id) return a.event.block.id - b.event.block.id;
       if (a.event.transactionIndex !== b.event.transactionIndex)
         return a.event.transactionIndex - b.event.transactionIndex;
+
+      // Within same transaction: prioritize trade updates (reason=1) before trade events
+      // This ensures trade events show post-trade reserves
+      const aIsTradeUpdate = a.type === 'updated' && (a.event as StrategyUpdatedEvent).reason === 1;
+      const bIsTradeUpdate = b.type === 'updated' && (b.event as StrategyUpdatedEvent).reason === 1;
+      const aIsTradeEvent = a.type === 'trade';
+      const bIsTradeEvent = b.type === 'trade';
+
+      if (aIsTradeUpdate && bIsTradeEvent) return -1; // Process trade update before trade event
+      if (bIsTradeUpdate && aIsTradeEvent) return 1; // Process trade update before trade event
+
       return a.event.logIndex - b.event.logIndex;
     });
 
@@ -133,9 +145,12 @@ export class DexScreenerV2Service {
         case 'created': {
           const createdEvent = event as StrategyCreatedEvent;
 
-          // Generate join event for strategy creation BEFORE adding to state
-          // so reserves reflect pre-creation state
+          // Create strategy state and add to state FIRST
+          // so reserves reflect post-creation state
           const state = this.createStrategyState(createdEvent);
+          strategyStates.set(createdEvent.strategyId, state);
+
+          // Now generate join event with updated reserves
           const joinEvent = this.createJoinExitEvent(
             createdEvent.block.id,
             createdEvent.timestamp,
@@ -147,12 +162,9 @@ export class DexScreenerV2Service {
             createdEvent.pair.id,
             state,
             deployment,
-            strategyStates, // This still has the pre-creation state
+            strategyStates, // This now includes the new strategy
           );
           events.push(joinEvent);
-
-          // Now add to state after reserves are calculated
-          strategyStates.set(createdEvent.strategyId, state);
           break;
         }
         case 'updated': {
@@ -176,11 +188,15 @@ export class DexScreenerV2Service {
               state.liquidity1 = new Decimal(newLiquidityForPairToken1 || 0);
               state.lastProcessedBlock = updatedEvent.block.id;
             } else {
-              // Non-trade update - generate join/exit events and update state
+              // Non-trade update - update state FIRST, then generate join/exit events
               const { deltaAmount0, deltaAmount1 } = this.calculateLiquidityDelta(updatedEvent, state);
 
-              // Generate join/exit event based on delta BEFORE updating state
-              // so reserves reflect pre-update state
+              // Update state FIRST so reserves reflect post-update state
+              state.liquidity0 = state.liquidity0.plus(deltaAmount0);
+              state.liquidity1 = state.liquidity1.plus(deltaAmount1);
+              state.lastProcessedBlock = updatedEvent.block.id;
+
+              // Now generate join/exit event based on delta with updated reserves
               const eventTypes = this.determineJoinExitType(deltaAmount0, deltaAmount1);
               if (eventTypes) {
                 for (const eventType of eventTypes) {
@@ -197,16 +213,11 @@ export class DexScreenerV2Service {
                     eventType.amount1,
                     state,
                     deployment,
-                    strategyStates, // This still has the pre-update state
+                    strategyStates, // This now has the post-update state
                   );
                   events.push(...joinExitEvent);
                 }
               }
-
-              // Now update state after reserves are calculated
-              state.liquidity0 = state.liquidity0.plus(deltaAmount0);
-              state.liquidity1 = state.liquidity1.plus(deltaAmount1);
-              state.lastProcessedBlock = updatedEvent.block.id;
             }
           }
           break;
@@ -215,8 +226,10 @@ export class DexScreenerV2Service {
           const deletedEvent = event as StrategyDeletedEvent;
           const state = strategyStates.get(deletedEvent.strategyId);
           if (state) {
-            // Generate exit event for strategy deletion BEFORE removing from state
-            // so reserves reflect pre-deletion state
+            // Remove strategy from state FIRST so reserves reflect post-deletion state
+            strategyStates.delete(deletedEvent.strategyId);
+
+            // Now generate exit event with updated reserves
             const exitEvent = this.createJoinExitEvent(
               deletedEvent.block.id,
               deletedEvent.timestamp,
@@ -228,12 +241,9 @@ export class DexScreenerV2Service {
               deletedEvent.pair.id,
               state,
               deployment,
-              strategyStates, // This still has the pre-deletion state
+              strategyStates, // This no longer includes the deleted strategy
             );
             events.push(exitEvent);
-
-            // Now remove from state after reserves are calculated
-            strategyStates.delete(deletedEvent.strategyId);
           }
           break;
         }

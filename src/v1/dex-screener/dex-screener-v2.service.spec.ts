@@ -587,6 +587,59 @@ describe('DexScreenerV2Service', () => {
       expect(result[3].blockNumber).toBe(2001);
       expect(result[3].eventIndex).toBe(0); // Trade event
     });
+
+    it('should process trade updates before trade events in same transaction for post-trade reserves', () => {
+      // Create strategy first
+      const strategyCreated = createMockStrategyCreatedEvent({
+        block: { id: 1000 },
+        transactionIndex: 0,
+        logIndex: 0,
+        strategyId: 'test-strategy',
+        order0: JSON.stringify({ y: '1000000', z: '0', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '2000000', z: '0', A: '0', B: '0' }),
+      });
+
+      // Trade event in transaction 1, logIndex 0
+      const tradeEvent = createMockTokensTradedEvent({
+        block: { id: 1001 },
+        transactionIndex: 1,
+        logIndex: 0,
+        pair: { id: 1 },
+      });
+
+      // Strategy update from trade in transaction 1, logIndex 1 (after trade event chronologically)
+      const tradeUpdate = createMockStrategyUpdatedEvent({
+        block: { id: 1001 },
+        transactionIndex: 1,
+        logIndex: 1,
+        strategyId: 'test-strategy',
+        reason: 1, // Trade update
+        order0: JSON.stringify({ y: '800000000000000000', z: '0', A: '0', B: '0' }), // Reduced after trade (18 decimals)
+        order1: JSON.stringify({ y: '2200000', z: '0', A: '0', B: '0' }), // Increased after trade (6 decimals)
+      });
+
+      const result = service['processEvents'](
+        [strategyCreated],
+        [tradeUpdate],
+        [],
+        [],
+        [tradeEvent],
+        mockDeployment,
+        mockTokensByAddress,
+        new Map(),
+      );
+
+      // Should be processed in order: created, trade update (reason=1), then trade event
+      expect(result).toHaveLength(2);
+      expect(result[0].eventType).toBe('join'); // Strategy creation
+      expect(result[1].eventType).toBe('swap'); // Trade event
+
+      // The trade event should show post-trade reserves (after the strategy update)
+      // The reserves should reflect the updated strategy state
+      const swapEvent = result[1];
+      expect(swapEvent.reserves0).toBe('0.8'); // 800000000000000000 / 10^18 = 0.8 (TOKEN0 with 18 decimals)
+      expect(swapEvent.reserves1).toBe('2.2'); // 2200000 / 10^6 = 2.2 (TOKEN1 with 6 decimals)
+    });
   });
 
   describe('createStrategyState', () => {
