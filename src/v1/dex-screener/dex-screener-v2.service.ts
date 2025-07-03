@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DexScreenerEventV2 } from './dex-screener-event-v2.entity';
@@ -16,6 +16,8 @@ import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strate
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
 import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
 import { TokensTradedEvent } from '../../events/tokens-traded-event/tokens-traded-event.entity';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
+import { Cache } from 'cache-manager';
 
 interface StrategyLiquidityState {
   strategyId: string;
@@ -41,6 +43,7 @@ export class DexScreenerV2Service {
   constructor(
     @InjectRepository(DexScreenerEventV2)
     private dexScreenerEventV2Repository: Repository<DexScreenerEventV2>,
+    @Inject(CACHE_MANAGER) private cacheManager: Cache,
     private strategyCreatedEventService: StrategyCreatedEventService,
     private strategyUpdatedEventService: StrategyUpdatedEventService,
     private strategyDeletedEventService: StrategyDeletedEventService,
@@ -99,6 +102,26 @@ export class DexScreenerV2Service {
       // Update the last processed block for this batch
       await this.lastProcessedBlockService.update(key, batchEnd);
     }
+
+    const pairs = await this.getPairs(deployment);
+    this.cacheManager.set(`${deployment.blockchainType}:${deployment.exchangeId}:pairs`, pairs);
+  }
+
+  async getCachedPairs(deployment: Deployment): Promise<any> {
+    return this.cacheManager.get(`${deployment.blockchainType}:${deployment.exchangeId}:pairs`);
+  }
+
+  async getEvents(fromBlock: number, endBlock: number, deployment: Deployment): Promise<DexScreenerEventV2[]> {
+    return await this.dexScreenerEventV2Repository
+      .createQueryBuilder('event')
+      .where('event.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('event.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
+      .andWhere('event.blockNumber >= :fromBlock', { fromBlock })
+      .andWhere('event.blockNumber <= :endBlock', { endBlock })
+      .orderBy('event.blockNumber', 'ASC')
+      .addOrderBy('event.txnIndex', 'ASC')
+      .addOrderBy('event.eventIndex', 'ASC')
+      .getMany();
   }
 
   private processEvents(
@@ -758,16 +781,105 @@ export class DexScreenerV2Service {
     }
   }
 
-  async getEvents(fromBlock: number, endBlock: number, deployment: Deployment): Promise<any[]> {
-    return await this.dexScreenerEventV2Repository
-      .createQueryBuilder('event')
-      .where('event.blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
-      .andWhere('event.exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
-      .andWhere('event.blockNumber >= :fromBlock', { fromBlock })
-      .andWhere('event.blockNumber <= :endBlock', { endBlock })
-      .orderBy('event.blockNumber', 'ASC')
-      .addOrderBy('event.txnIndex', 'ASC')
-      .addOrderBy('event.eventIndex', 'ASC')
-      .getMany();
+  private async getPairs(deployment: Deployment): Promise<any> {
+    const query = `
+        WITH pairs AS (
+            SELECT
+                pt.id,
+                'carbondefi' AS dexKey,
+                CASE
+                    WHEN t0.address <= t1.address THEN t0.address
+                    ELSE t1.address
+                END AS asset0Id,
+                CASE
+                    WHEN t0.address <= t1.address THEN t1.address
+                    ELSE t0.address
+                END AS asset1Id,
+                pt."blockId" AS createdAtBlockNumber,
+                pt."createdAt" AS createdAtBlockTimestamp
+            FROM
+                "pairs" pt
+                LEFT JOIN tokens t0 ON t0."id" = pt."token0Id"
+                LEFT JOIN tokens t1 ON t1."id" = pt."token1Id"
+            WHERE
+                pt."blockchainType" = '${deployment.blockchainType}'
+                AND pt."exchangeId" = '${deployment.exchangeId}'
+        ),
+        pairFees AS (
+            SELECT
+                DISTINCT ON ("pairId") "pairId",
+                "newFeePPM" :: NUMERIC AS feePPM,
+                "blockId"
+            FROM
+                "pair-trading-fee-ppm-updated-events"
+            WHERE
+                "blockchainType" = '${deployment.blockchainType}'
+                AND "exchangeId" = '${deployment.exchangeId}'
+            ORDER BY
+                "pairId",
+                "blockId" DESC
+        ),
+        latestDefaultFee AS (
+            SELECT
+                "newFeePPM" :: NUMERIC AS feePPM
+            FROM
+                "trading-fee-ppm-updated-events"
+            WHERE
+                "blockchainType" = '${deployment.blockchainType}'
+                AND "exchangeId" = '${deployment.exchangeId}'
+                AND "blockId" = (
+                    SELECT
+                        MAX("blockId")
+                    FROM
+                        "trading-fee-ppm-updated-events"
+                )
+            LIMIT
+                1
+        ), pairsWithFee AS (
+            SELECT
+                ps.*,
+                COALESCE(
+                    pf.feePPM,
+                    (
+                        SELECT
+                            feePPM
+                        FROM
+                            latestDefaultFee
+                    )
+                ) / 100 AS feeBps
+            FROM
+                pairs ps
+                LEFT JOIN pairFees pf ON ps.id = pf."pairId"
+        ),
+        pairsWithTxHash AS (
+            SELECT
+                pf.*,
+                pce."transactionHash" AS createdAtTxnId
+            FROM
+                pairsWithFee pf
+                LEFT JOIN "pair-created-events" pce ON (
+                    pce.token0 = pf.asset0Id
+                    AND pce.token1 = pf.asset1Id
+                )
+                OR (
+            pce.token0 = pf.asset1Id
+            AND pce.token1 = pf.asset0Id
+        )
+)
+SELECT
+    *
+FROM
+    pairsWithTxHash
+    `;
+
+    const result = await this.dexScreenerEventV2Repository.query(query);
+    result.forEach((r) => {
+      for (const [key, value] of Object.entries(r)) {
+        if (value === null) {
+          r[key] = 0;
+        }
+      }
+    });
+    return result;
   }
 }

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { DexScreenerV2Service } from './dex-screener-v2.service';
 import { DexScreenerEventV2 } from './dex-screener-event-v2.entity';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
@@ -21,6 +22,7 @@ import { Decimal } from 'decimal.js';
 describe('DexScreenerV2Service', () => {
   let service: DexScreenerV2Service;
   let dexScreenerEventV2Repository: jest.Mocked<Repository<DexScreenerEventV2>>;
+  let cacheManager: jest.Mocked<any>;
   let lastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
   let strategyCreatedEventService: jest.Mocked<StrategyCreatedEventService>;
   let strategyUpdatedEventService: jest.Mocked<StrategyUpdatedEventService>;
@@ -162,6 +164,7 @@ describe('DexScreenerV2Service', () => {
     const mockRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
       save: jest.fn().mockResolvedValue([]),
+      query: jest.fn().mockResolvedValue([]),
       manager: {
         query: jest.fn().mockResolvedValue([]),
       },
@@ -173,6 +176,15 @@ describe('DexScreenerV2Service', () => {
         {
           provide: getRepositoryToken(DexScreenerEventV2),
           useValue: mockRepository,
+        },
+        {
+          provide: CACHE_MANAGER,
+          useValue: {
+            get: jest.fn(),
+            set: jest.fn(),
+            del: jest.fn(),
+            reset: jest.fn(),
+          },
         },
         {
           provide: LastProcessedBlockService,
@@ -216,6 +228,7 @@ describe('DexScreenerV2Service', () => {
 
     service = module.get<DexScreenerV2Service>(DexScreenerV2Service);
     dexScreenerEventV2Repository = module.get(getRepositoryToken(DexScreenerEventV2));
+    cacheManager = module.get(CACHE_MANAGER);
     lastProcessedBlockService = module.get(LastProcessedBlockService);
     strategyCreatedEventService = module.get(StrategyCreatedEventService);
     strategyUpdatedEventService = module.get(StrategyUpdatedEventService);

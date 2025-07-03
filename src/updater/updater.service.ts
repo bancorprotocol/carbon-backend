@@ -14,7 +14,6 @@ import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
-import { DexScreenerService } from '../v1/dex-screener/dex-screener.service';
 import { DexScreenerV2Service } from '../v1/dex-screener/dex-screener-v2.service';
 import { TvlService } from '../tvl/tvl.service';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
@@ -51,7 +50,6 @@ export class UpdaterService {
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
     private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
-    private dexScreenerService: DexScreenerService,
     private dexScreenerV2Service: DexScreenerV2Service,
     private tvlService: TvlService,
     private deploymentService: DeploymentService,
@@ -238,10 +236,6 @@ export class UpdaterService {
       // coingecko tickers
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
-
-      // DexScreener
-      await this.dexScreenerService.update(deployment);
-      console.log(`CARBON SERVICE - Finished updating DexScreener for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished updating analytics for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingAnalytics[deploymentKey] = false;
