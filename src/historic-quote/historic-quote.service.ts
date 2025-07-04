@@ -154,7 +154,7 @@ export class HistoricQuoteService implements OnModuleInit {
       const price = `${q.usd}`;
 
       // Use Decimal for proper numeric comparison
-      if (latest[tokenAddress] && latest[tokenAddress].usd) {
+      if (latest[tokenAddress]?.usd) {
         const existingUsdDecimal = new Decimal(latest[tokenAddress].usd);
         const newUsdDecimal = new Decimal(price);
         if (existingUsdDecimal.equals(newUsdDecimal)) continue;

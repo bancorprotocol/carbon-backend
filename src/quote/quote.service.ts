@@ -446,9 +446,6 @@ export class QuoteService implements OnModuleInit {
       for (const token of tokens) {
         const tokenAddress = token.address.toLowerCase();
 
-        if (tokenAddress === '0x6e47f8d48a01b44df3fff35d258a10a3aedc114c') {
-          console.log('helloo');
-        }
         const priceData = newPrices[tokenAddress];
         const existingQuote = existingQuotesByTokenId[token.id];
 
