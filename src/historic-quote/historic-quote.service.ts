@@ -153,7 +153,12 @@ export class HistoricQuoteService implements OnModuleInit {
       const tokenAddress = q.tokenAddress;
       const price = `${q.usd}`;
 
-      if (latest[tokenAddress] && latest[tokenAddress].usd === price) continue;
+      // Use Decimal for proper numeric comparison
+      if (latest[tokenAddress] && latest[tokenAddress].usd) {
+        const existingUsdDecimal = new Decimal(latest[tokenAddress].usd);
+        const newUsdDecimal = new Decimal(price);
+        if (existingUsdDecimal.equals(newUsdDecimal)) continue;
+      }
 
       q.blockchainType = BlockchainType.Ethereum;
       newQuotes.push(this.repository.create(q));
@@ -180,7 +185,12 @@ export class HistoricQuoteService implements OnModuleInit {
       const quote = quotes[address];
       const price = `${quote.usd}`;
 
-      if (latest[address] && latest[address].usd === price) continue;
+      // Use Decimal for proper numeric comparison
+      if (latest[address] && latest[address].usd) {
+        const existingUsdDecimal = new Decimal(latest[address].usd);
+        const newUsdDecimal = new Decimal(price);
+        if (existingUsdDecimal.equals(newUsdDecimal)) continue;
+      }
 
       newQuotes.push(
         this.repository.create({
@@ -1138,7 +1148,14 @@ export class HistoricQuoteService implements OnModuleInit {
 
           // Check if we have an existing quote and if the USD value is different
           const existingQuote = latestEthereumQuotes[ethereumAddress];
-          const shouldUpdate = !existingQuote || existingQuote.usd !== newUsdValue;
+          let shouldUpdate = !existingQuote;
+
+          // Use Decimal for proper numeric comparison
+          if (existingQuote && existingQuote.usd) {
+            const existingUsdDecimal = new Decimal(existingQuote.usd);
+            const newUsdDecimal = new Decimal(newUsdValue);
+            shouldUpdate = !existingUsdDecimal.equals(newUsdDecimal);
+          }
 
           if (shouldUpdate) {
             // Create a new quote for the Ethereum token
