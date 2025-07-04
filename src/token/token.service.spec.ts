@@ -8,6 +8,7 @@ import { LastProcessedBlockService } from '../last-processed-block/last-processe
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import { VortexTokensTradedEventService } from '../events/vortex-tokens-traded-event/vortex-tokens-traded-event.service';
 import { ArbitrageExecutedEventService } from '../events/arbitrage-executed-event/arbitrage-executed-event.service';
+import { ArbitrageExecutedEventServiceV2 } from '../events/arbitrage-executed-event-v2/arbitrage-executed-event-v2.service';
 import { VortexTradingResetEventService } from '../events/vortex-trading-reset-event/vortex-trading-reset-event.service';
 import { VortexFundsWithdrawnEventService } from '../events/vortex-funds-withdrawn-event/vortex-funds-withdrawn-event.service';
 import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
@@ -28,6 +29,7 @@ describe('TokenService', () => {
   let pairCreatedEventService: PairCreatedEventService;
   let vortexTokensTradedEventService: VortexTokensTradedEventService;
   let arbitrageExecutedEventService: ArbitrageExecutedEventService;
+  let arbitrageExecutedEventServiceV2: ArbitrageExecutedEventServiceV2;
   let vortexTradingResetEventService: VortexTradingResetEventService;
   let vortexFundsWithdrawnEventService: VortexFundsWithdrawnEventService;
   let protectionRemovedEventService: ProtectionRemovedEventService;
@@ -124,6 +126,12 @@ describe('TokenService', () => {
           },
         },
         {
+          provide: ArbitrageExecutedEventServiceV2,
+          useValue: {
+            get: jest.fn(),
+          },
+        },
+        {
           provide: VortexTradingResetEventService,
           useValue: {
             get: jest.fn(),
@@ -158,6 +166,7 @@ describe('TokenService', () => {
     pairCreatedEventService = module.get<PairCreatedEventService>(PairCreatedEventService);
     vortexTokensTradedEventService = module.get<VortexTokensTradedEventService>(VortexTokensTradedEventService);
     arbitrageExecutedEventService = module.get<ArbitrageExecutedEventService>(ArbitrageExecutedEventService);
+    arbitrageExecutedEventServiceV2 = module.get<ArbitrageExecutedEventServiceV2>(ArbitrageExecutedEventServiceV2);
     vortexTradingResetEventService = module.get<VortexTradingResetEventService>(VortexTradingResetEventService);
     vortexFundsWithdrawnEventService = module.get<VortexFundsWithdrawnEventService>(VortexFundsWithdrawnEventService);
     protectionRemovedEventService = module.get<ProtectionRemovedEventService>(ProtectionRemovedEventService);
@@ -257,6 +266,9 @@ describe('TokenService', () => {
       jest
         .spyOn(arbitrageExecutedEventService, 'get')
         .mockResolvedValue([mockArbitrageEvent as ArbitrageExecutedEvent]);
+
+      // Mock arbitrage executed events v2
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
 
       const mockResetEvent: Partial<VortexTradingResetEvent> = {
         token: '0xpqr678',
@@ -560,7 +572,7 @@ describe('TokenService', () => {
         where: {
           blockchainType: mockDeployment.blockchainType,
           exchangeId: mockDeployment.exchangeId,
-          address: '0xexisting',
+          address: expect.anything(),
         },
       });
 

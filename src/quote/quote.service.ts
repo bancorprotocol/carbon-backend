@@ -136,7 +136,9 @@ export class QuoteService implements OnModuleInit {
         newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       }
 
-      await this.updateQuotes(tokens, newPrices, deployment);
+      if (newPrices && Object.entries(newPrices).length > 0) {
+        await this.updateQuotes(tokens, newPrices, deployment);
+      }
     } catch (error) {
       this.logger.error(
         `Error fetching and storing quotes for blockchain ${deployment.blockchainType}: ${error.message}`,
@@ -443,6 +445,7 @@ export class QuoteService implements OnModuleInit {
 
       for (const token of tokens) {
         const tokenAddress = token.address.toLowerCase();
+
         const priceData = newPrices[tokenAddress];
         const existingQuote = existingQuotesByTokenId[token.id];
 
@@ -457,6 +460,11 @@ export class QuoteService implements OnModuleInit {
               const ethereumQuote = ethereumQuotesByAddress[mappedAddress.toLowerCase()];
 
               if (ethereumQuote) {
+                if (ethereumQuote.usd == null || ethereumQuote.usd === '' || ethereumQuote.usd === undefined) {
+                  this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+                  continue;
+                }
+
                 if (existingQuote) {
                   // Only update the USD price and provider from Ethereum quote
                   existingQuote.usd = ethereumQuote.usd;
@@ -483,12 +491,22 @@ export class QuoteService implements OnModuleInit {
 
         if (existingQuote) {
           // Update existing quote
+          if (priceData.usd == null || priceData.usd === '' || priceData.usd === undefined) {
+            this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+            continue;
+          }
+
           existingQuote.usd = priceData.usd?.toString();
           existingQuote.timestamp = now;
           existingQuote.provider = priceData.provider;
           quotesToSave.push(existingQuote);
         } else {
           // Create new quote
+          if (priceData.usd == null || priceData.usd === '' || priceData.usd === undefined) {
+            this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+            continue;
+          }
+
           quotesToSave.push(
             this.quoteRepository.create({
               token,

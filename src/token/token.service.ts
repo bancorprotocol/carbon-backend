@@ -1,4 +1,4 @@
-import { Repository } from 'typeorm';
+import { Repository, Raw } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { decimalsABI, nameABI, symbolABI } from '../abis/erc20.abi';
@@ -198,15 +198,15 @@ export class TokenService implements OnModuleInit {
     // map all token addresses in an array
     const addressesSet = new Set(addresses);
 
-    // filter out already existing tokens
+    // filter out already existing tokens (case-insensitive comparison)
     const currentlyExistingTokens: any = await this.token.find({
       where: { blockchainType: deployment.blockchainType, exchangeId: deployment.exchangeId },
     });
-    const currentlyExistingAddresses = currentlyExistingTokens.map((t) => t.address);
+    const currentlyExistingAddresses = currentlyExistingTokens.map((t) => t.address.toLowerCase());
 
     const newAddresses = [];
     Array.from(addressesSet).forEach((t) => {
-      if (!currentlyExistingAddresses.includes(t)) {
+      if (!currentlyExistingAddresses.includes(t.toLowerCase())) {
         newAddresses.push(t);
       }
     });
@@ -336,12 +336,12 @@ export class TokenService implements OnModuleInit {
     // Normalize address to lowercase for consistent lookup
     const normalizedAddress = address.toLowerCase();
 
-    // Check if token already exists
+    // Check if token already exists (case-insensitive search)
     const existingToken = await this.token.findOne({
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
-        address: normalizedAddress,
+        address: Raw((alias) => `LOWER(${alias}) = :address`, { address: normalizedAddress }),
       },
     });
 

@@ -144,6 +144,9 @@ export class DeploymentService {
             },
           },
         },
+        mapEthereumTokens: {
+          '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d': '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d', // governer self mapping
+        },
       },
       {
         exchangeId: ExchangeId.OGSei,
