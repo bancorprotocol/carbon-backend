@@ -98,7 +98,7 @@ export class TokensTradedEventService {
     }
 
     if (endTime !== undefined) {
-      queryBuilder.andWhere('tokensTradedEvents.timestamp <= :endTime', { endTime: new Date(endTime) });
+      queryBuilder.andWhere('tokensTradedEvents.timestamp <= :endTime', { endTime: new Date(endTime * 1000) });
     }
 
     if (type !== undefined) {
@@ -117,6 +117,8 @@ export class TokensTradedEventService {
       queryBuilder.take(limit);
     }
 
+    const queryText = queryBuilder.getQueryAndParameters();
+    console.log(queryText);
     const trades = await queryBuilder.getMany();
 
     // normalize amounts
