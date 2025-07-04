@@ -136,7 +136,9 @@ export class QuoteService implements OnModuleInit {
         newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       }
 
-      await this.updateQuotes(tokens, newPrices, deployment);
+      if (Object.entries(newPrices).length > 0) {
+        await this.updateQuotes(tokens, newPrices, deployment);
+      }
     } catch (error) {
       this.logger.error(
         `Error fetching and storing quotes for blockchain ${deployment.blockchainType}: ${error.message}`,
@@ -443,6 +445,10 @@ export class QuoteService implements OnModuleInit {
 
       for (const token of tokens) {
         const tokenAddress = token.address.toLowerCase();
+
+        if (tokenAddress === '0x6e47f8d48a01b44df3fff35d258a10a3aedc114c') {
+          console.log('helloo');
+        }
         const priceData = newPrices[tokenAddress];
         const existingQuote = existingQuotesByTokenId[token.id];
 
