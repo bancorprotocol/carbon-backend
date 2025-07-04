@@ -457,6 +457,11 @@ export class QuoteService implements OnModuleInit {
               const ethereumQuote = ethereumQuotesByAddress[mappedAddress.toLowerCase()];
 
               if (ethereumQuote) {
+                if (ethereumQuote.usd == null || ethereumQuote.usd === '' || ethereumQuote.usd === undefined) {
+                  this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+                  continue;
+                }
+
                 if (existingQuote) {
                   // Only update the USD price and provider from Ethereum quote
                   existingQuote.usd = ethereumQuote.usd;
@@ -483,12 +488,22 @@ export class QuoteService implements OnModuleInit {
 
         if (existingQuote) {
           // Update existing quote
+          if (priceData.usd == null || priceData.usd === '' || priceData.usd === undefined) {
+            this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+            continue;
+          }
+
           existingQuote.usd = priceData.usd?.toString();
           existingQuote.timestamp = now;
           existingQuote.provider = priceData.provider;
           quotesToSave.push(existingQuote);
         } else {
           // Create new quote
+          if (priceData.usd == null || priceData.usd === '' || priceData.usd === undefined) {
+            this.logger.warn(`Skipping quote update for token ${tokenAddress} - no valid USD price data`);
+            continue;
+          }
+
           quotesToSave.push(
             this.quoteRepository.create({
               token,
