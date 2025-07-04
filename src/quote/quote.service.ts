@@ -136,7 +136,7 @@ export class QuoteService implements OnModuleInit {
         newPrices = await this.codexService.getLatestPrices(deployment, addresses);
       }
 
-      if (Object.entries(newPrices).length > 0) {
+      if (newPrices && Object.entries(newPrices).length > 0) {
         await this.updateQuotes(tokens, newPrices, deployment);
       }
     } catch (error) {
