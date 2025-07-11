@@ -34,6 +34,7 @@ export class QuoteService implements OnModuleInit {
     [BlockchainType.Ethereum]: [
       { name: 'coingecko', enabled: true },
       { name: 'codex', enabled: true },
+      { name: 'carbon-defi', enabled: true },
     ],
     [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],

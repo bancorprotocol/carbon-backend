@@ -1771,4 +1771,496 @@ describe('HistoricQuoteService', () => {
       expect(result[originalToken.toLowerCase()]).toBeUndefined();
     });
   });
+
+  describe('getLatestPricesBeforeTimestamp', () => {
+    beforeEach(() => {
+      mockRepository.query.mockClear();
+    });
+
+    it('should return latest prices with provider priority logic', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      // Mock query response - multiple providers for same token
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'codex',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 3,
+          tokenAddress: '0xtoken2',
+          usd: '200.00',
+          timestamp: new Date('2024-01-01T09:00:00Z'),
+          provider: 'codex',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      expect(result).toHaveLength(2);
+      // Should pick coinmarketcap (highest priority) for token1
+      expect(result[0].tokenAddress).toBe('0xtoken1');
+      expect(result[0].provider).toBe('coinmarketcap');
+      expect(result[0].usd).toBe('100.00');
+
+      // Should pick codex for token2 (only available provider)
+      expect(result[1].tokenAddress).toBe('0xtoken2');
+      expect(result[1].provider).toBe('codex');
+      expect(result[1].usd).toBe('200.00');
+    });
+
+    it('should apply 24-hour freshness rule', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-02T12:00:00Z');
+
+      // Mock query response - codex data is more than 24h newer than coinmarketcap
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T09:00:00Z'), // 27 hours before cutoff
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-02T10:00:00Z'), // 2 hours before cutoff (25 hours newer than coinmarketcap)
+          provider: 'codex',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      expect(result).toHaveLength(1);
+      // Should pick codex despite lower priority because it's >24h newer
+      expect(result[0].provider).toBe('codex');
+      expect(result[0].usd).toBe('101.00');
+    });
+
+    it('should handle empty providers gracefully', async () => {
+      const blockchainType = BlockchainType.Iota; // Has no enabled providers
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      expect(result).toEqual([]);
+      expect(mockRepository.query).not.toHaveBeenCalled();
+    });
+
+    it('should handle database errors gracefully', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockRejectedValue(new Error('Database error'));
+
+      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      expect(result).toEqual([]);
+    });
+
+    it('should pass correct parameters to query', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('WITH token_provider_latest AS'),
+        expect.arrayContaining([
+          'ethereum',
+          '2024-01-01T12:00:00.000Z',
+          '2023-12-25T12:00:00.000Z', // 7 days before
+          ['coinmarketcap', 'codex', 'carbon-graph'],
+          500000,
+        ]),
+      );
+    });
+
+    it('should respect the limit parameter', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+      const customLimit = 100;
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp, customLimit);
+
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('LIMIT $5'),
+        expect.arrayContaining([customLimit]),
+      );
+    });
+
+    it('should filter by token addresses when provided', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+      const tokenAddresses = ['0xToken1', '0xToken2'];
+
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken2',
+          usd: '200.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'codex',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPricesBeforeTimestamp(
+        blockchainType,
+        cutoffTimestamp,
+        500000,
+        tokenAddresses,
+      );
+
+      expect(result).toHaveLength(2);
+      expect(result[0].tokenAddress).toBe('0xtoken1');
+      expect(result[1].tokenAddress).toBe('0xtoken2');
+
+      // Verify the query was called with normalized token addresses
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([['0xtoken1', '0xtoken2']]),
+      );
+    });
+
+    it('should return all tokens when no token addresses filter is provided', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      // Verify the query was called with null for token addresses filter
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([undefined]),
+      );
+    });
+
+    it('should handle empty token addresses array', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp, 500000, []);
+
+      expect(result).toEqual([]);
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([[]]),
+      );
+    });
+  });
+
+  describe('selectBestQuoteWithPriority', () => {
+    const providerPriorities = ['coinmarketcap', 'codex', 'carbon-graph'];
+
+    it('should return null for empty quotes array', () => {
+      // Access private method using bracket notation
+      const result = service['selectBestQuoteWithPriority']([], providerPriorities);
+      expect(result).toBeNull();
+    });
+
+    it('should return the single quote when only one exists', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      expect(result).toBe(quotes[0]);
+    });
+
+    it('should select highest priority provider when timestamps are similar', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      expect(result.provider).toBe('coinmarketcap');
+      expect(result.usd).toBe('101.00');
+    });
+
+    it('should select lower priority provider when it is more than 24h newer', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-02T12:00:00Z'), // 26 hours later
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      expect(result.provider).toBe('codex');
+      expect(result.usd).toBe('101.00');
+    });
+
+    it('should not select lower priority provider when it is less than 24h newer', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T20:00:00Z'), // 10 hours later
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      expect(result.provider).toBe('coinmarketcap');
+      expect(result.usd).toBe('100.00');
+    });
+
+    it('should handle multiple providers with complex priority logic', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T20:00:00Z'), // 10 hours later (not enough)
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 3,
+          tokenAddress: '0xtoken1',
+          usd: '102.00',
+          timestamp: new Date('2024-01-02T12:00:00Z'), // 26 hours later (enough)
+          provider: 'carbon-graph',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      expect(result.provider).toBe('carbon-graph');
+      expect(result.usd).toBe('102.00');
+    });
+
+    it('should handle providers not in priority list', () => {
+      const quotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'unknown-provider',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'codex',
+          blockchainType: BlockchainType.Ethereum,
+        } as HistoricQuote,
+      ];
+
+      const result = service['selectBestQuoteWithPriority'](quotes, providerPriorities);
+      // Should select codex since it's in the priority list
+      expect(result.provider).toBe('codex');
+      expect(result.usd).toBe('101.00');
+    });
+  });
+
+  describe('getLatestPriceBeforeTimestamp', () => {
+    beforeEach(() => {
+      mockRepository.query.mockClear();
+    });
+
+    it('should return single token quote using the optimized multi-token method', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      const mockQuote = {
+        id: 1,
+        tokenAddress: '0xtoken1',
+        usd: '100.00',
+        timestamp: new Date('2024-01-01T10:00:00Z'),
+        provider: 'coinmarketcap',
+        blockchainType: 'ethereum',
+      };
+
+      mockRepository.query.mockResolvedValue([mockQuote]);
+
+      const result = await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      expect(result).toEqual(mockQuote);
+
+      // Verify it called the multi-token method with correct parameters
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([
+          'ethereum',
+          '2024-01-01T12:00:00.000Z',
+          '2023-12-25T12:00:00.000Z',
+          ['coinmarketcap', 'codex', 'carbon-graph'],
+          1, // limit should be 1
+          ['0xtoken1'], // should filter to specific token
+        ]),
+      );
+    });
+
+    it('should return null when no quote exists for the token', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      const result = await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      expect(result).toBeNull();
+    });
+
+    it('should handle errors gracefully and return null', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockRejectedValue(new Error('Database error'));
+
+      const result = await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      expect(result).toBeNull();
+    });
+
+    it('should apply provider priority logic for single token', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      // Mock multiple providers for the same token
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T09:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '101.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'codex',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      // Should return the highest priority provider (coinmarketcap)
+      expect(result.provider).toBe('coinmarketcap');
+      expect(result.usd).toBe('100.00');
+    });
+
+    it('should normalize token address to lowercase', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xTOKEN1'; // Mixed case
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      // Verify the token address was normalized to lowercase
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([['0xtoken1']]),
+      );
+    });
+  });
 });
