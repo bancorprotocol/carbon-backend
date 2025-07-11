@@ -50,7 +50,7 @@ export class ActivityV2Service {
     await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates);
 
     // Process blocks in batches
-    for (let batchStart = lastProcessedBlock; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
+    for (let batchStart = lastProcessedBlock + 1; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       // Fetch events in parallel

@@ -79,46 +79,46 @@ export class TokenService implements OnModuleInit {
       const nextBlock = Math.min(currentBlock + batchSize, endBlock);
 
       // fetch pair created events
-      const newPairCreatedEvents = await this.pairCreatedEventService.get(currentBlock, nextBlock, deployment);
+      const newPairCreatedEvents = await this.pairCreatedEventService.get(currentBlock + 1, nextBlock, deployment);
 
       // fetch arbitrage executed events
       const newArbitrageExecutedEvents = await this.arbitrageExecutedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch arbitrage executed events v2
       const newArbitrageExecutedEventsV2 = await this.arbitrageExecutedEventServiceV2.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex tokens traded events
       const newVortexTokensTradedEvents = await this.vortexTokensTradedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex trading reset events
       const newVortexTradingResetEvents = await this.vortexTradingResetEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex funds withdrawn events
       const newVortexFundsWithdrawnEvents = await this.vortexFundsWithdrawnEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch protection removed events
       const newProtectionRemovedEvents = await this.protectionRemovedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
