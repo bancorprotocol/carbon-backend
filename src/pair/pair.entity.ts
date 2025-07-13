@@ -15,7 +15,7 @@ import {
 import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'pairs' })
-@Unique(['blockchainType', 'token0', 'token1'])
+@Unique(['blockchainType', 'exchangeId', 'token0', 'token1'])
 export class Pair {
   @PrimaryGeneratedColumn()
   id: number;
