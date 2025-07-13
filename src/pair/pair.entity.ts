@@ -10,10 +10,12 @@ import {
   PrimaryGeneratedColumn,
   OneToMany,
   Index,
+  Unique,
 } from 'typeorm';
 import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'pairs' })
+@Unique(['blockchainType', 'exchangeId', 'token0', 'token1'])
 export class Pair {
   @PrimaryGeneratedColumn()
   id: number;

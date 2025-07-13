@@ -1,4 +1,4 @@
-import { Repository, Raw } from 'typeorm';
+import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { decimalsABI, nameABI, symbolABI } from '../abis/erc20.abi';
@@ -79,46 +79,46 @@ export class TokenService implements OnModuleInit {
       const nextBlock = Math.min(currentBlock + batchSize, endBlock);
 
       // fetch pair created events
-      const newPairCreatedEvents = await this.pairCreatedEventService.get(currentBlock, nextBlock, deployment);
+      const newPairCreatedEvents = await this.pairCreatedEventService.get(currentBlock + 1, nextBlock, deployment);
 
       // fetch arbitrage executed events
       const newArbitrageExecutedEvents = await this.arbitrageExecutedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch arbitrage executed events v2
       const newArbitrageExecutedEventsV2 = await this.arbitrageExecutedEventServiceV2.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex tokens traded events
       const newVortexTokensTradedEvents = await this.vortexTokensTradedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex trading reset events
       const newVortexTradingResetEvents = await this.vortexTradingResetEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch vortex funds withdrawn events
       const newVortexFundsWithdrawnEvents = await this.vortexFundsWithdrawnEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
 
       // fetch protection removed events
       const newProtectionRemovedEvents = await this.protectionRemovedEventService.get(
-        currentBlock,
+        currentBlock + 1,
         nextBlock,
         deployment,
       );
@@ -336,14 +336,16 @@ export class TokenService implements OnModuleInit {
     // Normalize address to lowercase for consistent lookup
     const normalizedAddress = address.toLowerCase();
 
-    // Check if token already exists (case-insensitive search)
-    const existingToken = await this.token.findOne({
+    // Get all tokens for this deployment and filter in memory (more reliable than Raw query)
+    const allTokens = await this.token.find({
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
-        address: Raw((alias) => `LOWER(${alias}) = :address`, { address: normalizedAddress }),
       },
     });
+
+    // Find existing token with case-insensitive matching
+    const existingToken = allTokens.find((token) => token.address.toLowerCase() === normalizedAddress);
 
     if (existingToken) {
       return existingToken;
@@ -356,7 +358,7 @@ export class TokenService implements OnModuleInit {
 
     // Create and save the new token
     const newToken = this.token.create({
-      address: normalizedAddress,
+      address: address, // Store original case instead of normalizedAddress
       symbol,
       decimals: decimal,
       name,

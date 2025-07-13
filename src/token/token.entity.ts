@@ -1,7 +1,8 @@
-import { Entity, Column, CreateDateColumn, UpdateDateColumn, PrimaryGeneratedColumn, Index } from 'typeorm';
+import { Entity, Column, CreateDateColumn, UpdateDateColumn, PrimaryGeneratedColumn, Index, Unique } from 'typeorm';
 import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
 
 @Entity({ name: 'tokens' })
+@Unique(['blockchainType', 'exchangeId', 'address'])
 export class Token {
   @PrimaryGeneratedColumn()
   id: number;

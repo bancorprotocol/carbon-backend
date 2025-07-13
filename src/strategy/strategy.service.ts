@@ -59,7 +59,7 @@ export class StrategyService {
     );
 
     // Process the events in ranges
-    for (let block = startBlock; block <= endBlock; block += deployment.harvestEventsBatchSize * 10) {
+    for (let block = startBlock + 1; block <= endBlock; block += deployment.harvestEventsBatchSize * 10) {
       const rangeEnd = Math.min(block + deployment.harvestEventsBatchSize * 10 - 1, endBlock);
 
       // Fetch the events from the current block range
