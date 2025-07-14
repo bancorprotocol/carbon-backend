@@ -28,6 +28,7 @@ import { ProtectionRemovedEventService } from '../events/protection-removed-even
 import { CarbonPriceService } from '../carbon-price/carbon-price.service';
 import { QuoteService } from '../quote/quote.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
+import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
@@ -64,6 +65,7 @@ export class UpdaterService {
     private carbonPriceService: CarbonPriceService,
     private quoteService: QuoteService,
     private historicQuoteService: HistoricQuoteService,
+    private merklProcessorService: MerklProcessorService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -182,6 +184,10 @@ export class UpdaterService {
 
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
+
+      // update merkl rewards
+      await this.merklProcessorService.update(endBlock, deployment, tokens);
+      console.log(`CARBON SERVICE - Finished updating merkl rewards for ${deployment.exchangeId}`);
 
       // handle notifications
       await this.notificationService.update(endBlock, deployment);
