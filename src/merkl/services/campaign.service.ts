@@ -26,11 +26,11 @@ export class CampaignService {
     });
 
     if (existingCampaign) {
-      // Check for time overlap
-      const hasOverlap = !(
-        createCampaignDto.endDate <= existingCampaign.startDate ||
-        createCampaignDto.startDate >= existingCampaign.endDate
-      );
+      // Check for time overlap (convert to Date objects for comparison)
+      const newStartDate = new Date(createCampaignDto.startDate);
+      const newEndDate = new Date(createCampaignDto.endDate);
+
+      const hasOverlap = !(newEndDate <= existingCampaign.startDate || newStartDate >= existingCampaign.endDate);
 
       if (hasOverlap) {
         throw new Error(`Active campaign already exists for this pair with overlapping time period`);

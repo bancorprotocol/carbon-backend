@@ -83,8 +83,8 @@ describe('MerklController', () => {
           blockchainType: BlockchainType.Ethereum,
           exchangeId: ExchangeId.OGEthereum,
           rewardAmount: '100000000000000000000000', // 100,000 tokens in wei
-          startDate: Math.floor(Date.now() / 1000) - 86400, // Started 1 day ago
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 30, // Ends in 30 days
+          startDate: new Date(Date.now() - 86400 * 1000), // Started 1 day ago
+          endDate: new Date(Date.now() + 86400 * 30 * 1000), // Ends in 30 days
           isActive: true,
           opportunityName: 'ETH/USDC Liquidity Mining',
           pair: {
@@ -97,8 +97,8 @@ describe('MerklController', () => {
           blockchainType: BlockchainType.Ethereum,
           exchangeId: ExchangeId.OGEthereum,
           rewardAmount: '50000000000000000000000', // 50,000 tokens in wei
-          startDate: Math.floor(Date.now() / 1000) - 3600, // Started 1 hour ago
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 7, // Ends in 7 days
+          startDate: new Date(Date.now() - 3600 * 1000), // Started 1 hour ago
+          endDate: new Date(Date.now() + 86400 * 7 * 1000), // Ends in 7 days
           isActive: true,
           opportunityName: 'WBTC/ETH High Yield',
           pair: {
@@ -155,8 +155,8 @@ describe('MerklController', () => {
         {
           id: '1',
           rewardAmount: '100000000000000000000000',
-          startDate: Math.floor(Date.now() / 1000) + 86400, // Starts tomorrow (not active yet)
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 30,
+          startDate: new Date(Date.now() + 86400 * 1000), // Starts tomorrow (not active yet)
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
           isActive: true,
           opportunityName: 'Future Campaign',
           pair: {
@@ -167,8 +167,8 @@ describe('MerklController', () => {
         {
           id: '2',
           rewardAmount: '50000000000000000000000',
-          startDate: Math.floor(Date.now() / 1000) - 86400 * 30, // Started 30 days ago
-          endDate: Math.floor(Date.now() / 1000) - 86400, // Ended yesterday
+          startDate: new Date(Date.now() - 86400 * 30 * 1000), // Started 30 days ago
+          endDate: new Date(Date.now() - 86400 * 1000), // Ended yesterday
           isActive: true,
           opportunityName: 'Expired Campaign',
           pair: {
@@ -179,8 +179,8 @@ describe('MerklController', () => {
         {
           id: '3',
           rewardAmount: '75000000000000000000000',
-          startDate: Math.floor(Date.now() / 1000) - 86400,
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 30,
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
           isActive: false, // Manually deactivated
           opportunityName: 'Deactivated Campaign',
           pair: {
@@ -209,8 +209,8 @@ describe('MerklController', () => {
         {
           id: '1',
           rewardAmount: '100000000000000000000000',
-          startDate: Math.floor(Date.now() / 1000) - 86400,
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 30,
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
           isActive: true,
           opportunityName: 'Zero TVL Campaign',
           pair: {
@@ -250,8 +250,8 @@ describe('MerklController', () => {
         {
           id: '1',
           rewardAmount: '999999999999999999999999999999999999999', // Very large reward
-          startDate: Math.floor(Date.now() / 1000) - 86400,
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 365, // 1 year campaign
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 365 * 1000), // 1 year campaign
           isActive: true,
           opportunityName: 'Whale Campaign',
           pair: {
@@ -461,8 +461,8 @@ describe('MerklController', () => {
         {
           id: '1',
           rewardAmount: '100000000000000000000000',
-          startDate: Math.floor(Date.now() / 1000) - 86400,
-          endDate: Math.floor(Date.now() / 1000) + 86400 * 30,
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
           isActive: true,
           opportunityName: 'Malformed Address Campaign',
           pair: {

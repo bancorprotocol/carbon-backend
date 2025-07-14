@@ -28,13 +28,13 @@ export class EpochReward {
   @Index()
   epochNumber: number;
 
-  @Column()
+  @Column({ type: 'timestamp' })
   @Index()
-  epochStartTimestamp: number;
+  epochStartTimestamp: Date;
 
-  @Column()
+  @Column({ type: 'timestamp' })
   @Index()
-  epochEndTimestamp: number;
+  epochEndTimestamp: Date;
 
   @Column()
   @Index()
@@ -44,7 +44,7 @@ export class EpochReward {
   @Index()
   owner: string;
 
-  @Column({ type: 'decimal', precision: 78, scale: 0 })
+  @Column({ type: 'text' })
   rewardAmount: string;
 
   @Column()

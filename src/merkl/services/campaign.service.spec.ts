@@ -47,8 +47,8 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '100123456789012345678',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200,
-        endDate: 1672531200,
+        startDate: new Date('2022-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-01T00:00:00.000Z'),
         opportunityName: 'ETH/USDC Liquidity Mining',
         isActive: true,
       };
@@ -78,8 +78,8 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '999999999999999999999999999999999999999',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200,
-        endDate: 1672531200,
+        startDate: new Date('2022-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-01T00:00:00.000Z'),
         opportunityName: 'Large Reward Campaign',
         isActive: true,
       };
@@ -113,16 +113,16 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '100000000000000000000',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200,
-        endDate: 1672531200,
+        startDate: new Date('2022-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-01T00:00:00.000Z'),
         opportunityName: 'Overlapping Campaign',
         isActive: true,
       };
 
       const existingCampaign = {
         id: '1',
-        startDate: 1635724800, // Earlier start
-        endDate: 1667260800, // Later end (overlaps)
+        startDate: new Date('2021-11-01T00:00:00.000Z'), // Earlier start
+        endDate: new Date('2022-11-01T00:00:00.000Z'), // Later end (overlaps)
         isActive: true,
       };
 
@@ -163,8 +163,8 @@ describe('CampaignService', () => {
           pairId: 2,
           rewardAmount: '50987654321098765432',
           rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-          startDate: 1650995200,
-          endDate: 1682531200,
+          startDate: new Date('2022-04-26T00:00:00.000Z'),
+          endDate: new Date('2023-04-26T00:00:00.000Z'),
           opportunityName: 'WBTC/ETH Campaign',
           isActive: true,
           createdAt: new Date(),
@@ -336,8 +336,8 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '0',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200,
-        endDate: 1672531200,
+        startDate: new Date('2022-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-01T00:00:00.000Z'),
         opportunityName: 'Zero Reward Campaign',
         isActive: true,
       };
@@ -365,8 +365,8 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '100000000000000000000',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200, // Exact epoch boundary
-        endDate: 1640995200, // Same start and end
+        startDate: new Date('2022-01-01T00:00:00.000Z'), // Exact epoch boundary
+        endDate: new Date('2022-01-01T00:00:00.000Z'), // Same start and end
         opportunityName: 'Single Moment Campaign',
         isActive: true,
       };
@@ -384,7 +384,7 @@ describe('CampaignService', () => {
 
       const result = await service.createCampaign(createCampaignDto);
 
-      expect(result.startDate).toBe(result.endDate);
+      expect(result.startDate.getTime()).toBe(result.endDate.getTime());
     });
 
     it('should handle very long duration campaigns', async () => {
@@ -392,11 +392,11 @@ describe('CampaignService', () => {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
         pairId: 1,
-        rewardAmount: '1000000000000000000',
+        rewardAmount: '100000000000000000000',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 0,
-        endDate: 2147483647, // Max 32-bit timestamp
-        opportunityName: 'Very Long Campaign',
+        startDate: new Date('1970-01-01T00:00:00.000Z'),
+        endDate: new Date('2038-01-19T03:14:07.000Z'), // Max 32-bit timestamp
+        opportunityName: 'Long Campaign',
         isActive: true,
       };
 
@@ -414,7 +414,7 @@ describe('CampaignService', () => {
       const result = await service.createCampaign(createCampaignDto);
 
       // Calculate duration
-      const duration = result.endDate - result.startDate;
+      const duration = Math.floor(result.endDate.getTime() / 1000) - Math.floor(result.startDate.getTime() / 1000);
       expect(duration).toBe(2147483647);
     });
   });

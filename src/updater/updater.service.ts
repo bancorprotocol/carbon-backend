@@ -186,7 +186,7 @@ export class UpdaterService {
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
       // update merkl rewards
-      await this.merklProcessorService.update(endBlock, deployment, tokens);
+      await this.merklProcessorService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating merkl rewards for ${deployment.exchangeId}`);
 
       // handle notifications

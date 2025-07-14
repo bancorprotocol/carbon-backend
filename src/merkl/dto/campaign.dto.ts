@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString, IsBoolean, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsString, IsBoolean, IsOptional, IsDateString } from 'class-validator';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 export class CreateCampaignDto {
@@ -17,11 +17,11 @@ export class CreateCampaignDto {
   @IsString()
   rewardTokenAddress: string;
 
-  @IsNumber()
-  startDate: number;
+  @IsDateString()
+  startDate: Date;
 
-  @IsNumber()
-  endDate: number;
+  @IsDateString()
+  endDate: Date;
 
   @IsString()
   opportunityName: string;

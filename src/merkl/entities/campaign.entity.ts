@@ -40,13 +40,13 @@ export class Campaign {
   @Column()
   rewardTokenAddress: string;
 
-  @Column()
+  @Column({ type: 'timestamp' })
   @Index()
-  startDate: number; // Unix timestamp in seconds
+  startDate: Date; // Campaign start date
 
-  @Column()
+  @Column({ type: 'timestamp' })
   @Index()
-  endDate: number; // Unix timestamp in seconds
+  endDate: Date; // Campaign end date
 
   @Column()
   opportunityName: string;

@@ -27,9 +27,12 @@ export class MerklController {
     const data: DataJSON = [];
 
     for (const campaign of campaigns) {
+      // Convert Date objects to Unix timestamps (seconds) for comparison
+      const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
+      const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
+
       // Check if campaign is currently active
-      const isCurrentlyActive =
-        currentTime >= campaign.startDate && currentTime <= campaign.endDate && campaign.isActive;
+      const isCurrentlyActive = currentTime >= campaignStartTime && currentTime <= campaignEndTime && campaign.isActive;
 
       if (!isCurrentlyActive) continue;
 
@@ -37,7 +40,7 @@ export class MerklController {
       const tvl = await this.calculatePairTVL(campaign, deployment);
 
       // Calculate APR: (daily rewards * 365) / TVL
-      const campaignDurationDays = (campaign.endDate - campaign.startDate) / (24 * 60 * 60);
+      const campaignDurationDays = (campaignEndTime - campaignStartTime) / (24 * 60 * 60);
       const rewardsPerDay = new Decimal(campaign.rewardAmount).div(campaignDurationDays);
       const aprDecimal = rewardsPerDay.mul(365).div(tvl);
 
@@ -98,7 +101,7 @@ export class MerklController {
 
       rewards[reward.owner][reward.reason] = {
         amount: reward.rewardAmount,
-        timestamp: reward.epochEndTimestamp.toString(),
+        timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
       };
     }
 

@@ -13,7 +13,6 @@ import { StrategyUpdatedEventService } from '../../events/strategy-updated-event
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
 import { Deployment } from '../../deployment/deployment.service';
-import { TokensByAddress } from '../../token/token.service';
 import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
 import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
@@ -43,8 +42,8 @@ interface StrategyState {
 
 interface EpochInfo {
   epochNumber: number;
-  startTimestamp: number;
-  endTimestamp: number;
+  startTimestamp: Date;
+  endTimestamp: Date;
   totalRewards: Decimal;
 }
 
@@ -56,7 +55,17 @@ interface SnapshotData {
   strategies: Map<string, StrategyState>;
 }
 
+interface PriceCache {
+  rates: Map<string, number>; // tokenAddress -> USD rate
+  timestamp: number; // When this cache was created
+}
+
 type StrategyStatesMap = Map<string, StrategyState>;
+
+interface CampaignContext {
+  campaign: Campaign;
+  strategyStates: StrategyStatesMap;
+}
 
 @Injectable()
 export class MerklProcessorService {
@@ -69,7 +78,6 @@ export class MerklProcessorService {
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
 
   constructor(
-    @InjectRepository(Campaign) private campaignRepository: Repository<Campaign>,
     @InjectRepository(EpochReward) private epochRewardRepository: Repository<EpochReward>,
     private campaignService: CampaignService,
     private lastProcessedBlockService: LastProcessedBlockService,
@@ -81,7 +89,7 @@ export class MerklProcessorService {
     private voucherTransferEventService: VoucherTransferEventService,
   ) {}
 
-  async update(endBlock: number, deployment: Deployment, tokens: TokensByAddress): Promise<void> {
+  async update(endBlock: number, deployment: Deployment): Promise<void> {
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
 
     if (campaigns.length === 0) {
@@ -89,42 +97,39 @@ export class MerklProcessorService {
       return;
     }
 
-    for (const campaign of campaigns) {
-      await this.processCampaign(campaign, endBlock, deployment, tokens);
-    }
-  }
+    // 1. Get single global lastProcessedBlock for merkl
+    const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
+    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(globalKey, deployment.startBlock);
 
-  private async processCampaign(
-    campaign: Campaign,
-    endBlock: number,
-    deployment: Deployment,
-    tokens: TokensByAddress,
-  ): Promise<void> {
-    const strategyStates: StrategyStatesMap = new Map();
-    const key = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-${campaign.id}`;
-    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(key, deployment.startBlock);
+    this.logger.log(`Processing merkl globally from block ${lastProcessedBlock} to ${endBlock}`);
 
-    this.logger.log(`Processing campaign ${campaign.id} from block ${lastProcessedBlock} to ${endBlock}`);
-
-    // Clean up existing rewards for this batch range
+    // 2. Global cleanup - delete any merkl epoch rewards data after lastProcessedBlock
     const lastProcessedTimestamp = await this.getTimestampForBlock(lastProcessedBlock, deployment);
     await this.epochRewardRepository
       .createQueryBuilder()
       .delete()
-      .where('campaign = :campaignId', { campaignId: campaign.id })
-      .andWhere('epochStartTimestamp >= :startTimestamp', { startTimestamp: lastProcessedTimestamp })
+      .where('epochStartTimestamp >= :startTimestamp', { startTimestamp: new Date(lastProcessedTimestamp * 1000) })
       .execute();
 
-    // Initialize strategy states from all events up to lastProcessedBlock
-    await this.initializeStrategyStates(lastProcessedBlock, deployment, campaign, strategyStates);
+    // 3. Initialize strategy states for all campaigns up to lastProcessedBlock
+    const campaignContexts: CampaignContext[] = [];
+    for (const campaign of campaigns) {
+      const strategyStates: StrategyStatesMap = new Map();
+      await this.initializeStrategyStates(lastProcessedBlock, deployment, campaign, strategyStates);
 
-    // Process blocks in batches from lastProcessedBlock + 1 to endBlock
+      campaignContexts.push({
+        campaign,
+        strategyStates,
+      });
+    }
+
+    // 4. Process blocks in batches globally
     for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
-      this.logger.log(`Processing campaign ${campaign.id} batch ${batchStart} to ${batchEnd}`);
+      this.logger.log(`Processing global merkl batch ${batchStart} to ${batchEnd}`);
 
-      // Fetch events in parallel for this batch
+      // 5. Fetch ALL events for this batch once (not per campaign)
       const [createdEvents, updatedEvents, deletedEvents, transferEvents] = await Promise.all([
         this.strategyCreatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyUpdatedEventService.get(batchStart, batchEnd, deployment),
@@ -132,15 +137,52 @@ export class MerklProcessorService {
         this.voucherTransferEventService.get(batchStart, batchEnd, deployment),
       ]);
 
+      // 6. Process all campaigns using this batch of events
+      await this.processBatchForAllCampaigns(
+        campaignContexts,
+        { createdEvents, updatedEvents, deletedEvents, transferEvents },
+        batchStart,
+        batchEnd,
+        deployment,
+      );
+
+      // 7. Update the global lastProcessedBlock after each batch
+      await this.lastProcessedBlockService.update(globalKey, batchEnd);
+    }
+  }
+
+  private async processBatchForAllCampaigns(
+    campaignContexts: CampaignContext[],
+    events: {
+      createdEvents: StrategyCreatedEvent[];
+      updatedEvents: StrategyUpdatedEvent[];
+      deletedEvents: StrategyDeletedEvent[];
+      transferEvents: VoucherTransferEvent[];
+    },
+    batchStart: number,
+    batchEnd: number,
+    deployment: Deployment,
+  ): Promise<void> {
+    const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
+    const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
+
+    // Create price cache once for all campaigns in this batch
+    const campaigns = campaignContexts.map((ctx) => ctx.campaign);
+    const priceCache = await this.createPriceCache(campaigns, batchStartTimestamp, deployment);
+
+    // Process each campaign with the same batch of events
+    for (const context of campaignContexts) {
       // Filter events for this campaign's pair only
-      const pairCreatedEvents = createdEvents.filter((e) => e.pair.id === campaign.pair.id);
-      const pairUpdatedEvents = updatedEvents.filter((e) => e.pair.id === campaign.pair.id);
-      const pairDeletedEvents = deletedEvents.filter((e) => e.pair.id === campaign.pair.id);
+      const pairCreatedEvents = events.createdEvents.filter((e) => e.pair.id === context.campaign.pair.id);
+      const pairUpdatedEvents = events.updatedEvents.filter((e) => e.pair.id === context.campaign.pair.id);
+      const pairDeletedEvents = events.deletedEvents.filter((e) => e.pair.id === context.campaign.pair.id);
 
       // For transfer events, filter by strategies that belong to this pair
-      const pairStrategies = Array.from(strategyStates.values()).filter((s) => s.pairId === campaign.pair.id);
+      const pairStrategies = Array.from(context.strategyStates.values()).filter(
+        (s) => s.pairId === context.campaign.pair.id,
+      );
       const pairStrategyIds = new Set(pairStrategies.map((s) => s.strategyId));
-      const pairTransferEvents = transferEvents.filter((e) => pairStrategyIds.has(e.strategyId));
+      const pairTransferEvents = events.transferEvents.filter((e) => pairStrategyIds.has(e.strategyId));
 
       // Update strategy states with events from this batch
       this.updateStrategyStates(
@@ -148,20 +190,18 @@ export class MerklProcessorService {
         pairUpdatedEvents,
         pairDeletedEvents,
         pairTransferEvents,
-        strategyStates,
+        context.strategyStates,
       );
 
       // Calculate and save rewards for epochs that overlap with this batch timeframe
-      const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
-      const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
-
-      await this.processEpochsInTimeRange(campaign, batchStartTimestamp, batchEndTimestamp, strategyStates, deployment);
-
-      // Update the last processed block for this batch
-      await this.lastProcessedBlockService.update(key, batchEnd);
+      await this.processEpochsInTimeRange(
+        context.campaign,
+        batchStartTimestamp,
+        batchEndTimestamp,
+        context.strategyStates,
+        priceCache,
+      );
     }
-
-    this.logger.log(`Completed processing campaign ${campaign.id}`);
   }
 
   private async initializeStrategyStates(
@@ -237,20 +277,27 @@ export class MerklProcessorService {
     );
 
     // Get latest transfer event per strategy for ownership
-    const latestOwnershipStates = await this.epochRewardRepository.manager.query(
-      `
-      SELECT DISTINCT ON ("strategyId") 
-        "strategyId" as strategy_id, 
-        "to" as current_owner
-      FROM "voucher-transfer-events" 
-      WHERE "blockId" <= $1
-        AND "blockchainType" = $2 
-        AND "exchangeId" = $3
-        AND "pairId" = $4
-      ORDER BY "strategyId", "blockId" DESC, "transactionIndex" DESC, "logIndex" DESC
-    `,
-      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId, campaign.pair.id],
-    );
+    // First get strategy IDs for this pair from strategy events
+    const strategyIds = latestStrategyStates.map((s) => s.strategy_id);
+
+    let latestOwnershipStates = [];
+    if (strategyIds.length > 0) {
+      const placeholders = strategyIds.map((_, index) => `$${index + 4}`).join(', ');
+      latestOwnershipStates = await this.epochRewardRepository.manager.query(
+        `
+        SELECT DISTINCT ON ("strategyId") 
+          "strategyId" as strategy_id, 
+          "to" as current_owner
+        FROM "voucher-transfer-events" 
+        WHERE "blockId" <= $1
+          AND "blockchainType" = $2 
+          AND "exchangeId" = $3
+          AND "strategyId" IN (${placeholders})
+        ORDER BY "strategyId", "blockId" DESC, "transactionIndex" DESC, "logIndex" DESC
+      `,
+        [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId, ...strategyIds],
+      );
+    }
 
     // Get list of deleted strategies
     const deletedStrategies = await this.epochRewardRepository.manager.query(
@@ -452,32 +499,46 @@ export class MerklProcessorService {
     startTimestamp: number,
     endTimestamp: number,
     strategyStates: StrategyStatesMap,
-    deployment: Deployment,
+    priceCache: PriceCache,
   ): Promise<void> {
     const epochs = this.calculateEpochsInRange(campaign, startTimestamp, endTimestamp);
 
+    // Validate epoch integrity before processing
+    const isEpochIntegrityValid = this.validateEpochIntegrity(campaign, epochs);
+    if (!isEpochIntegrityValid) {
+      this.logger.error(
+        `Skipping epoch processing for campaign ${campaign.id} due to epoch integrity validation failure`,
+      );
+      return; // Skip processing all epochs for this campaign
+    }
+
     for (const epoch of epochs) {
-      await this.processEpoch(campaign, epoch, strategyStates, deployment);
+      await this.processEpoch(campaign, epoch, strategyStates, priceCache);
     }
   }
 
   private calculateEpochsInRange(campaign: Campaign, startTimestamp: number, endTimestamp: number): EpochInfo[] {
     const epochs: EpochInfo[] = [];
-    let epochStart = campaign.startDate;
+
+    // Convert Date objects to Unix timestamps (seconds)
+    const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
+    const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
+
+    let epochStart = campaignStartTime;
     let epochNumber = 1;
 
-    while (epochStart < campaign.endDate) {
-      const epochEnd = Math.min(epochStart + this.EPOCH_DURATION, campaign.endDate);
+    while (epochStart < campaignEndTime) {
+      const epochEnd = Math.min(epochStart + this.EPOCH_DURATION, campaignEndTime);
 
       // Check if this epoch intersects with our time range
       if (epochEnd > startTimestamp && epochStart < endTimestamp) {
         const epochDuration = epochEnd - epochStart;
-        const rewardsPerSecond = new Decimal(campaign.rewardAmount).div(campaign.endDate - campaign.startDate);
+        const rewardsPerSecond = new Decimal(campaign.rewardAmount).div(campaignEndTime - campaignStartTime);
 
         epochs.push({
           epochNumber,
-          startTimestamp: epochStart,
-          endTimestamp: epochEnd,
+          startTimestamp: new Date(epochStart * 1000),
+          endTimestamp: new Date(epochEnd * 1000),
           totalRewards: rewardsPerSecond.mul(epochDuration),
         });
       }
@@ -493,52 +554,76 @@ export class MerklProcessorService {
     campaign: Campaign,
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
-    deployment: Deployment,
+    priceCache: PriceCache,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
-    // Generate snapshots for this epoch and calculate rewards
-    const epochRewards = await this.calculateEpochRewards(epoch, strategyStates, deployment, campaign);
+    // Use transaction for safety
+    await this.epochRewardRepository.manager.transaction(async (transactionalEntityManager) => {
+      // Delete existing rewards for this epoch and campaign (important for ongoing epochs)
+      await transactionalEntityManager.delete(this.epochRewardRepository.target, {
+        campaignId: campaign.id,
+        epochNumber: epoch.epochNumber,
+      });
 
-    // Save epoch rewards to database
-    const rewardsToSave = [];
-    for (const [strategyId, { owner, totalReward }] of epochRewards) {
-      if (totalReward.gt(0)) {
-        rewardsToSave.push(
-          this.epochRewardRepository.create({
-            campaign,
-            epochNumber: epoch.epochNumber,
-            epochStartTimestamp: epoch.startTimestamp,
-            epochEndTimestamp: epoch.endTimestamp,
-            strategyId,
-            owner,
-            rewardAmount: totalReward.toString(),
-            reason: `epoch-${epoch.epochNumber}-${strategyId}`,
-            calculatedAt: new Date(),
-          }),
-        );
+      // Generate snapshots for this epoch and calculate rewards
+      const epochRewards = this.calculateEpochRewards(epoch, strategyStates, campaign, priceCache);
+
+      // Validate that new epoch rewards won't exceed campaign total
+      const isEpochValid = await this.validateEpochRewardsWontExceedTotal(campaign, epoch, epochRewards);
+      if (!isEpochValid) {
+        this.logger.error(`Skipping epoch ${epoch.epochNumber} for campaign ${campaign.id} due to validation failure`);
+        return; // Skip this epoch
       }
-    }
 
-    // Save in batches
-    for (let i = 0; i < rewardsToSave.length; i += this.SAVE_BATCH_SIZE) {
-      const batch = rewardsToSave.slice(i, i + this.SAVE_BATCH_SIZE);
-      await this.epochRewardRepository.save(batch);
-    }
+      // Save epoch rewards to database
+      const rewardsToSave = [];
+      for (const [strategyId, { owner, totalReward }] of epochRewards) {
+        if (totalReward.gt(0)) {
+          rewardsToSave.push(
+            transactionalEntityManager.create(this.epochRewardRepository.target, {
+              campaign,
+              epochNumber: epoch.epochNumber,
+              epochStartTimestamp: epoch.startTimestamp,
+              epochEndTimestamp: epoch.endTimestamp,
+              strategyId,
+              owner,
+              rewardAmount: totalReward.toString(),
+              reason: `epoch-${epoch.epochNumber}-${strategyId}`,
+              calculatedAt: new Date(),
+            }),
+          );
+        }
+      }
 
-    this.logger.log(`Saved ${rewardsToSave.length} rewards for epoch ${epoch.epochNumber}`);
+      // Save in batches
+      for (let i = 0; i < rewardsToSave.length; i += this.SAVE_BATCH_SIZE) {
+        const batch = rewardsToSave.slice(i, i + this.SAVE_BATCH_SIZE);
+        await transactionalEntityManager.save(this.epochRewardRepository.target, batch);
+      }
+
+      this.logger.log(`Saved ${rewardsToSave.length} rewards for epoch ${epoch.epochNumber}`);
+    });
+
+    // Validate total rewards after processing
+    const isTotalValid = await this.validateTotalRewardsNotExceeded(campaign);
+    if (!isTotalValid) {
+      this.logger.error(
+        `Total rewards validation failed after processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`,
+      );
+    }
   }
 
-  private async calculateEpochRewards(
+  private calculateEpochRewards(
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
-    deployment: Deployment,
     campaign: Campaign,
-  ): Promise<Map<string, { owner: string; totalReward: Decimal }>> {
+    priceCache: PriceCache,
+  ): Map<string, { owner: string; totalReward: Decimal }> {
     const epochRewards = new Map<string, { owner: string; totalReward: Decimal }>();
 
     // Generate snapshots every 5 minutes within the epoch
-    const snapshots = await this.generateSnapshotsForEpoch(epoch, strategyStates, deployment);
+    const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache);
     const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
 
     for (const snapshot of snapshots) {
@@ -558,17 +643,27 @@ export class MerklProcessorService {
     return epochRewards;
   }
 
-  private async generateSnapshotsForEpoch(
+  private generateSnapshotsForEpoch(
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
-    deployment: Deployment,
-  ): Promise<SnapshotData[]> {
+    campaign: Campaign,
+    priceCache: PriceCache,
+  ): SnapshotData[] {
     const snapshots: SnapshotData[] = [];
 
-    let currentTime = epoch.startTimestamp;
-    while (currentTime < epoch.endTimestamp) {
-      // Get target price for this snapshot (placeholder - you'll need to implement)
-      const targetPrice = await this.getTargetPriceAtTime(currentTime, deployment);
+    let currentTime = Math.floor(epoch.startTimestamp.getTime() / 1000);
+    const endTime = Math.floor(epoch.endTimestamp.getTime() / 1000);
+
+    while (currentTime < endTime) {
+      // Get target price for this snapshot using price cache
+      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
+
+      // Skip snapshot if we can't get price data
+      if (targetPrice === null) {
+        this.logger.warn(`Skipping snapshot at timestamp ${currentTime} - no USD rates available`);
+        currentTime += this.SNAPSHOT_INTERVAL;
+        continue;
+      }
 
       snapshots.push({
         timestamp: currentTime,
@@ -691,9 +786,201 @@ export class MerklProcessorService {
     return Math.floor(block.timestamp.getTime() / 1000);
   }
 
-  private async getTargetPriceAtTime(timestamp: number, deployment: Deployment): Promise<Decimal> {
-    // TODO: Implement price fetching from historic quotes or market data
-    // For now, return a placeholder
-    return new Decimal(2500);
+  /**
+   * Validates that total distributed rewards don't exceed campaign amount
+   */
+  private async validateTotalRewardsNotExceeded(campaign: Campaign): Promise<boolean> {
+    try {
+      const result = await this.epochRewardRepository
+        .createQueryBuilder('reward')
+        .select('SUM(CAST(reward.rewardAmount as DECIMAL))', 'total')
+        .where('reward.campaignId = :campaignId', { campaignId: campaign.id })
+        .getRawOne();
+
+      const totalDistributed = new Decimal(result.total || '0');
+      const campaignAmount = new Decimal(campaign.rewardAmount);
+
+      if (totalDistributed.gt(campaignAmount)) {
+        this.logger.error(
+          `Total rewards validation failed for campaign ${campaign.id}: ` +
+            `distributed=${totalDistributed.toString()}, campaign_amount=${campaignAmount.toString()}`,
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Error validating total rewards for campaign ${campaign.id}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Validates epoch integrity - no overlaps and no gaps between consecutive epochs
+   * Only validates the epochs that are actually being processed, not the entire campaign
+   */
+  private validateEpochIntegrity(campaign: Campaign, epochs: EpochInfo[]): boolean {
+    try {
+      // If no epochs, nothing to validate
+      if (epochs.length === 0) {
+        return true;
+      }
+
+      // Check for overlaps/gaps between consecutive epochs
+      for (let i = 1; i < epochs.length; i++) {
+        const prevEpochEnd = Math.floor(epochs[i - 1].endTimestamp.getTime() / 1000);
+        const currentEpochStart = Math.floor(epochs[i].startTimestamp.getTime() / 1000);
+
+        if (currentEpochStart !== prevEpochEnd) {
+          this.logger.error(
+            `Epoch overlap/gap detected for campaign ${campaign.id}: ` +
+              `epoch_${epochs[i - 1].epochNumber} ends at ${prevEpochEnd}, ` +
+              `epoch_${epochs[i].epochNumber} starts at ${currentEpochStart}`,
+          );
+          return false;
+        }
+      }
+
+      // Validate that individual epochs have positive duration
+      for (const epoch of epochs) {
+        const epochDuration =
+          Math.floor(epoch.endTimestamp.getTime() / 1000) - Math.floor(epoch.startTimestamp.getTime() / 1000);
+        if (epochDuration <= 0) {
+          this.logger.error(
+            `Invalid epoch duration for campaign ${campaign.id}, epoch ${epoch.epochNumber}: ${epochDuration}`,
+          );
+          return false;
+        }
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(`Error validating epoch integrity for campaign ${campaign.id}:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * Validates that new epoch rewards won't exceed campaign total
+   */
+  private async validateEpochRewardsWontExceedTotal(
+    campaign: Campaign,
+    epoch: EpochInfo,
+    newRewards: Map<string, { owner: string; totalReward: Decimal }>,
+  ): Promise<boolean> {
+    try {
+      // Get current total distributed rewards (excluding this epoch)
+      const result = await this.epochRewardRepository
+        .createQueryBuilder('reward')
+        .select('SUM(CAST(reward.rewardAmount as DECIMAL))', 'total')
+        .where('reward.campaignId = :campaignId', { campaignId: campaign.id })
+        .andWhere('reward.epochNumber != :epochNumber', { epochNumber: epoch.epochNumber })
+        .getRawOne();
+
+      const currentTotal = new Decimal(result.total || '0');
+
+      // Calculate new epoch total
+      const newEpochTotal = Array.from(newRewards.values()).reduce(
+        (sum, { totalReward }) => sum.add(totalReward),
+        new Decimal(0),
+      );
+
+      const projectedTotal = currentTotal.add(newEpochTotal);
+      const campaignAmount = new Decimal(campaign.rewardAmount);
+
+      if (projectedTotal.gt(campaignAmount)) {
+        this.logger.error(
+          `Epoch rewards validation failed for campaign ${campaign.id}, epoch ${epoch.epochNumber}: ` +
+            `current_total=${currentTotal.toString()}, new_epoch_total=${newEpochTotal.toString()}, ` +
+            `projected_total=${projectedTotal.toString()}, campaign_amount=${campaignAmount.toString()}`,
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Error validating epoch rewards for campaign ${campaign.id}, epoch ${epoch.epochNumber}:`,
+        error,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Fetch USD rates for all unique token addresses in campaigns once per batch
+   */
+  private async createPriceCache(
+    campaigns: Campaign[],
+    batchStartTimestamp: number,
+    deployment: Deployment,
+  ): Promise<PriceCache> {
+    // Collect all unique token addresses from campaigns
+    const uniqueTokenAddresses = new Set<string>();
+    for (const campaign of campaigns) {
+      uniqueTokenAddresses.add(campaign.pair.token0.address);
+      uniqueTokenAddresses.add(campaign.pair.token1.address);
+    }
+
+    const tokenAddresses = Array.from(uniqueTokenAddresses);
+    const targetDate = new Date(batchStartTimestamp * 1000).toISOString();
+    const endDate = new Date((batchStartTimestamp + 24 * 60 * 60) * 1000).toISOString(); // +1 day
+
+    this.logger.log(`Fetching USD rates for ${tokenAddresses.length} unique tokens at ${targetDate}`);
+
+    // Fetch USD rates for all token addresses at once
+    const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, targetDate, endDate);
+
+    // Build cache map
+    const cacheMap = new Map<string, number>();
+    for (const rate of rates) {
+      const closestRate = this.findClosestRate(rates, rate.address, batchStartTimestamp);
+      if (closestRate !== null) {
+        cacheMap.set(rate.address.toLowerCase(), closestRate);
+      }
+    }
+
+    return {
+      rates: cacheMap,
+      timestamp: batchStartTimestamp,
+    };
+  }
+
+  private getTargetPriceAtTime(timestamp: number, campaign: Campaign, priceCache: PriceCache): Decimal | null {
+    const token0Address = campaign.pair.token0.address.toLowerCase();
+    const token1Address = campaign.pair.token1.address.toLowerCase();
+
+    // Get USD rates from cache
+    const token0Rate = priceCache.rates.get(token0Address);
+    const token1Rate = priceCache.rates.get(token1Address);
+
+    if (!token0Rate || !token1Rate || token0Rate === 0) {
+      this.logger.warn(
+        `Missing USD rates for tokens ${token0Address}/${token1Address} at timestamp ${timestamp} - skipping snapshot`,
+      );
+      return null; // Skip snapshot when rates are missing
+    }
+
+    return new Decimal(token1Rate).div(token0Rate);
+  }
+
+  private findClosestRate(rates: any[], tokenAddress: string, targetTimestamp: number): number | null {
+    const tokenRates = rates.filter((rate) => rate.address.toLowerCase() === tokenAddress.toLowerCase());
+
+    if (tokenRates.length === 0) return null;
+
+    // Find rate with timestamp closest to target
+    let closest = tokenRates[0];
+    let minDiff = Math.abs(closest.day - targetTimestamp);
+
+    for (const rate of tokenRates) {
+      const diff = Math.abs(rate.day - targetTimestamp);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = rate;
+      }
+    }
+
+    return closest.usd;
   }
 }
