@@ -12,7 +12,7 @@ import { StrategyCreatedEventService } from '../../events/strategy-created-event
 import { StrategyUpdatedEventService } from '../../events/strategy-updated-event/strategy-updated-event.service';
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
-import { Deployment } from '../../deployment/deployment.service';
+import { Deployment, ExchangeId } from '../../deployment/deployment.service';
 import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
 import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
@@ -67,6 +67,12 @@ interface CampaignContext {
   strategyStates: StrategyStatesMap;
 }
 
+interface TokenWeightingConfig {
+  tokenWeightings: Record<string, number>;
+  whitelistedAssets: string[];
+  defaultWeighting: number;
+}
+
 @Injectable()
 export class MerklProcessorService {
   private readonly logger = new Logger(MerklProcessorService.name);
@@ -76,6 +82,53 @@ export class MerklProcessorService {
   private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
   private readonly TOLERANCE_PERCENTAGE = 0.02; // 2%
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
+
+  // Token weighting configuration per deployment
+  private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
+    // Ethereum mainnet
+    [ExchangeId.OGEthereum]: {
+      tokenWeightings: {
+        // USDT - 2x weighting
+        '0xdac17f958d2ee523a2206206994597c13d831ec7': 2.0,
+
+        // ETH - 1.25x weighting
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 1.25, // WETH
+        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 1.25, // Native ETH (if used)
+
+        // BTC - 1.25x weighting
+        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 1.25, // WBTC
+
+        // ETH LSTs - 1.25x weighting
+        '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0': 1.25, // wstETH
+        '0xae78736cd615f374d3085123a210448e74fc6393': 1.25, // rETH
+        '0xa2e3356610840701bdf5611a53974510ae27e2e1': 1.25, // wBETH
+        '0xbe9895146f7af43049ca1c1ae358b0541ea49704': 1.25, // cbETH
+
+        // BTC LSTs - 1.25x weighting
+        '0x8236a87084f8b84306f72007f36f2618a5634494': 1.25, // LBTC
+
+        // TON - 0.5x weighting (placeholder addresses - need real ones)
+        '0x_TON_PLACEHOLDER': 0.5,
+
+        // TON LSTs - 1x weighting (placeholder addresses - need real ones)
+        '0x_TON_LST_PLACEHOLDER': 1.0,
+
+        // TAC - 0.75x weighting (placeholder addresses - need real ones)
+        '0x_TAC_PLACEHOLDER': 0.75,
+
+        // TAC LSTs - 0.75x weighting (placeholder addresses - need real ones)
+        '0x_TAC_LST_PLACEHOLDER': 0.75,
+      },
+      whitelistedAssets: [
+        // Common stablecoins that might be whitelisted
+        '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8', // USDC
+        '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
+        '0x4fabb145d64652a948d72533023f6e7a623c7c53', // BUSD
+        // Add other whitelisted assets as needed
+      ],
+      defaultWeighting: 0, // Other assets get no incentives
+    },
+  };
 
   constructor(
     @InjectRepository(EpochReward) private epochRewardRepository: Repository<EpochReward>,
@@ -88,6 +141,30 @@ export class MerklProcessorService {
     private strategyDeletedEventService: StrategyDeletedEventService,
     private voucherTransferEventService: VoucherTransferEventService,
   ) {}
+
+  private getTokenWeighting(tokenAddress: string, exchangeId: ExchangeId): number {
+    const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[exchangeId];
+    if (!config) {
+      this.logger.warn(`No weighting configuration found for exchangeId: ${exchangeId}`);
+      return 0;
+    }
+
+    const normalizedAddress = tokenAddress.toLowerCase();
+
+    // Check specific weightings first
+    if (config.tokenWeightings[normalizedAddress] !== undefined) {
+      const weighting = config.tokenWeightings[normalizedAddress];
+      return weighting;
+    }
+
+    // Check if it's a whitelisted asset (0.5x weighting)
+    if (config.whitelistedAssets.includes(normalizedAddress)) {
+      return 0.5;
+    }
+
+    // Use default weighting (typically 0 for no incentives)
+    return config.defaultWeighting;
+  }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
@@ -558,6 +635,24 @@ export class MerklProcessorService {
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
+    // Validate weighting configuration exists
+    const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[campaign.exchangeId];
+    if (!config) {
+      this.logger.error(`No weighting configuration found for exchangeId: ${campaign.exchangeId}, skipping epoch`);
+      return;
+    }
+
+    // Check if pair tokens have any weighting
+    const token0Weighting = this.getTokenWeighting(campaign.pair.token0.address, campaign.exchangeId);
+    const token1Weighting = this.getTokenWeighting(campaign.pair.token1.address, campaign.exchangeId);
+
+    if (token0Weighting === 0 && token1Weighting === 0) {
+      this.logger.warn(
+        `Both tokens in pair ${campaign.pair.token0.address}/${campaign.pair.token1.address} have zero weighting - no rewards will be distributed`,
+      );
+      // Continue processing but expect no rewards
+    }
+
     // Use transaction for safety
     await this.epochRewardRepository.manager.transaction(async (transactionalEntityManager) => {
       // Delete existing rewards for this epoch and campaign (important for ongoing epochs)
@@ -624,10 +719,43 @@ export class MerklProcessorService {
 
     // Generate snapshots every 5 minutes within the epoch
     const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache);
-    const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
+    const initialRewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
 
-    for (const snapshot of snapshots) {
-      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot);
+    // Track rewards that need to be redistributed
+    let accumulatedRedistribution = new Decimal(0);
+    let processedSnapshots = 0;
+
+    for (let i = 0; i < snapshots.length; i++) {
+      const snapshot = snapshots[i];
+      processedSnapshots++;
+
+      // Calculate current reward per snapshot including any redistribution
+      const remainingSnapshots = snapshots.length - processedSnapshots;
+      const baseReward = initialRewardPerSnapshot;
+      const redistributionBonus =
+        remainingSnapshots > 0 ? accumulatedRedistribution.div(remainingSnapshots + 1) : accumulatedRedistribution;
+      const currentSnapshotReward = baseReward.add(redistributionBonus);
+
+      // Adjust accumulated redistribution
+      accumulatedRedistribution = accumulatedRedistribution.sub(redistributionBonus);
+
+      const snapshotRewards = this.calculateSnapshotRewards(snapshot, currentSnapshotReward, campaign);
+
+      // Check if snapshot had no eligible liquidity
+      const hasEligibleLiquidity = snapshotRewards.size > 0;
+
+      if (!hasEligibleLiquidity) {
+        // Add this snapshot's reward to redistribution pool
+        accumulatedRedistribution = accumulatedRedistribution.add(currentSnapshotReward);
+
+        this.logger.debug(
+          `Snapshot ${i} for epoch ${
+            epoch.epochNumber
+          } had no eligible liquidity, adding ${currentSnapshotReward.toString()} to redistribution pool (total: ${accumulatedRedistribution.toString()})`,
+        );
+
+        continue; // Skip this snapshot
+      }
 
       // Accumulate rewards per strategy
       for (const [strategyId, reward] of snapshotRewards) {
@@ -638,6 +766,21 @@ export class MerklProcessorService {
         existing.totalReward = existing.totalReward.add(reward);
         epochRewards.set(strategyId, existing);
       }
+
+      this.logger.debug(
+        `Snapshot ${i} for epoch ${epoch.epochNumber} distributed ${currentSnapshotReward.toString()} rewards to ${
+          snapshotRewards.size
+        } strategies`,
+      );
+    }
+
+    // Handle any remaining redistribution (edge case: if last snapshots had no liquidity)
+    if (accumulatedRedistribution.gt(0)) {
+      this.logger.warn(
+        `Epoch ${
+          epoch.epochNumber
+        } ended with ${accumulatedRedistribution.toString()} unallocated rewards (no eligible liquidity in final snapshots)`,
+      );
     }
 
     return epochRewards;
@@ -679,21 +822,28 @@ export class MerklProcessorService {
     return snapshots;
   }
 
-  private calculateSnapshotRewards(snapshot: SnapshotData, rewardPool: Decimal): Map<string, Decimal> {
+  private calculateSnapshotRewards(
+    snapshot: SnapshotData,
+    rewardPool: Decimal,
+    campaign: Campaign,
+  ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
     const halfRewardPool = rewardPool.div(2);
 
-    let totalEligibleBids = new Decimal(0);
-    let totalEligibleAsks = new Decimal(0);
-    const strategyEligibilityBids = new Map<string, Decimal>();
-    const strategyEligibilityAsks = new Map<string, Decimal>();
+    let totalWeightedEligibleBids = new Decimal(0);
+    let totalWeightedEligibleAsks = new Decimal(0);
+    const strategyWeightedEligibilityBids = new Map<string, Decimal>();
+    const strategyWeightedEligibilityAsks = new Map<string, Decimal>();
 
-    // Calculate eligible liquidity for each strategy
+    // Calculate weighted eligible liquidity for each strategy
     for (const [strategyId, strategy] of snapshot.strategies) {
       if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
         continue;
       }
+
+      const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
+      const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
 
       // Calculate eligible liquidity for bid side (order0)
       const eligibleBid = this.calculateEligibleLiquidity(
@@ -715,33 +865,51 @@ export class MerklProcessorService {
         toleranceFactor,
       );
 
-      if (eligibleBid.gt(0)) {
-        strategyEligibilityBids.set(strategyId, eligibleBid);
-        totalEligibleBids = totalEligibleBids.add(eligibleBid);
+      // Apply weighting to order0 (bid side) based on strategy.token0Address
+      if (eligibleBid.gt(0) && token0Weighting > 0) {
+        const weightedEligibleBid = eligibleBid.mul(token0Weighting);
+        strategyWeightedEligibilityBids.set(strategyId, weightedEligibleBid);
+        totalWeightedEligibleBids = totalWeightedEligibleBids.add(weightedEligibleBid);
       }
 
-      if (eligibleAsk.gt(0)) {
-        strategyEligibilityAsks.set(strategyId, eligibleAsk);
-        totalEligibleAsks = totalEligibleAsks.add(eligibleAsk);
+      // Apply weighting to order1 (ask side) based on strategy.token1Address
+      if (eligibleAsk.gt(0) && token1Weighting > 0) {
+        const weightedEligibleAsk = eligibleAsk.mul(token1Weighting);
+        strategyWeightedEligibilityAsks.set(strategyId, weightedEligibleAsk);
+        totalWeightedEligibleAsks = totalWeightedEligibleAsks.add(weightedEligibleAsk);
       }
     }
 
-    // Distribute bid rewards
-    if (totalEligibleBids.gt(0)) {
-      for (const [strategyId, eligibleLiquidity] of strategyEligibilityBids) {
-        const rewardShare = eligibleLiquidity.div(totalEligibleBids);
-        const reward = halfRewardPool.mul(rewardShare);
-        rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
-      }
+    // Handle edge case: no eligible liquidity on one or both sides
+    if (totalWeightedEligibleBids.eq(0) && totalWeightedEligibleAsks.eq(0)) {
+      this.logger.warn('No eligible weighted liquidity found for any side - no rewards distributed');
+      return rewards;
     }
 
-    // Distribute ask rewards
-    if (totalEligibleAsks.gt(0)) {
-      for (const [strategyId, eligibleLiquidity] of strategyEligibilityAsks) {
-        const rewardShare = eligibleLiquidity.div(totalEligibleAsks);
+    // Distribute bid rewards based on weighted eligible liquidity
+    if (totalWeightedEligibleBids.gt(0)) {
+      for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibilityBids) {
+        const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligibleBids);
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
+
+        this.logger.debug(`Strategy ${strategyId} bid reward: ${reward.toString()}`);
       }
+    } else {
+      this.logger.warn('No eligible weighted bid liquidity - bid rewards not distributed');
+    }
+
+    // Distribute ask rewards based on weighted eligible liquidity
+    if (totalWeightedEligibleAsks.gt(0)) {
+      for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibilityAsks) {
+        const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligibleAsks);
+        const reward = halfRewardPool.mul(rewardShare);
+        rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
+
+        this.logger.debug(`Strategy ${strategyId} ask reward: ${reward.toString()}`);
+      }
+    } else {
+      this.logger.warn('No eligible weighted ask liquidity - ask rewards not distributed');
     }
 
     return rewards;

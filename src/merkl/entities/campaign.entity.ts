@@ -13,7 +13,6 @@ import { Pair } from '../../pair/pair.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'merkl_campaigns' })
-@Unique(['blockchainType', 'exchangeId', 'pairId'])
 export class Campaign {
   @PrimaryGeneratedColumn()
   id: string;

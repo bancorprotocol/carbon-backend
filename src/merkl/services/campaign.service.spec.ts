@@ -149,8 +149,8 @@ describe('CampaignService', () => {
           pairId: 1,
           rewardAmount: '100123456789012345678',
           rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-          startDate: 1640995200,
-          endDate: 1672531200,
+          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // Started 1 day ago
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Ends in 30 days
           opportunityName: 'ETH/USDC Campaign',
           isActive: true,
           createdAt: new Date(),
@@ -163,8 +163,8 @@ describe('CampaignService', () => {
           pairId: 2,
           rewardAmount: '50987654321098765432',
           rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-          startDate: new Date('2022-04-26T00:00:00.000Z'),
-          endDate: new Date('2023-04-26T00:00:00.000Z'),
+          startDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // Started 1 day ago
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Ends in 30 days
           opportunityName: 'WBTC/ETH Campaign',
           isActive: true,
           createdAt: new Date(),
@@ -221,8 +221,8 @@ describe('CampaignService', () => {
         pairId: 1,
         rewardAmount: '100123456789012345678',
         rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        startDate: 1640995200,
-        endDate: 1672531200,
+        startDate: new Date(Date.now() - 24 * 60 * 60 * 1000), // Started 1 day ago
+        endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // Ends in 30 days
         opportunityName: 'ETH/USDC Campaign',
         isActive: true,
         createdAt: new Date(),
@@ -416,6 +416,499 @@ describe('CampaignService', () => {
       // Calculate duration
       const duration = Math.floor(result.endDate.getTime() / 1000) - Math.floor(result.startDate.getTime() / 1000);
       expect(duration).toBe(2147483647);
+    });
+  });
+
+  describe('Campaign Lifecycle Management', () => {
+    const deployment = {
+      blockchainType: BlockchainType.Ethereum,
+      exchangeId: ExchangeId.OGEthereum,
+    };
+
+    describe('getActiveCampaigns - lifecycle management', () => {
+      it('should automatically set expired campaigns to inactive and return only active campaigns', async () => {
+        const now = new Date();
+        const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
+        const futureDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day from now
+
+        const campaigns = [
+          {
+            id: '1',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 1,
+            rewardAmount: '100000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 48 * 60 * 60 * 1000), // Started 2 days ago
+            endDate: pastDate, // Expired 1 day ago
+            opportunityName: 'Expired Campaign',
+            isActive: true, // Should be set to false
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: '2',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 2,
+            rewardAmount: '200000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 12 * 60 * 60 * 1000), // Started 12 hours ago
+            endDate: futureDate, // Expires in 1 day
+            opportunityName: 'Active Campaign',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: '3',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 3,
+            rewardAmount: '300000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() + 12 * 60 * 60 * 1000), // Starts in 12 hours
+            endDate: new Date(now.getTime() + 48 * 60 * 60 * 1000), // Expires in 2 days
+            opportunityName: 'Future Campaign',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+
+        mockRepository.find.mockResolvedValue(campaigns);
+
+        const result = await service.getActiveCampaigns(deployment as any);
+
+        // Should update expired campaigns to inactive
+        expect(mockRepository.update).toHaveBeenCalledWith(['1'], { isActive: false });
+
+        // Should only return currently active campaigns (not expired or future)
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('2');
+        expect(result[0].opportunityName).toBe('Active Campaign');
+      });
+
+      it('should handle multiple expired campaigns', async () => {
+        const now = new Date();
+        const pastDate1 = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
+        const pastDate2 = new Date(now.getTime() - 48 * 60 * 60 * 1000); // 2 days ago
+
+        const campaigns = [
+          {
+            id: '1',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 1,
+            rewardAmount: '100000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 72 * 60 * 60 * 1000), // Started 3 days ago
+            endDate: pastDate1, // Expired 1 day ago
+            opportunityName: 'Expired Campaign 1',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: '2',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 2,
+            rewardAmount: '200000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 72 * 60 * 60 * 1000), // Started 3 days ago
+            endDate: pastDate2, // Expired 2 days ago
+            opportunityName: 'Expired Campaign 2',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+
+        mockRepository.find.mockResolvedValue(campaigns);
+
+        const result = await service.getActiveCampaigns(deployment as any);
+
+        // Should update both expired campaigns to inactive
+        expect(mockRepository.update).toHaveBeenCalledWith(['1', '2'], { isActive: false });
+
+        // Should return empty array since no campaigns are currently active
+        expect(result).toHaveLength(0);
+      });
+
+      it('should not affect campaigns that are not expired', async () => {
+        const now = new Date();
+        const futureDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day from now
+
+        const campaigns = [
+          {
+            id: '1',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 1,
+            rewardAmount: '100000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 12 * 60 * 60 * 1000), // Started 12 hours ago
+            endDate: futureDate, // Expires in 1 day
+            opportunityName: 'Active Campaign',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+
+        mockRepository.find.mockResolvedValue(campaigns);
+
+        const result = await service.getActiveCampaigns(deployment as any);
+
+        // Should not call update since no campaigns are expired
+        expect(mockRepository.update).not.toHaveBeenCalled();
+
+        // Should return the active campaign
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('1');
+      });
+
+      it('should handle campaigns that have not started yet', async () => {
+        const now = new Date();
+
+        const campaigns = [
+          {
+            id: '1',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 1,
+            rewardAmount: '100000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() + 12 * 60 * 60 * 1000), // Starts in 12 hours
+            endDate: new Date(now.getTime() + 48 * 60 * 60 * 1000), // Expires in 2 days
+            opportunityName: 'Future Campaign',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+
+        mockRepository.find.mockResolvedValue(campaigns);
+
+        const result = await service.getActiveCampaigns(deployment as any);
+
+        // Should not call update since campaign is not expired
+        expect(mockRepository.update).not.toHaveBeenCalled();
+
+        // Should return empty array since campaign hasn't started yet
+        expect(result).toHaveLength(0);
+      });
+
+      it('should handle edge case where campaign ends exactly at current time', async () => {
+        const now = new Date();
+
+        const campaigns = [
+          {
+            id: '1',
+            blockchainType: BlockchainType.Ethereum,
+            exchangeId: ExchangeId.OGEthereum,
+            pairId: 1,
+            rewardAmount: '100000000000000000000',
+            rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+            startDate: new Date(now.getTime() - 24 * 60 * 60 * 1000), // Started 1 day ago
+            endDate: now, // Ends exactly now
+            opportunityName: 'Ending Campaign',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ];
+
+        mockRepository.find.mockResolvedValue(campaigns);
+
+        const result = await service.getActiveCampaigns(deployment as any);
+
+        // Should return the campaign since endDate >= currentTime
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('1');
+      });
+    });
+
+    describe('getCampaignByPair - lifecycle management', () => {
+      it('should automatically set expired campaign to inactive and return null', async () => {
+        const now = new Date();
+        const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
+
+        const expiredCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() - 48 * 60 * 60 * 1000), // Started 2 days ago
+          endDate: pastDate, // Expired 1 day ago
+          opportunityName: 'Expired Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(expiredCampaign);
+
+        const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
+
+        // Should update expired campaign to inactive
+        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: false });
+
+        // Should return null since campaign is expired
+        expect(result).toBeNull();
+      });
+
+      it('should return null for campaign that has not started yet', async () => {
+        const now = new Date();
+
+        const futureCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() + 12 * 60 * 60 * 1000), // Starts in 12 hours
+          endDate: new Date(now.getTime() + 48 * 60 * 60 * 1000), // Expires in 2 days
+          opportunityName: 'Future Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(futureCampaign);
+
+        const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
+
+        // Should not call update since campaign is not expired
+        expect(mockRepository.update).not.toHaveBeenCalled();
+
+        // Should return null since campaign hasn't started
+        expect(result).toBeNull();
+      });
+
+      it('should return campaign if it is currently active', async () => {
+        const now = new Date();
+
+        const activeCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() - 12 * 60 * 60 * 1000), // Started 12 hours ago
+          endDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Expires in 1 day
+          opportunityName: 'Active Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(activeCampaign);
+
+        const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
+
+        // Should not call update since campaign is active
+        expect(mockRepository.update).not.toHaveBeenCalled();
+
+        // Should return the active campaign
+        expect(result).toEqual(activeCampaign);
+      });
+
+      it('should handle edge case where campaign starts exactly at current time', async () => {
+        const now = new Date();
+
+        const startingCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: now, // Starts exactly now
+          endDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Expires in 1 day
+          opportunityName: 'Starting Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(startingCampaign);
+
+        const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
+
+        // Should return the campaign since startDate <= currentTime
+        expect(result).toEqual(startingCampaign);
+      });
+    });
+
+    describe('updateCampaignStatus', () => {
+      it('should update campaign status to inactive', async () => {
+        const mockCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(),
+          endDate: new Date(),
+          opportunityName: 'Test Campaign',
+          isActive: false, // Updated to false
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(mockCampaign);
+
+        const result = await service.updateCampaignStatus('1', false);
+
+        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: false });
+        expect(mockRepository.findOne).toHaveBeenCalledWith({
+          where: { id: '1' },
+          relations: ['pair'],
+        });
+        expect(result).toEqual(mockCampaign);
+      });
+
+      it('should update campaign status to active', async () => {
+        const mockCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(),
+          endDate: new Date(),
+          opportunityName: 'Test Campaign',
+          isActive: true, // Updated to true
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(mockCampaign);
+
+        const result = await service.updateCampaignStatus('1', true);
+
+        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: true });
+        expect(result).toEqual(mockCampaign);
+      });
+
+      it('should handle campaign update with decimal precision', async () => {
+        const mockCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '123456789012345678901234567890',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(),
+          endDate: new Date(),
+          opportunityName: 'High Precision Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(mockCampaign);
+
+        const result = await service.updateCampaignStatus('1', true);
+
+        expect(result.rewardAmount).toBe('123456789012345678901234567890');
+
+        // Verify decimal precision
+        const rewardDecimal = new Decimal(result.rewardAmount);
+        expect(rewardDecimal.toFixed()).toBe('123456789012345678901234567890');
+      });
+    });
+
+    describe('Multiple campaigns handling', () => {
+      it('should allow multiple campaigns for the same pair when older ones are inactive', async () => {
+        const now = new Date();
+        const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
+
+        const existingCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() - 48 * 60 * 60 * 1000), // Started 2 days ago
+          endDate: pastDate, // Ended 1 day ago
+          opportunityName: 'Old Campaign',
+          isActive: false, // Already inactive
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(existingCampaign);
+
+        const newCampaignDto: CreateCampaignDto = {
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '200000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: now,
+          endDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), // 1 day from now
+          opportunityName: 'New Campaign',
+          isActive: true,
+        };
+
+        const createdCampaign = { ...newCampaignDto, id: '2', createdAt: new Date(), updatedAt: new Date() };
+
+        mockRepository.create.mockReturnValue(createdCampaign);
+        mockRepository.save.mockResolvedValue(createdCampaign);
+
+        const result = await service.createCampaign(newCampaignDto);
+
+        expect(result).toEqual(createdCampaign);
+        expect(mockRepository.create).toHaveBeenCalledWith(newCampaignDto);
+        expect(mockRepository.save).toHaveBeenCalledWith(createdCampaign);
+      });
+
+      it('should prevent overlapping campaigns for the same pair', async () => {
+        const now = new Date();
+
+        const existingCampaign = {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '100000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() - 12 * 60 * 60 * 1000), // Started 12 hours ago
+          endDate: new Date(now.getTime() + 24 * 60 * 60 * 1000), // Expires in 1 day
+          opportunityName: 'Active Campaign',
+          isActive: true,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+
+        mockRepository.findOne.mockResolvedValue(existingCampaign);
+
+        const newCampaignDto: CreateCampaignDto = {
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          pairId: 1,
+          rewardAmount: '200000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          startDate: new Date(now.getTime() + 12 * 60 * 60 * 1000), // Starts in 12 hours (overlaps)
+          endDate: new Date(now.getTime() + 48 * 60 * 60 * 1000), // Expires in 2 days
+          opportunityName: 'Overlapping Campaign',
+          isActive: true,
+        };
+
+        await expect(service.createCampaign(newCampaignDto)).rejects.toThrow(
+          'Active campaign already exists for this pair with overlapping time period',
+        );
+      });
     });
   });
 });

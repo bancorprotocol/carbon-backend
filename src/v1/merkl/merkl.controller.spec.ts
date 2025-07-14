@@ -8,12 +8,14 @@ import { Campaign } from '../../merkl/entities/campaign.entity';
 import { EpochReward } from '../../merkl/entities/epoch-reward.entity';
 import { DataJSON } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
+import { PairService } from '../../pair/pair.service';
 import Decimal from 'decimal.js';
 
 describe('MerklController', () => {
   let controller: MerklController;
   let campaignService: CampaignService;
   let deploymentService: DeploymentService;
+  let pairService: PairService;
   let campaignRepository: Repository<Campaign>;
   let epochRewardRepository: Repository<EpochReward>;
 
@@ -23,6 +25,10 @@ describe('MerklController', () => {
 
   const mockDeploymentService = {
     getDeployment: jest.fn(),
+  };
+
+  const mockPairService = {
+    allAsDictionary: jest.fn(),
   };
 
   const mockCampaignRepository = {
@@ -48,6 +54,10 @@ describe('MerklController', () => {
           useValue: mockDeploymentService,
         },
         {
+          provide: PairService,
+          useValue: mockPairService,
+        },
+        {
           provide: getRepositoryToken(Campaign),
           useValue: mockCampaignRepository,
         },
@@ -61,6 +71,7 @@ describe('MerklController', () => {
     controller = module.get<MerklController>(MerklController);
     campaignService = module.get<CampaignService>(CampaignService);
     deploymentService = module.get<DeploymentService>(DeploymentService);
+    pairService = module.get<PairService>(PairService);
     campaignRepository = module.get<Repository<Campaign>>(getRepositoryToken(Campaign));
     epochRewardRepository = module.get<Repository<EpochReward>>(getRepositoryToken(EpochReward));
   });
@@ -109,6 +120,7 @@ describe('MerklController', () => {
       ];
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       // Mock the calculatePairTVL method to return a specific TVL
       const originalCalculatePairTVL = controller['calculatePairTVL'];
@@ -191,6 +203,7 @@ describe('MerklController', () => {
       ];
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       const result: DataJSON = await controller.getData(deployment as any);
 
@@ -221,6 +234,7 @@ describe('MerklController', () => {
       ];
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       // Mock TVL calculation to return zero
       const originalCalculatePairTVL = controller['calculatePairTVL'];
@@ -262,6 +276,7 @@ describe('MerklController', () => {
       ];
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       // Mock very large TVL
       const originalCalculatePairTVL = controller['calculatePairTVL'];
@@ -325,7 +340,7 @@ describe('MerklController', () => {
       const originalMethod = controller.getRewards;
       controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
 
-      const result = await controller.getRewards(pair, deployment as any);
+      const result = await controller.getRewards({ pair }, deployment as any);
 
       expect(result).toEqual(mockRewardsData);
       expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
@@ -356,7 +371,7 @@ describe('MerklController', () => {
       const originalMethod = controller.getRewards;
       controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
 
-      const result = await controller.getRewards(pair, deployment as any);
+      const result = await controller.getRewards({ pair }, deployment as any);
 
       expect(result.rewards).toEqual({});
       expect(Object.keys(result.rewards)).toHaveLength(0);
@@ -387,7 +402,7 @@ describe('MerklController', () => {
       const originalMethod = controller.getRewards;
       controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
 
-      const result = await controller.getRewards(pair, deployment as any);
+      const result = await controller.getRewards({ pair }, deployment as any);
 
       const dustAmount = new Decimal(
         result.rewards['0x1234567890abcdef1234567890abcdef12345678']['dust_reward'].amount,
@@ -442,6 +457,7 @@ describe('MerklController', () => {
 
       for (const deployment of deployments) {
         mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
+        mockPairService.allAsDictionary.mockResolvedValue({});
 
         const result = await controller.getData(deployment as any);
 
@@ -473,6 +489,7 @@ describe('MerklController', () => {
       ];
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       const originalCalculatePairTVL = controller['calculatePairTVL'];
       controller['calculatePairTVL'] = jest.fn().mockResolvedValue(new Decimal('1000000'));
@@ -493,6 +510,7 @@ describe('MerklController', () => {
       };
 
       mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
+      mockPairService.allAsDictionary.mockResolvedValue({});
 
       // Simulate concurrent calls
       const promises = Array(5)
