@@ -11,6 +11,8 @@ import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { MerklRewardsQueryDto } from './rewards.dto';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { PairService } from '../../pair/pair.service';
+import { TvlService } from '../../tvl/tvl.service';
+import { TvlPairsDto } from '../analytics/tvl.pairs.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
 
 @Controller({ version: '1', path: ':exchangeId?/merkle' })
@@ -21,13 +23,15 @@ export class MerklController {
     private campaignService: CampaignService,
     private deploymentService: DeploymentService,
     private pairService: PairService,
+    private tvlService: TvlService,
   ) {}
 
   @Get('data')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   @ApiExchangeIdParam()
-  async getData(@ExchangeIdParam() deployment: Deployment): Promise<any> {
+  async getData(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+    const deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
     const currentTime = Math.floor(Date.now() / 1000);
 
@@ -43,8 +47,36 @@ export class MerklController {
 
       if (!isCurrentlyActive) continue;
 
-      // Calculate TVL for this pair (placeholder - you'd use actual TVL calculation)
-      const tvl = await this.calculatePairTVL(campaign, deployment);
+      // Get TVL for this pair using the TVL service with recent time range
+      const pairsDictionary = await this.pairService.allAsDictionary(deployment);
+
+      // Check if the pair exists in the dictionary first
+      const token0Address = campaign.pair.token0.address;
+      const token1Address = campaign.pair.token1.address;
+      const pairExists = pairsDictionary[token0Address] && pairsDictionary[token0Address][token1Address];
+
+      let tvl = new Decimal(0);
+      if (pairExists) {
+        // Get TVL data from the last 24 hours to find the most recent value
+        const now = Math.floor(Date.now() / 1000);
+        const oneDayAgo = now - 24 * 60 * 60;
+
+        const tvlParams: TvlPairsDto = {
+          pairs: [
+            {
+              token0: token0Address,
+              token1: token1Address,
+            },
+          ],
+          start: oneDayAgo,
+          end: now,
+          limit: 100, // Get more entries to find the most recent
+        };
+
+        const tvlData = await this.tvlService.getTvlByPair(deployment, tvlParams, pairsDictionary);
+        // Take the most recent entry (data is sorted by timestamp ascending)
+        tvl = tvlData.length > 0 ? new Decimal(tvlData[tvlData.length - 1].tvlUsd) : new Decimal(0);
+      }
 
       // Calculate APR: (daily rewards * 365) / TVL
       const campaignDurationDays = (campaignEndTime - campaignStartTime) / (24 * 60 * 60);
@@ -145,11 +177,5 @@ export class MerklController {
       rewardToken: campaign.rewardTokenAddress,
       rewards,
     };
-  }
-
-  private async calculatePairTVL(campaign: Campaign, deployment: Deployment): Promise<Decimal> {
-    // TODO: Implement actual TVL calculation using TVL service
-    // For now, return placeholder
-    return new Decimal(1000000);
   }
 }
