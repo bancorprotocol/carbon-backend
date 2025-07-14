@@ -10,8 +10,7 @@ import { DataJSON } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { MerklRewardsQueryDto } from './rewards.dto';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
-import { PairService, PairsDictionary } from '../../pair/pair.service';
-import { Pair } from '../../pair/pair.entity';
+import { PairService } from '../../pair/pair.service';
 import { CacheTTL } from '@nestjs/cache-manager';
 
 @Controller({ version: '1', path: ':exchangeId?/merkle' })
@@ -69,15 +68,18 @@ export class MerklController {
   @ApiExchangeIdParam()
   async getRewards(@Query() query: MerklRewardsQueryDto, @ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    // Parse pair format token0_token1
-    const [token0Address, token1Address] = query.pair.split('_');
-    if (!token0Address || !token1Address) {
+    // Get the first pair from the transformed array
+    const pairData = Array.isArray(query.pair) ? query.pair[0] : query.pair;
+    if (!pairData || !pairData.token0 || !pairData.token1) {
       throw new BadRequestException({
         statusCode: 400,
         error: 'Bad Request',
         message: 'Invalid pair format. Expected: token0_token1',
       });
     }
+
+    const token0Address = pairData.token0;
+    const token1Address = pairData.token1;
 
     // Get pairs dictionary to find the correct pair with proper address format
     const pairsDictionary = await this.pairService.allAsDictionary(deployment);
@@ -108,7 +110,7 @@ export class MerklController {
       throw new BadRequestException({
         statusCode: 400,
         error: 'Bad Request',
-        message: `No active campaign found for pair ${query.pair}`,
+        message: `No active campaign found for pair ${token0Address}_${token1Address}`,
       });
     }
 
@@ -118,10 +120,17 @@ export class MerklController {
       order: { epochNumber: 'ASC' },
     });
 
+    // Filter rewards based on start timestamp if provided
+    let filteredRewards = epochRewards;
+    if (query.start) {
+      const startTimestamp = parseInt(query.start, 10) * 1000; // Convert to milliseconds
+      filteredRewards = epochRewards.filter((reward) => reward.epochEndTimestamp.getTime() >= startTimestamp);
+    }
+
     // Transform to Merkl format
     const rewards: EncompassingJSON['rewards'] = {};
 
-    for (const reward of epochRewards) {
+    for (const reward of filteredRewards) {
       if (!rewards[reward.owner]) {
         rewards[reward.owner] = {};
       }
