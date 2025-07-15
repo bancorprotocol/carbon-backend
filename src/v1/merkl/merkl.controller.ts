@@ -2,6 +2,7 @@ import { Controller, Get, Query, Header, BadRequestException } from '@nestjs/com
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
+import { toChecksumAddress } from 'web3-utils';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { Campaign } from '../../merkl/entities/campaign.entity';
 import { EpochReward } from '../../merkl/entities/epoch-reward.entity';
@@ -14,6 +15,7 @@ import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { TvlPairsDto } from '../analytics/tvl.pairs.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
+import { TokenService } from '../../token/token.service';
 
 @Controller({ version: '1', path: ':exchangeId?/merkle' })
 export class MerklController {
@@ -24,7 +26,20 @@ export class MerklController {
     private deploymentService: DeploymentService,
     private pairService: PairService,
     private tvlService: TvlService,
+    private tokenService: TokenService,
   ) {}
+
+  /**
+   * Converts a normalized reward amount to wei format
+   * @param normalizedAmount - The normalized amount as a string (e.g., "2.024792857777485576")
+   * @param decimals - Number of decimals for the token
+   * @returns The wei amount as a string (e.g., "2024792857777485576")
+   */
+  private convertToWei(normalizedAmount: string, decimals: number): string {
+    const decimal = new Decimal(normalizedAmount);
+    const multiplier = new Decimal(10).pow(decimals);
+    return decimal.mul(multiplier).toFixed(0);
+  }
 
   @Get('data')
   @CacheTTL(1 * 1000)
@@ -146,6 +161,20 @@ export class MerklController {
       });
     }
 
+    // Get token information to determine decimals for wei conversion
+    const tokensByAddress = await this.tokenService.allByAddress(deployment);
+    let rewardToken;
+
+    try {
+      rewardToken = tokensByAddress[toChecksumAddress(campaign.rewardTokenAddress)];
+    } catch (error) {
+      // Handle invalid address format gracefully
+      rewardToken = undefined;
+    }
+
+    // Default to 18 decimals if token not found (standard ERC-20)
+    const tokenDecimals = rewardToken?.decimals ?? 18;
+
     // Get all epoch rewards for this campaign
     const epochRewards = await this.epochRewardRepository.find({
       where: { campaign: { id: campaign.id } },
@@ -159,7 +188,7 @@ export class MerklController {
       filteredRewards = epochRewards.filter((reward) => reward.epochEndTimestamp.getTime() >= startTimestamp);
     }
 
-    // Transform to Merkl format
+    // Transform to Merkl format with wei conversion
     const rewards: EncompassingJSON['rewards'] = {};
 
     for (const reward of filteredRewards) {
@@ -168,7 +197,7 @@ export class MerklController {
       }
 
       rewards[reward.owner][reward.reason] = {
-        amount: reward.rewardAmount,
+        amount: this.convertToWei(reward.rewardAmount, tokenDecimals),
         timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
       };
     }
