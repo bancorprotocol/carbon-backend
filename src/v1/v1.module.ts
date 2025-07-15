@@ -10,7 +10,6 @@ import { DexScreenerModule } from './dex-screener/dex-screener.module';
 import { GeckoTerminalModule } from './gecko-terminal/gecko-terminal.module';
 import { ActivityModule } from './activity/activity.module';
 import { StateModule } from './state/state.module';
-import { MerklModule } from './merkl/merkl.module';
 
 @Module({
   imports: [
@@ -24,7 +23,6 @@ import { MerklModule } from './merkl/merkl.module';
     GeckoTerminalModule,
     ActivityModule,
     StateModule,
-    MerklModule,
   ],
   controllers: [V1Controller],
 })
