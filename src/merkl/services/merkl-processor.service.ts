@@ -128,6 +128,13 @@ export class MerklProcessorService {
       ],
       defaultWeighting: 0, // Other assets get no incentives
     },
+    [ExchangeId.OGCoti]: {
+      tokenWeightings: {
+        '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': 2.0,
+      },
+      whitelistedAssets: ['0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1'],
+      defaultWeighting: 0,
+    },
   };
 
   constructor(
@@ -180,12 +187,14 @@ export class MerklProcessorService {
 
     this.logger.log(`Processing merkl globally from block ${lastProcessedBlock} to ${endBlock}`);
 
-    // 2. Global cleanup - delete any merkl epoch rewards data after lastProcessedBlock
+    // 2. Global cleanup - delete any merkl epoch rewards data after lastProcessedBlock (scoped to deployment)
     const lastProcessedTimestamp = await this.getTimestampForBlock(lastProcessedBlock, deployment);
     await this.epochRewardRepository
       .createQueryBuilder()
       .delete()
       .where('epochStartTimestamp >= :startTimestamp', { startTimestamp: new Date(lastProcessedTimestamp * 1000) })
+      .andWhere('blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
 
     // 3. Initialize strategy states for all campaigns up to lastProcessedBlock
@@ -659,6 +668,8 @@ export class MerklProcessorService {
       await transactionalEntityManager.delete(this.epochRewardRepository.target, {
         campaignId: campaign.id,
         epochNumber: epoch.epochNumber,
+        blockchainType: campaign.blockchainType,
+        exchangeId: campaign.exchangeId,
       });
 
       // Generate snapshots for this epoch and calculate rewards
@@ -678,6 +689,8 @@ export class MerklProcessorService {
           rewardsToSave.push(
             transactionalEntityManager.create(this.epochRewardRepository.target, {
               campaign,
+              blockchainType: campaign.blockchainType,
+              exchangeId: campaign.exchangeId,
               epochNumber: epoch.epochNumber,
               epochStartTimestamp: epoch.startTimestamp,
               epochEndTimestamp: epoch.endTimestamp,
@@ -963,6 +976,8 @@ export class MerklProcessorService {
         .createQueryBuilder('reward')
         .select('SUM(CAST(reward.rewardAmount as DECIMAL))', 'total')
         .where('reward.campaignId = :campaignId', { campaignId: campaign.id })
+        .andWhere('reward.blockchainType = :blockchainType', { blockchainType: campaign.blockchainType })
+        .andWhere('reward.exchangeId = :exchangeId', { exchangeId: campaign.exchangeId })
         .getRawOne();
 
       const totalDistributed = new Decimal(result.total || '0');
@@ -1043,6 +1058,8 @@ export class MerklProcessorService {
         .select('SUM(CAST(reward.rewardAmount as DECIMAL))', 'total')
         .where('reward.campaignId = :campaignId', { campaignId: campaign.id })
         .andWhere('reward.epochNumber != :epochNumber', { epochNumber: epoch.epochNumber })
+        .andWhere('reward.blockchainType = :blockchainType', { blockchainType: campaign.blockchainType })
+        .andWhere('reward.exchangeId = :exchangeId', { exchangeId: campaign.exchangeId })
         .getRawOne();
 
       const currentTotal = new Decimal(result.total || '0');

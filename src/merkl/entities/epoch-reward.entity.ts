@@ -9,12 +9,21 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { Campaign } from './campaign.entity';
+import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'merkl_epoch_rewards' })
-@Unique(['campaignId', 'epochNumber', 'strategyId'])
+@Unique(['blockchainType', 'exchangeId', 'campaignId', 'epochNumber', 'strategyId'])
 export class EpochReward {
   @PrimaryGeneratedColumn()
   id: string;
+
+  @Column()
+  @Index()
+  blockchainType: BlockchainType;
+
+  @Column()
+  @Index()
+  exchangeId: ExchangeId;
 
   @Column()
   @Index()

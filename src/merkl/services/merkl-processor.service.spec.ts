@@ -287,6 +287,7 @@ describe('MerklProcessorService', () => {
         const mockQueryBuilder = {
           select: jest.fn().mockReturnThis(),
           where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
           getRawOne: jest.fn().mockResolvedValue({ total: '800' }),
         };
 
@@ -300,6 +301,7 @@ describe('MerklProcessorService', () => {
         const mockQueryBuilder = {
           select: jest.fn().mockReturnThis(),
           where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
           getRawOne: jest.fn().mockResolvedValue({ total: '1200' }),
         };
 
@@ -313,6 +315,7 @@ describe('MerklProcessorService', () => {
         const mockQueryBuilder = {
           select: jest.fn().mockReturnThis(),
           where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
           getRawOne: jest.fn().mockResolvedValue({ total: null }),
         };
 
@@ -326,6 +329,7 @@ describe('MerklProcessorService', () => {
         const mockQueryBuilder = {
           select: jest.fn().mockReturnThis(),
           where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
           getRawOne: jest.fn().mockRejectedValue(new Error('Database error')),
         };
 
@@ -602,6 +606,7 @@ describe('MerklProcessorService', () => {
         const mockQueryBuilder = {
           select: jest.fn().mockReturnThis(),
           where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
           getRawOne: jest.fn().mockResolvedValue({ total: '1200' }),
         };
 
@@ -678,6 +683,7 @@ describe('MerklProcessorService', () => {
       const mockDeleteQueryBuilder = {
         delete: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue(undefined),
       };
 
@@ -763,6 +769,7 @@ describe('MerklProcessorService', () => {
       const mockDeleteQueryBuilder = {
         delete: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
         execute: jest.fn().mockResolvedValue(undefined),
       };
 
@@ -1307,7 +1314,7 @@ describe('MerklProcessorService', () => {
         expect(service['getTokenWeighting']('token_high', unknownExchangeId)).toBe(0);
       });
 
-      it('should log appropriate warnings for zero-weighted tokens', () => {
+      it('should return zero weighting for zero-weighted tokens', () => {
         // Restore the original method for this test
         (service as any).getTokenWeighting.mockRestore();
 
@@ -1322,9 +1329,8 @@ describe('MerklProcessorService', () => {
           },
         };
 
-        const logSpy = jest.spyOn(service['logger'], 'debug');
-        service['getTokenWeighting']('token_zero', mockExchangeId);
-        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('specific weighting: 0'));
+        const result = service['getTokenWeighting']('token_zero', mockExchangeId);
+        expect(result).toBe(0);
       });
 
       it('should handle empty strategy map', () => {

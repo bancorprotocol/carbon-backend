@@ -9,6 +9,7 @@ import { EpochReward } from '../../merkl/entities/epoch-reward.entity';
 import { DataJSON } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { PairService } from '../../pair/pair.service';
+import { TvlService } from '../../tvl/tvl.service';
 import Decimal from 'decimal.js';
 
 describe('MerklController', () => {
@@ -25,10 +26,15 @@ describe('MerklController', () => {
 
   const mockDeploymentService = {
     getDeployment: jest.fn(),
+    getDeploymentByExchangeId: jest.fn(),
   };
 
   const mockPairService = {
     allAsDictionary: jest.fn(),
+  };
+
+  const mockTvlService = {
+    getTvlByPair: jest.fn(),
   };
 
   const mockCampaignRepository = {
@@ -56,6 +62,10 @@ describe('MerklController', () => {
         {
           provide: PairService,
           useValue: mockPairService,
+        },
+        {
+          provide: TvlService,
+          useValue: mockTvlService,
         },
         {
           provide: getRepositoryToken(Campaign),
@@ -119,15 +129,19 @@ describe('MerklController', () => {
         },
       ];
 
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
-      mockPairService.allAsDictionary.mockResolvedValue({});
-
-      // Mock the calculatePairTVL method to return a specific TVL
-      const originalCalculatePairTVL = controller['calculatePairTVL'];
-      controller['calculatePairTVL'] = jest
-        .fn()
-        .mockResolvedValueOnce(new Decimal('100000000000000000000000')) // 100K tokens
-        .mockResolvedValueOnce(new Decimal('50000000000000000000000')); // 50K tokens
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': {
+          '0xdAC17F958D2ee523a2206206994597C13D831ec7': { id: 1 },
+        },
+        '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599': {
+          '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': { id: 2 },
+        },
+      });
+      mockTvlService.getTvlByPair
+        .mockResolvedValueOnce([{ tvlUsd: '100000000000000000000000' }]) // For first campaign
+        .mockResolvedValueOnce([{ tvlUsd: '50000000000000000000000' }]); // For second campaign
 
       const result: DataJSON = await controller.getData(deployment as any);
 
@@ -151,9 +165,6 @@ describe('MerklController', () => {
       );
       expect(result[1].tvl).toBe('50000000000000000000000'); // Standard decimal notation format
       expect(result[1].opportunityName).toBe('WBTC/ETH High Yield');
-
-      // Restore original method
-      controller['calculatePairTVL'] = originalCalculatePairTVL;
     });
 
     it('should filter out inactive campaigns', async () => {
@@ -233,12 +244,10 @@ describe('MerklController', () => {
         },
       ];
 
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
       mockPairService.allAsDictionary.mockResolvedValue({});
-
-      // Mock TVL calculation to return zero
-      const originalCalculatePairTVL = controller['calculatePairTVL'];
-      controller['calculatePairTVL'] = jest.fn().mockResolvedValue(new Decimal('0'));
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '0' }]);
 
       const result: DataJSON = await controller.getData(deployment as any);
 
@@ -248,9 +257,6 @@ describe('MerklController', () => {
       // APR should be infinite or handled gracefully
       const aprValue = result[0].apr;
       expect(aprValue === 'Infinity' || aprValue === 'NaN' || aprValue === '0').toBe(true);
-
-      // Restore original method
-      controller['calculatePairTVL'] = originalCalculatePairTVL;
     });
 
     it('should handle very large reward amounts and TVL values', async () => {
@@ -275,14 +281,14 @@ describe('MerklController', () => {
         },
       ];
 
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
-      mockPairService.allAsDictionary.mockResolvedValue({});
-
-      // Mock very large TVL
-      const originalCalculatePairTVL = controller['calculatePairTVL'];
-      controller['calculatePairTVL'] = jest
-        .fn()
-        .mockResolvedValue(new Decimal('888888888888888888888888888888888888888'));
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': {
+          '0xdAC17F958D2ee523a2206206994597C13D831ec7': { id: 1 },
+        },
+      });
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '888888888888888888888888888888888888888' }]);
 
       const result: DataJSON = await controller.getData(deployment as any);
 
@@ -299,15 +305,14 @@ describe('MerklController', () => {
       // Verify Decimal can handle them (may be in scientific notation for toString)
       expect(rewardDecimal.isFinite()).toBe(true);
       expect(tvlDecimal.isFinite()).toBe(true);
-
-      // Restore original method
-      controller['calculatePairTVL'] = originalCalculatePairTVL;
     });
   });
 
   describe('getRewards', () => {
     it('should return rewards for a specific pair', async () => {
-      const pair = 'eth_usdc';
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -356,7 +361,9 @@ describe('MerklController', () => {
     });
 
     it('should handle empty rewards', async () => {
-      const pair = 'nonexistent_pair';
+      const pair = [
+        { token0: '0x1234567890abcdef1234567890abcdef12345678', token1: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' },
+      ];
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -380,7 +387,9 @@ describe('MerklController', () => {
     });
 
     it('should handle very small reward amounts', async () => {
-      const pair = 'eth_usdc';
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -413,31 +422,6 @@ describe('MerklController', () => {
     });
   });
 
-  describe('calculatePairTVL', () => {
-    it('should calculate TVL with decimal precision', async () => {
-      const mockCampaign = {
-        id: '1',
-        pair: {
-          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
-          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
-        },
-      };
-
-      const deployment = {
-        blockchainType: BlockchainType.Ethereum,
-        exchangeId: ExchangeId.OGEthereum,
-        startBlock: 18000000,
-      };
-
-      // Note: This is testing the private method, so we're testing the pattern
-      // In a real implementation, this would integrate with TVL service
-      const tvl = await controller['calculatePairTVL'](mockCampaign as any, deployment as any);
-
-      expect(tvl).toBeInstanceOf(Decimal);
-      expect(tvl.gte(0)).toBe(true);
-    });
-  });
-
   describe('edge cases', () => {
     it('should handle different blockchain types', async () => {
       const deployments = [
@@ -456,6 +440,7 @@ describe('MerklController', () => {
       ];
 
       for (const deployment of deployments) {
+        mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
         mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
         mockPairService.allAsDictionary.mockResolvedValue({});
 
@@ -488,18 +473,15 @@ describe('MerklController', () => {
         },
       ];
 
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
       mockPairService.allAsDictionary.mockResolvedValue({});
-
-      const originalCalculatePairTVL = controller['calculatePairTVL'];
-      controller['calculatePairTVL'] = jest.fn().mockResolvedValue(new Decimal('1000000'));
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]);
 
       const result: DataJSON = await controller.getData(deployment as any);
 
       expect(result).toHaveLength(1);
       expect(result[0].pair).toBe('_invalid_address'); // Lowercased
-
-      controller['calculatePairTVL'] = originalCalculatePairTVL;
     });
 
     it('should handle concurrent getData calls', async () => {
@@ -509,6 +491,7 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
       mockPairService.allAsDictionary.mockResolvedValue({});
 
