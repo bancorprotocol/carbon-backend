@@ -132,7 +132,7 @@ export class MerklController {
     const pairsDictionary = await this.pairService.allAsDictionary(deployment);
 
     // Find the pair using case-insensitive lookup
-    const pair = pairsDictionary[token0Address][token1Address];
+    const pair = pairsDictionary[token0Address]?.[token1Address];
 
     if (!pair) {
       throw new BadRequestException({
