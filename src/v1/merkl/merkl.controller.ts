@@ -163,7 +163,14 @@ export class MerklController {
 
     // Get token information to determine decimals for wei conversion
     const tokensByAddress = await this.tokenService.allByAddress(deployment);
-    const rewardToken = tokensByAddress[toChecksumAddress(campaign.rewardTokenAddress)];
+    let rewardToken;
+
+    try {
+      rewardToken = tokensByAddress[toChecksumAddress(campaign.rewardTokenAddress)];
+    } catch (error) {
+      // Handle invalid address format gracefully
+      rewardToken = undefined;
+    }
 
     // Default to 18 decimals if token not found (standard ERC-20)
     const tokenDecimals = rewardToken?.decimals ?? 18;

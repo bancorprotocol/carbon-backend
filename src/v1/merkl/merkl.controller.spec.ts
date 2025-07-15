@@ -10,6 +10,7 @@ import { DataJSON } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
+import { TokenService } from '../../token/token.service';
 import Decimal from 'decimal.js';
 
 describe('MerklController', () => {
@@ -17,6 +18,7 @@ describe('MerklController', () => {
   let campaignService: CampaignService;
   let deploymentService: DeploymentService;
   let pairService: PairService;
+  let tokenService: TokenService;
   let campaignRepository: Repository<Campaign>;
   let epochRewardRepository: Repository<EpochReward>;
 
@@ -35,6 +37,10 @@ describe('MerklController', () => {
 
   const mockTvlService = {
     getTvlByPair: jest.fn(),
+  };
+
+  const mockTokenService = {
+    allByAddress: jest.fn(),
   };
 
   const mockCampaignRepository = {
@@ -68,6 +74,10 @@ describe('MerklController', () => {
           useValue: mockTvlService,
         },
         {
+          provide: TokenService,
+          useValue: mockTokenService,
+        },
+        {
           provide: getRepositoryToken(Campaign),
           useValue: mockCampaignRepository,
         },
@@ -82,6 +92,7 @@ describe('MerklController', () => {
     campaignService = module.get<CampaignService>(CampaignService);
     deploymentService = module.get<DeploymentService>(DeploymentService);
     pairService = module.get<PairService>(PairService);
+    tokenService = module.get<TokenService>(TokenService);
     campaignRepository = module.get<Repository<Campaign>>(getRepositoryToken(Campaign));
     epochRewardRepository = module.get<Repository<EpochReward>>(getRepositoryToken(EpochReward));
   });
@@ -309,7 +320,7 @@ describe('MerklController', () => {
   });
 
   describe('getRewards', () => {
-    it('should return rewards for a specific pair', async () => {
+    it('should return rewards for a specific pair with amounts converted to wei', async () => {
       const pair = [
         { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
       ];
@@ -319,45 +330,202 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
-      const mockRewardsData: EncompassingJSON = {
-        rewardToken: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        rewards: {
-          '0x1234567890abcdef1234567890abcdef12345678': {
-            liquidity_providing: {
-              amount: '2024792857777485576',
-              timestamp: '1640995200',
-            },
-            volume_incentive: {
-              amount: '1529891386638038979',
-              timestamp: '1640995500',
-            },
-          },
-          '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd': {
-            liquidity_providing: {
-              amount: '47914227570040216219',
-              timestamp: '1640995200',
-            },
-          },
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        pair: {
+          id: 1,
+          token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+          token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+        },
+        isActive: true,
+      };
+
+      const mockEpochRewards = [
+        {
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          reason: 'liquidity_providing',
+          rewardAmount: '2.024792857777485576', // Normalized amount in DB
+          epochEndTimestamp: new Date(1640995200 * 1000),
+        },
+        {
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          reason: 'volume_incentive',
+          rewardAmount: '1.529891386638038979', // Normalized amount in DB
+          epochEndTimestamp: new Date(1640995500 * 1000),
+        },
+        {
+          owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
+          reason: 'liquidity_providing',
+          rewardAmount: '47.914227570040216219', // Normalized amount in DB
+          epochEndTimestamp: new Date(1640995200 * 1000),
+        },
+      ];
+
+      const mockTokensByAddress = {
+        '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984': {
+          // UNI token (checksum address)
+          decimals: 18,
+          symbol: 'UNI',
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         },
       };
 
-      // Mock the method to return reward data
-      const originalMethod = controller.getRewards;
-      controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, deployment as any);
 
-      expect(result).toEqual(mockRewardsData);
       expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
+      expect(result.rewards).toEqual({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          liquidity_providing: {
+            amount: '2024792857777485576', // Converted to wei (18 decimals)
+            timestamp: '1640995200',
+          },
+          volume_incentive: {
+            amount: '1529891386638038979', // Converted to wei (18 decimals)
+            timestamp: '1640995500',
+          },
+        },
+        '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd': {
+          liquidity_providing: {
+            amount: '47914227570040216219', // Converted to wei (18 decimals)
+            timestamp: '1640995200',
+          },
+        },
+      });
 
-      // Verify decimal precision in reward amounts
-      const firstUserFirstReward = new Decimal(
-        result.rewards['0x1234567890abcdef1234567890abcdef12345678']['liquidity_providing'].amount,
-      );
-      expect(firstUserFirstReward.toString()).toBe('2024792857777485576');
+      // Verify TokenService was called with correct parameters
+      expect(mockTokenService.allByAddress).toHaveBeenCalledWith(deployment);
+    });
 
-      // Restore original method
-      controller.getRewards = originalMethod;
+    it('should handle token with different decimals', async () => {
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7', // USDT
+        pair: {
+          id: 1,
+          token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+          token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+        },
+        isActive: true,
+      };
+
+      const mockEpochRewards = [
+        {
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          reason: 'liquidity_providing',
+          rewardAmount: '100.5', // Normalized amount in DB
+          epochEndTimestamp: new Date(1640995200 * 1000),
+        },
+      ];
+
+      const mockTokensByAddress = {
+        '0xdAC17F958D2ee523a2206206994597C13D831ec7': {
+          // USDT token (6 decimals)
+          decimals: 6,
+          symbol: 'USDT',
+          address: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+
+      const result = await controller.getRewards({ pair }, deployment as any);
+
+      expect(result.rewards).toEqual({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          liquidity_providing: {
+            amount: '100500000', // Converted to wei (6 decimals: 100.5 * 10^6)
+            timestamp: '1640995200',
+          },
+        },
+      });
+    });
+
+    it('should default to 18 decimals when token not found', async () => {
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0xUnknownTokenAddress',
+        pair: {
+          id: 1,
+          token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+          token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+        },
+        isActive: true,
+      };
+
+      const mockEpochRewards = [
+        {
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          reason: 'liquidity_providing',
+          rewardAmount: '1.5', // Normalized amount in DB
+          epochEndTimestamp: new Date(1640995200 * 1000),
+        },
+      ];
+
+      const mockTokensByAddress = {}; // Empty - token not found
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+
+      const result = await controller.getRewards({ pair }, deployment as any);
+
+      expect(result.rewards).toEqual({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          liquidity_providing: {
+            amount: '1500000000000000000', // Converted to wei (18 decimals: 1.5 * 10^18)
+            timestamp: '1640995200',
+          },
+        },
+      });
     });
 
     it('should handle empty rewards', async () => {
@@ -370,20 +538,34 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
-      const mockRewardsData: EncompassingJSON = {
-        rewardToken: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        rewards: {},
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        pair: {
+          id: 1,
+          token0: { address: '0x1234567890abcdef1234567890abcdef12345678' },
+          token1: { address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' },
+        },
+        isActive: true,
       };
 
-      const originalMethod = controller.getRewards;
-      controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd': { id: 1 },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue({});
+      mockEpochRewardRepository.find.mockResolvedValue([]); // Empty rewards
 
       const result = await controller.getRewards({ pair }, deployment as any);
 
       expect(result.rewards).toEqual({});
       expect(Object.keys(result.rewards)).toHaveLength(0);
-
-      controller.getRewards = originalMethod;
+      expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
     });
 
     it('should handle very small reward amounts', async () => {
@@ -396,29 +578,56 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
-      const mockRewardsData: EncompassingJSON = {
-        rewardToken: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
-        rewards: {
-          '0x1234567890abcdef1234567890abcdef12345678': {
-            dust_reward: {
-              amount: '1', // Smallest possible wei amount
-              timestamp: '1640995200',
-            },
-          },
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        pair: {
+          id: 1,
+          token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+          token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+        },
+        isActive: true,
+      };
+
+      const mockEpochRewards = [
+        {
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          reason: 'dust_reward',
+          rewardAmount: '0.000000000000000001', // Smallest possible normalized amount (1 wei when converted)
+          epochEndTimestamp: new Date(1640995200 * 1000),
+        },
+      ];
+
+      const mockTokensByAddress = {
+        '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984': {
+          decimals: 18,
+          symbol: 'UNI',
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         },
       };
 
-      const originalMethod = controller.getRewards;
-      controller.getRewards = jest.fn().mockResolvedValue(mockRewardsData);
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
+          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, deployment as any);
 
-      const dustAmount = new Decimal(
-        result.rewards['0x1234567890abcdef1234567890abcdef12345678']['dust_reward'].amount,
-      );
-      expect(dustAmount.toString()).toBe('1');
-
-      controller.getRewards = originalMethod;
+      expect(result.rewards).toEqual({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          dust_reward: {
+            amount: '1', // 1 wei
+            timestamp: '1640995200',
+          },
+        },
+      });
     });
   });
 
