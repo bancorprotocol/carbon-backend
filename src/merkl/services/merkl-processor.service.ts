@@ -137,16 +137,9 @@ export class MerklProcessorService {
       defaultWeighting: 0,
     },
     [ExchangeId.OGTac]: {
-      tokenWeightings: {
-        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 0.75, // TAC
-        '0xaf988c3f7cb2aceabb15f96b19388a259b6c438f': 2.0, // USDT
-        '0xb76d91340f5ce3577f0a056d29f6e3eb4e88b140': 0.5, // TON
-        '0x61d66bc21fed820938021b06e9b2291f3fb91945': 1.25, // wETH
-        '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 1.25, // lbtc
-        '0x7048c9e4abd0cf0219e95a17a8c6908dfc4f0ee4': 1.25, //cbBTC
-      },
+      tokenWeightings: {},
       whitelistedAssets: [],
-      defaultWeighting: 0,
+      defaultWeighting: 1,
     },
   };
 
@@ -774,11 +767,11 @@ export class MerklProcessorService {
         // Add this snapshot's reward to redistribution pool
         accumulatedRedistribution = accumulatedRedistribution.add(currentSnapshotReward);
 
-        this.logger.debug(
-          `Snapshot ${i} for epoch ${
-            epoch.epochNumber
-          } had no eligible liquidity, adding ${currentSnapshotReward.toString()} to redistribution pool (total: ${accumulatedRedistribution.toString()})`,
-        );
+        // this.logger.debug(
+        //   `Snapshot ${i} for epoch ${
+        //     epoch.epochNumber
+        //   } had no eligible liquidity, adding ${currentSnapshotReward.toString()} to redistribution pool (total: ${accumulatedRedistribution.toString()})`,
+        // );
 
         continue; // Skip this snapshot
       }
@@ -793,11 +786,11 @@ export class MerklProcessorService {
         epochRewards.set(strategyId, existing);
       }
 
-      this.logger.debug(
-        `Snapshot ${i} for epoch ${epoch.epochNumber} distributed ${currentSnapshotReward.toString()} rewards to ${
-          snapshotRewards.size
-        } strategies`,
-      );
+      // this.logger.debug(
+      //   `Snapshot ${i} for epoch ${epoch.epochNumber} distributed ${currentSnapshotReward.toString()} rewards to ${
+      //     snapshotRewards.size
+      //   } strategies`,
+      // );
     }
 
     // Handle any remaining redistribution (edge case: if last snapshots had no liquidity)
@@ -919,7 +912,7 @@ export class MerklProcessorService {
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
-        this.logger.debug(`Strategy ${strategyId} bid reward: ${reward.toString()}`);
+        // this.logger.debug(`Strategy ${strategyId} bid reward: ${reward.toString()}`);
       }
     } else {
       this.logger.warn('No eligible weighted bid liquidity - bid rewards not distributed');
@@ -932,7 +925,7 @@ export class MerklProcessorService {
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
-        this.logger.debug(`Strategy ${strategyId} ask reward: ${reward.toString()}`);
+        // this.logger.debug(`Strategy ${strategyId} ask reward: ${reward.toString()}`);
       }
     } else {
       this.logger.warn('No eligible weighted ask liquidity - ask rewards not distributed');

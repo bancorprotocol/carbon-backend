@@ -160,6 +160,35 @@ export class CarbonPriceService {
       provider: 'carbon-defi',
     });
 
+    // If the unknown token is a native token alias, also save price for the original NATIVE_TOKEN address
+    if (deployment.nativeTokenAlias && tokenPair.unknownTokenAddress === deployment.nativeTokenAlias.toLowerCase()) {
+      const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
+
+      // Save to historicQuote table for NATIVE_TOKEN address
+      await this.historicQuoteService.addQuote({
+        blockchainType: deployment.blockchainType,
+        tokenAddress: nativeTokenAddress,
+        usd: tokenPrice,
+        timestamp: event.timestamp,
+        provider: 'carbon-defi',
+      });
+
+      // Create a native token object for the quote table
+      const nativeToken = {
+        ...token,
+        address: NATIVE_TOKEN,
+      };
+
+      // Save to quote table for NATIVE_TOKEN address
+      await this.quoteService.addOrUpdateQuote({
+        token: nativeToken,
+        blockchainType: deployment.blockchainType,
+        usd: tokenPrice,
+        timestamp: event.timestamp,
+        provider: 'carbon-defi',
+      });
+    }
+
     return true;
   }
 
