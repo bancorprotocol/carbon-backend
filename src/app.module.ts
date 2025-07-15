@@ -24,7 +24,6 @@ import { CodexService } from './codex/codex.service';
 import { CodexModule } from './codex/codex.module';
 import { SubdomainCacheInterceptor } from './cache.interceptor';
 import { CarbonPriceModule } from './carbon-price/carbon-price.module';
-import { MerklModule } from './merkl/merkl.module';
 
 @Module({
   imports: [
@@ -109,7 +108,6 @@ import { MerklModule } from './merkl/merkl.module';
     DeploymentModule,
     CodexModule,
     CarbonPriceModule,
-    MerklModule,
   ],
 
   providers: [
