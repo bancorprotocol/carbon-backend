@@ -298,8 +298,6 @@ export class TvlService {
       }
     }
 
-    await this.updateTotalTvl(deployment);
-
     // Update the last processed block number
     await this.lastProcessedBlockService.update(`${deployment.blockchainType}-${deployment.exchangeId}-tvl`, endBlock);
   }
@@ -556,7 +554,7 @@ export class TvlService {
     return paginatedResult;
   }
 
-  private async updateTotalTvl(deployment: Deployment): Promise<void> {
+  async updateTotalTvl(deployment: Deployment): Promise<void> {
     // Find the most recent timestamp already processed
     const lastProcessedTvl = await this.totalTvlRepository
       .createQueryBuilder('total_tvl')

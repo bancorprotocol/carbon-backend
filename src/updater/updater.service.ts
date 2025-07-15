@@ -182,12 +182,12 @@ export class UpdaterService {
       await this.activityV2Service.update(endBlock, deployment, tokens);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
 
-      await this.tvlService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
-
       // update merkl rewards
       await this.merklProcessorService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating merkl rewards for ${deployment.exchangeId}`);
+
+      await this.tvlService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
       // handle notifications
       await this.notificationService.update(endBlock, deployment);
@@ -242,6 +242,10 @@ export class UpdaterService {
       // coingecko tickers
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
+
+      // total tvl
+      await this.tvlService.updateTotalTvl(deployment);
+      console.log(`CARBON SERVICE - Finished updating total tvl for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished updating analytics for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingAnalytics[deploymentKey] = false;
