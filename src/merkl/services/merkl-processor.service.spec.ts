@@ -812,20 +812,38 @@ describe('MerklProcessorService', () => {
         getActiveCampaigns: jest.fn().mockResolvedValue([]),
       };
 
-      // Replace the actual service with mock
+      const mockLastProcessedBlockService = {
+        getOrInit: jest.fn().mockResolvedValue(17087000),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+
+      // Replace the actual services with mocks
       Object.defineProperty(service, 'campaignService', {
         value: mockCampaignService,
+        writable: true,
+      });
+      Object.defineProperty(service, 'lastProcessedBlockService', {
+        value: mockLastProcessedBlockService,
         writable: true,
       });
 
       const loggerSpy = jest.spyOn(service['logger'], 'log').mockImplementation();
 
+      const endBlock = 22919485;
+
       // Execute the update method
-      await service.update(22919485, mockDeployment as any);
+      await service.update(endBlock, mockDeployment as any);
 
       // Verify that appropriate log message was shown
       expect(loggerSpy).toHaveBeenCalledWith('No active campaigns found for ethereum-ethereum');
       expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
+
+      // Verify that lastProcessedBlock is updated even when no campaigns exist
+      expect(mockLastProcessedBlockService.getOrInit).toHaveBeenCalledWith(
+        'ethereum-ethereum-merkl-global',
+        mockDeployment.startBlock,
+      );
+      expect(mockLastProcessedBlockService.update).toHaveBeenCalledWith('ethereum-ethereum-merkl-global', endBlock);
 
       loggerSpy.mockRestore();
     });

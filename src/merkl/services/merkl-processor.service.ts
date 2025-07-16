@@ -180,16 +180,16 @@ export class MerklProcessorService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
+    // 1. Get single global lastProcessedBlock for merkl
+    const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
+    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(globalKey, deployment.startBlock);
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
 
     if (campaigns.length === 0) {
       this.logger.log(`No active campaigns found for ${deployment.blockchainType}-${deployment.exchangeId}`);
+      await this.lastProcessedBlockService.update(globalKey, endBlock);
       return;
     }
-
-    // 1. Get single global lastProcessedBlock for merkl
-    const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
-    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(globalKey, deployment.startBlock);
 
     this.logger.log(`Processing merkl globally from block ${lastProcessedBlock} to ${endBlock}`);
 
