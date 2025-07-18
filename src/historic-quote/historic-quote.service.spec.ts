@@ -1082,6 +1082,122 @@ describe('HistoricQuoteService', () => {
       // Verify result is empty array
       expect(result).toEqual([]);
     });
+
+    it('should create separate entries for multiple mapped addresses pointing to same Ethereum token', async () => {
+      const originalToken1 = '0xoriginaltoken1';
+      const originalToken2 = '0xoriginaltoken2';
+      const sharedEthereumToken = '0xsharedethereumtoken';
+
+      const deployment = {
+        exchangeId: ExchangeId.OGSei,
+        blockchainType: BlockchainType.Sei,
+        mapEthereumTokens: {
+          [originalToken1]: sharedEthereumToken,
+          [originalToken2]: sharedEthereumToken, // Both map to same Ethereum token
+        },
+        // Add required fields for Deployment type
+        rpcEndpoint: 'http://example.com',
+        harvestEventsBatchSize: 100,
+        harvestConcurrency: 1,
+        multicallAddress: '0xmulticall',
+        gasToken: { name: 'Sei', symbol: 'SEI', address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' },
+        startBlock: 0,
+        contracts: {},
+      };
+
+      // Provide the getLowercaseTokenMap implementation
+      mockDeploymentService.getLowercaseTokenMap = jest.fn().mockImplementation((dep) => {
+        const result = {};
+        if (dep.mapEthereumTokens) {
+          Object.entries(dep.mapEthereumTokens).forEach(([key, value]) => {
+            result[key.toLowerCase()] = String(value).toLowerCase();
+          });
+        }
+        return result;
+      });
+
+      const start = '2023-01-01';
+      const end = '2023-01-31';
+
+      // Mock rates from Ethereum for the shared token
+      const mockedEthereumRates = [
+        {
+          day: '2023-01-01T00:00:00.000Z',
+          address: sharedEthereumToken.toLowerCase(),
+          usd: '100.50',
+          provider: 'codex',
+        },
+        {
+          day: '2023-01-02T00:00:00.000Z',
+          address: sharedEthereumToken.toLowerCase(),
+          usd: '101.75',
+          provider: 'codex',
+        },
+      ];
+
+      // Setup repository.query mock to return Ethereum data
+      mockRepository.query.mockImplementation((sql) => {
+        if (sql.includes(`IN ('${sharedEthereumToken.toLowerCase()}')`)) {
+          return Promise.resolve(mockedEthereumRates);
+        }
+        return Promise.resolve([]);
+      });
+
+      const result = await service.getUsdRates(deployment, [originalToken1, originalToken2], start, end);
+
+      // Verify query was executed once for Ethereum
+      expect(mockRepository.query).toHaveBeenCalledTimes(1);
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining(`AND "tokenAddress" IN ('${sharedEthereumToken.toLowerCase()}')`),
+      );
+
+      // Verify result has entries for both original tokens
+      expect(result.length).toBe(4); // 2 dates × 2 tokens = 4 entries
+
+      // Group results by address for easier verification
+      const resultsByAddress = result.reduce((acc, item) => {
+        if (!acc[item.address]) acc[item.address] = [];
+        acc[item.address].push(item);
+        return acc;
+      }, {});
+
+      // Verify both original tokens have their own entries
+      expect(resultsByAddress[originalToken1.toLowerCase()]).toBeDefined();
+      expect(resultsByAddress[originalToken2.toLowerCase()]).toBeDefined();
+      expect(resultsByAddress[originalToken1.toLowerCase()].length).toBe(2);
+      expect(resultsByAddress[originalToken2.toLowerCase()].length).toBe(2);
+
+      // Verify first original token data
+      expect(resultsByAddress[originalToken1.toLowerCase()][0]).toEqual(
+        expect.objectContaining({
+          address: originalToken1.toLowerCase(),
+          usd: 100.5,
+          provider: 'codex',
+          mappedFrom: sharedEthereumToken.toLowerCase(),
+        }),
+      );
+
+      // Verify second original token data
+      expect(resultsByAddress[originalToken2.toLowerCase()][0]).toEqual(
+        expect.objectContaining({
+          address: originalToken2.toLowerCase(),
+          usd: 100.5, // Same value as first token since they share the same Ethereum token
+          provider: 'codex',
+          mappedFrom: sharedEthereumToken.toLowerCase(),
+        }),
+      );
+
+      // Verify both tokens have the same USD values and timestamps but different addresses
+      expect(resultsByAddress[originalToken1.toLowerCase()][0].usd).toBe(
+        resultsByAddress[originalToken2.toLowerCase()][0].usd,
+      );
+      expect(resultsByAddress[originalToken1.toLowerCase()][0].day).toBe(
+        resultsByAddress[originalToken2.toLowerCase()][0].day,
+      );
+      expect(resultsByAddress[originalToken1.toLowerCase()][0].address).not.toBe(
+        resultsByAddress[originalToken2.toLowerCase()][0].address,
+      );
+    });
   });
 
   describe('getHistoryQuotesBuckets', () => {

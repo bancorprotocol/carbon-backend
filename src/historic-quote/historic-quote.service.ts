@@ -1073,33 +1073,42 @@ export class HistoricQuoteService implements OnModuleInit {
 
     // 2. Fetch rates for mapped addresses from Ethereum blockchain if any exist
     if (mappedAddresses.length > 0) {
-      // Create a mapping from Ethereum address to original address for later reconstruction
-      const ethereumToOriginalMap = {};
-      const ethereumAddresses = mappedAddresses.map((addr) => {
+      // Create a mapping from Ethereum address to array of original addresses
+      const ethereumToOriginalMap: { [key: string]: string[] } = {};
+      const uniqueEthereumAddresses = new Set<string>();
+
+      mappedAddresses.forEach((addr) => {
         const ethereumAddr = tokenMap[addr].toLowerCase();
-        ethereumToOriginalMap[ethereumAddr] = addr;
-        return ethereumAddr;
+        if (!ethereumToOriginalMap[ethereumAddr]) {
+          ethereumToOriginalMap[ethereumAddr] = [];
+        }
+        ethereumToOriginalMap[ethereumAddr].push(addr);
+        uniqueEthereumAddresses.add(ethereumAddr);
       });
 
       const mappedResults = await this.fetchUsdRatesData(
         BlockchainType.Ethereum,
-        ethereumAddresses,
+        Array.from(uniqueEthereumAddresses),
         paddedStart,
         paddedEnd,
       );
 
-      // Map results back to original addresses
-      const mappedProcessedResults = mappedResults.map((row) => {
+      // Map results back to original addresses - create entry for each original address
+      const mappedProcessedResults = [];
+      mappedResults.forEach((row) => {
         const ethereumAddr = row.address.toLowerCase();
-        const originalAddr = ethereumToOriginalMap[ethereumAddr];
+        const originalAddresses = ethereumToOriginalMap[ethereumAddr];
 
-        return {
-          day: moment.utc(row.day).unix(),
-          address: originalAddr, // Use original address
-          usd: parseFloat(row.usd),
-          provider: row.provider,
-          mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
-        };
+        // Create an entry for each original address that maps to this Ethereum address
+        originalAddresses.forEach((originalAddr) => {
+          mappedProcessedResults.push({
+            day: moment.utc(row.day).unix(),
+            address: originalAddr, // Use original address
+            usd: parseFloat(row.usd),
+            provider: row.provider,
+            mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
+          });
+        });
       });
 
       result = result.concat(mappedProcessedResults);
