@@ -1504,6 +1504,279 @@ describe('HistoricQuoteService', () => {
       // Verify that the timestamp difference was ignored
       expect(result.timestamp).not.toEqual(newQuote.timestamp);
     });
+
+    it('should skip quotes when new price is 1000x or more bigger than the previous price', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '1.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '1000.00', // Exactly 1000x bigger
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
+    });
+
+    it('should skip quotes when new price is 1000x or more smaller than the previous price', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '1000.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '1.00', // Exactly 1000x smaller
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
+    });
+
+    it('should allow quotes with large but reasonable price changes (less than 1000x)', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '1.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '999.00', // 999x bigger, should be allowed
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were called
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...newQuote,
+        tokenAddress: '0xtoken123',
+        timestamp: expect.any(Date),
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual(
+        expect.objectContaining({
+          tokenAddress: '0xtoken123',
+          usd: '999.00',
+        }),
+      );
+    });
+
+    it('should allow quotes with small price changes (much less than 1000x)', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '100.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '95.00', // 5% decrease, should be allowed
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were called
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...newQuote,
+        tokenAddress: '0xtoken123',
+        timestamp: expect.any(Date),
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual(
+        expect.objectContaining({
+          tokenAddress: '0xtoken123',
+          usd: '95.00',
+        }),
+      );
+    });
+
+    it('should handle zero or negative prices safely in extreme jump check', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '0.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote with zero price
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '100.00',
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // When previous price is 0, the ratio check should be skipped and the quote should be created
+      expect(mockRepository.create).toHaveBeenCalledWith({
+        ...newQuote,
+        tokenAddress: '0xtoken123',
+        timestamp: expect.any(Date),
+      });
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(result).toEqual(
+        expect.objectContaining({
+          tokenAddress: '0xtoken123',
+          usd: '100.00',
+        }),
+      );
+    });
+
+    it('should skip quotes when new price is exactly 1000x bigger (edge case)', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '0.001',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '1.00', // Exactly 1000x bigger
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
+    });
+
+    it('should skip quotes when new price is exactly 0.001x (1000x smaller) of the previous price', async () => {
+      const existingQuote = {
+        id: 1,
+        tokenAddress: '0xtoken123',
+        usd: '1000.00',
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date('2023-01-01T12:00:00.000Z'),
+        provider: 'test-provider',
+      };
+
+      // Setup mock for getLast to return an existing quote
+      const mockQueryBuilder = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getOne: jest.fn().mockResolvedValue(existingQuote),
+      };
+      mockRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+      const newQuote = {
+        tokenAddress: '0xToken123',
+        usd: '1.00', // Exactly 0.001x (1000x smaller)
+        blockchainType: BlockchainType.Ethereum,
+        provider: 'test-provider',
+      };
+
+      const result = await service.addQuote(newQuote);
+
+      // Verify that create and save were not called
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+
+      // Verify that the existing quote was returned
+      expect(result).toEqual(existingQuote);
+    });
   });
 
   describe('getLatest', () => {

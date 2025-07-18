@@ -119,7 +119,7 @@ export class CarbonPriceService {
     }
 
     // Calculate the price of the unknown token
-    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment);
+    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment, tokenPair);
     const tokenPrice = unknownTokenPrice.toString();
 
     // Check if the last price for this token is the same, to avoid duplicate entries
@@ -238,7 +238,12 @@ export class CarbonPriceService {
   /**
    * Pure function to calculate token price based on trade event
    */
-  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent, deployment: Deployment): Decimal {
+  calculateTokenPrice(
+    knownTokenQuote: HistoricQuote,
+    event: TokensTradedEvent,
+    deployment: Deployment,
+    tokenPair: TokenAddressPair,
+  ): Decimal {
     // Normalize the addresses to handle native token aliases
     const sourceTokenAddress = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
     const knownTokenAddress = knownTokenQuote.tokenAddress.toLowerCase();
@@ -249,11 +254,11 @@ export class CarbonPriceService {
 
     const tradeRate = normalizedSourceAmount.div(normalizedTargetAmount);
 
-    if (sourceTokenAddress === knownTokenAddress) {
-      // Known token is token0, target token is token1
+    if (tokenPair.isToken0Known) {
+      // Source token is known, target token is unknown
       return new Decimal(knownTokenQuote.usd).mul(tradeRate);
     } else {
-      // Known token is token1, target token is token0
+      // Target token is known, source token is unknown
       return new Decimal(knownTokenQuote.usd).div(tradeRate);
     }
   }

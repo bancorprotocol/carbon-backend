@@ -1226,6 +1226,22 @@ export class HistoricQuoteService implements OnModuleInit {
             this.logger.log(`Skipping duplicate quote for ${quote.tokenAddress} with USD value ${quote.usd}`);
             return lastQuote;
           }
+
+          // Check if the price jump is too extreme (1000x smaller or bigger)
+          if (lastQuoteDecimal.greaterThan(0) && newQuoteDecimal.greaterThan(0)) {
+            const ratio = newQuoteDecimal.dividedBy(lastQuoteDecimal);
+            const thousandDecimal = new Decimal(1000);
+            const thousandthDecimal = new Decimal(0.001);
+
+            if (ratio.greaterThanOrEqualTo(thousandDecimal) || ratio.lessThanOrEqualTo(thousandthDecimal)) {
+              this.logger.warn(
+                `Skipping extreme price jump for ${quote.tokenAddress}: ${lastQuote.usd} -> ${
+                  quote.usd
+                } (ratio: ${ratio.toFixed(2)}x)`,
+              );
+              return lastQuote;
+            }
+          }
         }
       }
 
