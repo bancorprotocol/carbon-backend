@@ -42,10 +42,9 @@ export class CampaignService {
   }
 
   async getActiveCampaigns(deployment: Deployment): Promise<Campaign[]> {
-    const currentTime = new Date();
-
-    // First, get all campaigns that are marked as active
-    const activeCampaigns = await this.campaignRepository.find({
+    // Return all campaigns that are marked as active, regardless of timestamps
+    // This enables historic campaign reprocessing when manually set to active
+    return await this.campaignRepository.find({
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
@@ -53,29 +52,12 @@ export class CampaignService {
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
     });
-
-    // Check for campaigns that have passed their endDate and set them to inactive
-    const expiredCampaigns = activeCampaigns.filter((campaign) => campaign.endDate < currentTime);
-
-    if (expiredCampaigns.length > 0) {
-      // Set expired campaigns to inactive
-      await this.campaignRepository.update(
-        expiredCampaigns.map((c) => c.id),
-        { isActive: false },
-      );
-
-      this.logger.log(`Set ${expiredCampaigns.length} expired campaigns to inactive`);
-    }
-
-    // Return only campaigns that are still within their active period
-    return activeCampaigns.filter((campaign) => campaign.endDate >= currentTime && campaign.startDate <= currentTime);
   }
 
   async getCampaignByPair(deployment: Deployment, pairName: string): Promise<Campaign | null> {
-    const currentTime = new Date();
-
-    // First, get the campaign that is marked as active
-    const campaign = await this.campaignRepository.findOne({
+    // Return campaign that is marked as active, regardless of timestamps
+    // Lifecycle management is handled elsewhere for consistency
+    return await this.campaignRepository.findOne({
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
@@ -84,28 +66,33 @@ export class CampaignService {
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
     });
-
-    if (!campaign) {
-      return null;
-    }
-
-    // Check if campaign has expired and set it to inactive if needed
-    if (campaign.endDate < currentTime) {
-      await this.campaignRepository.update(campaign.id, { isActive: false });
-      this.logger.log(`Set expired campaign ${campaign.id} to inactive`);
-      return null;
-    }
-
-    // Check if campaign has started
-    if (campaign.startDate > currentTime) {
-      return null; // Campaign hasn't started yet
-    }
-
-    return campaign;
   }
 
   async updateCampaignStatus(id: string, isActive: boolean): Promise<Campaign> {
     await this.campaignRepository.update(id, { isActive });
     return this.campaignRepository.findOne({ where: { id }, relations: ['pair'] });
+  }
+
+  async markProcessedCampaignsInactive(
+    deployment: Deployment,
+    campaigns: Campaign[],
+    processedUpToTimestamp: number,
+  ): Promise<void> {
+    // Only mark campaigns inactive if we've processed past their end time
+    const expiredCampaigns = campaigns.filter((campaign) => {
+      const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
+      return processedUpToTimestamp >= campaignEndTimestamp;
+    });
+
+    if (expiredCampaigns.length > 0) {
+      await this.campaignRepository.update(
+        expiredCampaigns.map((c) => c.id),
+        { isActive: false },
+      );
+
+      this.logger.log(
+        `Post-processing: Set ${expiredCampaigns.length} campaigns to inactive after processing up to timestamp ${processedUpToTimestamp}`,
+      );
+    }
   }
 }

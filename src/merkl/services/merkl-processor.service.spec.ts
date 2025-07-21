@@ -25,6 +25,7 @@ describe('MerklProcessorService', () => {
 
   const mockCampaignService = {
     findByPairId: jest.fn(),
+    markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockLastProcessedBlockService = {
@@ -34,6 +35,10 @@ describe('MerklProcessorService', () => {
 
   const mockHistoricQuoteService = {
     findByTokensAndTimestamp: jest.fn(),
+    getUsdRates: jest.fn().mockResolvedValue([
+      { address: '0xtoken0', day: 1672531200, usd: 1500 },
+      { address: '0xtoken1', day: 1672531200, usd: 1 },
+    ]),
   };
 
   const mockStrategyCreatedEventService = {
@@ -54,6 +59,7 @@ describe('MerklProcessorService', () => {
 
   const mockBlockService = {
     getLastBlock: jest.fn(),
+    getBlocksDictionary: jest.fn().mockResolvedValue({}),
   };
 
   const mockDeploymentService = {
@@ -536,6 +542,151 @@ describe('MerklProcessorService', () => {
         const result = await service['validateEpochRewardsWontExceedTotal'](mockCampaign, mockEpoch, newRewards);
         expect(result).toBe(false);
       });
+
+      describe('Exact Precision Validation (No Tolerance)', () => {
+        it('should pass validation with exact campaign amount', async () => {
+          // Mock existing rewards that sum to exactly match campaign amount with new rewards
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: '999.999999999999999' }),
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          const newRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: new Decimal('0.000000000000001') }],
+          ]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](mockCampaign, mockEpoch, newRewards);
+          expect(result).toBe(true);
+        });
+
+        it('should reject validation when exceeding by even the smallest amount', async () => {
+          // Mock existing rewards that would exceed campaign amount by the tiniest fraction
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: '999.999999999999999' }),
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          const newRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: new Decimal('0.000000000000002') }], // Exceeds by 1e-15
+          ]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](mockCampaign, mockEpoch, newRewards);
+          expect(result).toBe(false);
+        });
+
+        it('should handle final epoch scenario where remaining balance might be irregular', async () => {
+          // Simulate final epoch with remaining balance after precision-safe calculation
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: '999.726775956284153157' }), // Sum of first 365 epochs
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          // Final epoch gets exactly the remaining balance: 1000 - 999.726775956284153157 = 0.273224043715846843
+          const newRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: new Decimal('0.273224043715846843') }],
+          ]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](mockCampaign, mockEpoch, newRewards);
+          expect(result).toBe(true);
+        });
+
+        it('should reject final epoch if trying to distribute more than remaining balance', async () => {
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: '999' }), // Existing total of 999
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          // Try to distribute more than the remaining balance (campaign amount is 1000, so remaining should be 1)
+          const newRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: new Decimal('1.1') }], // 0.1 too much
+          ]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](mockCampaign, mockEpoch, newRewards);
+          expect(result).toBe(false);
+        });
+
+        it('should work with high-precision decimal campaigns', async () => {
+          const highPrecisionCampaign = {
+            ...mockCampaign,
+            rewardAmount: '123.456789012345678901234567890',
+          };
+
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: '123.456789012345678901234567889' }),
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          const newRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: new Decimal('0.000000000000000000000000001') }],
+          ]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](
+            highPrecisionCampaign,
+            mockEpoch,
+            newRewards,
+          );
+          expect(result).toBe(true);
+        });
+
+        it('should ensure mathematical certainty in edge cases', async () => {
+          // Test scenario where old tolerance-based approach might have failed
+          const edgeCaseCampaign = {
+            ...mockCampaign,
+            rewardAmount: '100000', // Real scenario from user case
+          };
+
+          // Simulate accumulated rewards from 365 epochs of 273.224043715846994... tokens each
+          const accumulated365Epochs = new Decimal('100000').div(366).mul(365).toString();
+
+          const mockQueryBuilder = {
+            select: jest.fn().mockReturnThis(),
+            where: jest.fn().mockReturnThis(),
+            andWhere: jest.fn().mockReturnThis(),
+            getRawOne: jest.fn().mockResolvedValue({ total: accumulated365Epochs }),
+          };
+
+          mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+
+          // Final epoch should get exactly the remaining amount
+          const remainingBalance = new Decimal('100000').minus(accumulated365Epochs);
+          const newRewards = new Map([['strategy1', { owner: 'owner1', totalReward: remainingBalance }]]);
+
+          const result = await service['validateEpochRewardsWontExceedTotal'](edgeCaseCampaign, mockEpoch, newRewards);
+          expect(result).toBe(true);
+
+          // Verify this would fail if we tried to add a meaningful amount more
+          const excessiveRewards = new Map([
+            ['strategy1', { owner: 'owner1', totalReward: remainingBalance.add('0.1') }], // 0.1 tokens too much
+          ]);
+
+          const excessiveResult = await service['validateEpochRewardsWontExceedTotal'](
+            edgeCaseCampaign,
+            mockEpoch,
+            excessiveRewards,
+          );
+          expect(excessiveResult).toBe(false);
+        });
+      });
     });
 
     describe('Transaction Safety', () => {
@@ -671,6 +822,7 @@ describe('MerklProcessorService', () => {
       // Mock all the required services
       const mockCampaignService = {
         getActiveCampaigns: jest.fn().mockResolvedValue(mockCampaigns),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
       };
       const mockLastProcessedBlockService = {
         getOrInit: jest.fn().mockResolvedValue(mockLastProcessedBlock),
@@ -757,6 +909,7 @@ describe('MerklProcessorService', () => {
       // Mock all the required services
       const mockCampaignService = {
         getActiveCampaigns: jest.fn().mockResolvedValue(mockCampaigns),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
       };
       const mockLastProcessedBlockService = {
         getOrInit: jest.fn().mockResolvedValue(mockLastProcessedBlock),
@@ -810,6 +963,7 @@ describe('MerklProcessorService', () => {
 
       const mockCampaignService = {
         getActiveCampaigns: jest.fn().mockResolvedValue([]),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
       };
 
       const mockLastProcessedBlockService = {
@@ -1011,6 +1165,172 @@ describe('MerklProcessorService', () => {
       expect(epochs[1].epochNumber).toBe(2);
       expect(epochs[1].startTimestamp).toEqual(new Date(1672545600 * 1000)); // +4 hours from campaign start
       expect(epochs[1].endTimestamp).toEqual(new Date(1672560000 * 1000)); // +8 hours from campaign start
+    });
+
+    describe('Mathematical Precision Guarantees', () => {
+      it('should ensure total epoch rewards exactly equal campaign amount', () => {
+        const mockCampaign = {
+          id: '1',
+          startDate: new Date('2023-01-01T00:00:00.000Z'), // Unix: 1672531200
+          endDate: new Date('2023-01-03T00:00:00.000Z'), // Unix: 1672704000 (48 hours later)
+          rewardAmount: '100000', // Amount that doesn't divide evenly by epoch count
+        } as any;
+
+        const startTimestamp = 1672531200; // Campaign start
+        const endTimestamp = 1672704000; // Campaign end
+
+        const epochs = service['calculateEpochsInRange'](mockCampaign, startTimestamp, endTimestamp);
+
+        // Should create 12 epochs (48 hours / 4 hours per epoch)
+        expect(epochs).toHaveLength(12);
+
+        // Calculate total rewards across all epochs
+        const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+
+        // Must be exactly equal to campaign amount - no precision loss
+        expect(totalRewards.toString()).toBe('100000');
+        expect(totalRewards.equals(new Decimal('100000'))).toBe(true);
+      });
+
+      it('should handle non-terminating decimal divisions with exact precision', () => {
+        const mockCampaign = {
+          id: '1',
+          startDate: new Date('2025-05-15T21:13:10.000Z'), // Campaign from real scenario
+          endDate: new Date('2025-07-15T21:13:10.000Z'),
+          rewardAmount: '100000', // 100000 / 366 epochs creates non-terminating decimal
+        } as any;
+
+        const campaignStartTime = Math.floor(mockCampaign.startDate.getTime() / 1000);
+        const campaignEndTime = Math.floor(mockCampaign.endDate.getTime() / 1000);
+
+        const epochs = service['calculateEpochsInRange'](mockCampaign, campaignStartTime, campaignEndTime);
+
+        // Should create 366 epochs (61 days * 6 epochs per day)
+        expect(epochs).toHaveLength(366);
+
+        // Calculate total rewards
+        const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+
+        // Must be exactly 100000 despite non-terminating decimal division
+        expect(totalRewards.toString()).toBe('100000');
+        expect(totalRewards.equals(new Decimal('100000'))).toBe(true);
+
+        // Verify final epoch gets remaining balance
+        const finalEpoch = epochs[epochs.length - 1];
+        expect(finalEpoch.epochNumber).toBe(366);
+
+        // Calculate what the final epoch should have received with proportional calculation
+        const totalDuration = campaignEndTime - campaignStartTime;
+        const finalEpochDuration =
+          Math.floor(finalEpoch.endTimestamp.getTime() / 1000) - Math.floor(finalEpoch.startTimestamp.getTime() / 1000);
+        const proportionalReward = new Decimal('100000').mul(finalEpochDuration).div(totalDuration);
+
+        // Final epoch should get remaining balance, which will be slightly different from proportional
+        const sumOfFirst365 = epochs.slice(0, 365).reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+        const expectedFinalReward = new Decimal('100000').minus(sumOfFirst365);
+
+        expect(finalEpoch.totalRewards.equals(expectedFinalReward)).toBe(true);
+      });
+
+      it('should never distribute more than campaign amount regardless of precision issues', () => {
+        // Test multiple scenarios that could cause precision accumulation
+        const testScenarios = [
+          { amount: '100000', days: 61 }, // Real-world scenario
+          { amount: '999999.999999', days: 7 }, // High precision amount
+          { amount: '1', days: 3 }, // Small amount
+          { amount: '123456789.123456789', days: 30 }, // Large amount with decimals
+        ];
+
+        testScenarios.forEach(({ amount, days }) => {
+          const campaignStart = new Date('2023-01-01T00:00:00.000Z');
+          const campaignEnd = new Date(campaignStart.getTime() + days * 24 * 60 * 60 * 1000);
+
+          const mockCampaign = {
+            id: '1',
+            startDate: campaignStart,
+            endDate: campaignEnd,
+            rewardAmount: amount,
+          } as any;
+
+          const epochs = service['calculateEpochsInRange'](
+            mockCampaign,
+            Math.floor(campaignStart.getTime() / 1000),
+            Math.floor(campaignEnd.getTime() / 1000),
+          );
+
+          const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+          const campaignAmount = new Decimal(amount);
+
+          // Total must never exceed campaign amount
+          expect(totalRewards.lte(campaignAmount)).toBe(true);
+
+          // Total should be exactly equal to campaign amount
+          expect(totalRewards.equals(campaignAmount)).toBe(true);
+        });
+      });
+
+      it('should handle final epoch correctly when it has different duration', () => {
+        // Campaign that doesn't end exactly on epoch boundary
+        const mockCampaign = {
+          id: '1',
+          startDate: new Date('2023-01-01T00:00:00.000Z'), // Unix: 1672531200
+          endDate: new Date('2023-01-01T06:30:00.000Z'), // Unix: 1672554600 (6.5 hours later)
+          rewardAmount: '650', // 6.5 hours worth
+        } as any;
+
+        const startTimestamp = 1672531200; // Campaign start
+        const endTimestamp = 1672554600; // Campaign end
+
+        const epochs = service['calculateEpochsInRange'](mockCampaign, startTimestamp, endTimestamp);
+
+        // Should create 2 epochs:
+        // - Epoch 1: 4 hours (14400 seconds)
+        // - Epoch 2: 2.5 hours (9000 seconds)
+        expect(epochs).toHaveLength(2);
+
+        // Verify total is exact
+        const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+        expect(totalRewards.toString()).toBe('650');
+
+        // First epoch should get proportional share: (14400/23400) * 650
+        const expectedFirstEpoch = new Decimal('650').mul(14400).div(23400);
+
+        // Second epoch should get remaining balance
+        const expectedSecondEpoch = new Decimal('650').minus(expectedFirstEpoch);
+
+        // Verify the final epoch gets exactly the remaining balance
+        expect(epochs[1].totalRewards.equals(expectedSecondEpoch)).toBe(true);
+      });
+
+      it('should work correctly when filtering epochs by time range', () => {
+        const mockCampaign = {
+          id: '1',
+          startDate: new Date('2023-01-01T00:00:00.000Z'), // Unix: 1672531200
+          endDate: new Date('2023-01-03T00:00:00.000Z'), // Unix: 1672704000 (48 hours)
+          rewardAmount: '100000',
+        } as any;
+
+        // Request only middle portion of campaign
+        const startTimestamp = 1672617600; // 24 hours into campaign
+        const endTimestamp = 1672689600; // 44 hours into campaign (20 hour window)
+
+        const epochs = service['calculateEpochsInRange'](mockCampaign, startTimestamp, endTimestamp);
+
+        // Should return epochs that intersect with the 24-44 hour window
+        // Epochs 7-12 should intersect (epoch 7: 24-28h, ..., epoch 12: 44-48h)
+        expect(epochs.length).toBeGreaterThan(0);
+
+        // Each returned epoch should have valid rewards
+        epochs.forEach((epoch) => {
+          expect(epoch.totalRewards.gt(0)).toBe(true);
+          expect(epoch.totalRewards.isFinite()).toBe(true);
+        });
+
+        // When we get all epochs for the campaign, total should still be exact
+        const allEpochs = service['calculateEpochsInRange'](mockCampaign, 1672531200, 1672704000);
+        const totalAllRewards = allEpochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+        expect(totalAllRewards.toString()).toBe('100000');
+      });
     });
   });
 
@@ -1387,6 +1707,435 @@ describe('MerklProcessorService', () => {
 
         const rewards = service['calculateSnapshotRewards'](mockSnapshot as any, new Decimal(100), mockCampaign);
         expect(rewards.size).toBe(0);
+      });
+    });
+  });
+
+  describe('Campaign End Date Protection Tests', () => {
+    const mockDeployment = {
+      blockchainType: 'ethereum',
+      exchangeId: 'ethereum',
+      startBlock: 1000,
+    } as any;
+
+    const mockActiveCampaign = {
+      id: '1',
+      blockchainType: 'ethereum',
+      exchangeId: 'ethereum',
+      pairId: 1,
+      rewardAmount: '1000',
+      rewardTokenAddress: '0x1234567890123456789012345678901234567890',
+      startDate: new Date('2023-01-01T00:00:00.000Z'), // Unix: 1672531200
+      endDate: new Date('2023-01-01T12:00:00.000Z'), // Unix: 1672574400 (12 hours later)
+      opportunityName: 'Test Campaign',
+      isActive: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      pair: {
+        id: 1,
+        token0: { address: '0xtoken0' },
+        token1: { address: '0xtoken1' },
+      },
+    } as any;
+
+    const mockExpiredCampaign = {
+      ...mockActiveCampaign,
+      id: '2',
+      endDate: new Date('2022-12-31T12:00:00.000Z'), // Unix: 1672488000 (ended before campaign 1 starts)
+    } as any;
+
+    beforeEach(() => {
+      // Mock BlockService.getBlocksDictionary
+      const mockGetBlocksDictionary = jest.fn().mockResolvedValue({
+        1000: new Date('2023-01-01T06:00:00.000Z'), // Before campaign end
+        1001: new Date('2023-01-01T14:00:00.000Z'), // After campaign end
+        1002: new Date('2023-01-01T10:00:00.000Z'), // Before campaign end
+        1003: new Date('2023-01-01T16:00:00.000Z'), // After campaign end
+      });
+
+      Object.defineProperty(service, 'blockService', {
+        value: { getBlocksDictionary: mockGetBlocksDictionary },
+        writable: true,
+      });
+
+      // Mock getTimestampForBlock
+      const mockGetTimestampForBlock = jest.fn().mockImplementation((blockId: number) => {
+        const timestamps = {
+          1000: Math.floor(new Date('2023-01-01T06:00:00.000Z').getTime() / 1000), // 1672552800
+          1001: Math.floor(new Date('2023-01-01T14:00:00.000Z').getTime() / 1000), // 1672581600
+          1002: Math.floor(new Date('2023-01-01T10:00:00.000Z').getTime() / 1000), // 1672567200
+          1003: Math.floor(new Date('2023-01-01T16:00:00.000Z').getTime() / 1000), // 1672588800
+        };
+        return Promise.resolve(timestamps[blockId] || 1672531200);
+      });
+
+      jest.spyOn(service as any, 'getTimestampForBlock').mockImplementation(mockGetTimestampForBlock);
+
+      // Mock createPriceCache to avoid calling the actual implementation
+      jest.spyOn(service as any, 'createPriceCache').mockResolvedValue({
+        rates: new Map([
+          ['0xtoken0', 1500],
+          ['0xtoken1', 1],
+        ]),
+        timestamp: Date.now(),
+      });
+    });
+
+    describe('processBatchForAllCampaigns', () => {
+      it('should skip entire campaign when batch starts after campaign end', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+        const campaignContexts = [{ campaign: mockExpiredCampaign, strategyStates: new Map() }];
+
+        const mockEvents = {
+          createdEvents: [],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+        };
+
+        await service['processBatchForAllCampaigns'](
+          campaignContexts,
+          mockEvents,
+          1001, // Batch starts after expired campaign end
+          1003,
+          mockDeployment,
+        );
+
+        expect(loggerSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Skipping campaign 2 - batch starts after campaign end'),
+        );
+
+        loggerSpy.mockRestore();
+      });
+
+      it('should process campaign when batch starts before campaign end', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+        const updateStrategyStatesSpy = jest.spyOn(service as any, 'updateStrategyStates').mockImplementation();
+        const processEpochsSpy = jest.spyOn(service as any, 'processEpochsInTimeRange').mockImplementation();
+
+        const campaignContexts = [{ campaign: mockActiveCampaign, strategyStates: new Map() }];
+
+        const mockEvents = {
+          createdEvents: [],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+        };
+
+        await service['processBatchForAllCampaigns'](
+          campaignContexts,
+          mockEvents,
+          1000, // Batch starts before campaign end
+          1002,
+          mockDeployment,
+        );
+
+        expect(loggerSpy).not.toHaveBeenCalledWith(expect.stringContaining('Skipping campaign'));
+        expect(updateStrategyStatesSpy).toHaveBeenCalled();
+        expect(processEpochsSpy).toHaveBeenCalled();
+
+        loggerSpy.mockRestore();
+        updateStrategyStatesSpy.mockRestore();
+        processEpochsSpy.mockRestore();
+      });
+
+      it('should filter events by campaign end timestamp', async () => {
+        const campaignContexts = [
+          {
+            campaign: mockActiveCampaign,
+            strategyStates: new Map([
+              [
+                'strategy1',
+                {
+                  strategyId: 'strategy1',
+                  pairId: 1,
+                  token0Address: '0xtoken0',
+                  token1Address: '0xtoken1',
+                  token0Decimals: 18,
+                  token1Decimals: 18,
+                  liquidity0: new Decimal('1000'),
+                  liquidity1: new Decimal('1000'),
+                  order0_A: new Decimal('1'),
+                  order0_B: new Decimal('2000'),
+                  order0_z: new Decimal('1000'),
+                  order1_A: new Decimal('1'),
+                  order1_B: new Decimal('2000'),
+                  order1_z: new Decimal('1000'),
+                  currentOwner: 'owner1',
+                  creationWallet: 'owner1',
+                  lastProcessedBlock: 100,
+                  isDeleted: false,
+                },
+              ],
+            ]),
+          },
+        ];
+
+        const mockEvents = {
+          createdEvents: [
+            { block: { id: 1000 }, pair: { id: 1 } }, // Before campaign end - should be included
+            { block: { id: 1001 }, pair: { id: 1 } }, // After campaign end - should be filtered out
+          ] as any[],
+          updatedEvents: [
+            { block: { id: 1002 }, pair: { id: 1 } }, // Before campaign end - should be included
+            { block: { id: 1003 }, pair: { id: 1 } }, // After campaign end - should be filtered out
+          ] as any[],
+          deletedEvents: [] as any[],
+          transferEvents: [
+            { block: { id: 1000 }, strategyId: 'strategy1' }, // Before campaign end - should be included
+            { block: { id: 1001 }, strategyId: 'strategy1' }, // After campaign end - should be filtered out
+          ] as any[],
+        };
+
+        const updateStrategyStatesSpy = jest.spyOn(service as any, 'updateStrategyStates').mockImplementation();
+        const processEpochsSpy = jest.spyOn(service as any, 'processEpochsInTimeRange').mockImplementation();
+
+        await service['processBatchForAllCampaigns'](campaignContexts, mockEvents as any, 1000, 1003, mockDeployment);
+
+        // Check that updateStrategyStates was called with filtered events
+        expect(updateStrategyStatesSpy).toHaveBeenCalledWith(
+          [{ block: { id: 1000 }, pair: { id: 1 } }], // Only event before campaign end
+          [{ block: { id: 1002 }, pair: { id: 1 } }], // Only event before campaign end
+          [], // No deleted events
+          [{ block: { id: 1000 }, strategyId: 'strategy1' }], // Only event before campaign end
+          expect.any(Map),
+        );
+
+        updateStrategyStatesSpy.mockRestore();
+        processEpochsSpy.mockRestore();
+      });
+
+      it('should handle empty events gracefully', async () => {
+        const campaignContexts = [{ campaign: mockActiveCampaign, strategyStates: new Map() }];
+
+        const mockEvents = {
+          createdEvents: [],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+        };
+
+        // Should not call getBlocksDictionary when no events
+        const getBlocksDictionarySpy = jest.spyOn(service['blockService'], 'getBlocksDictionary');
+
+        await service['processBatchForAllCampaigns'](campaignContexts, mockEvents as any, 1000, 1002, mockDeployment);
+
+        expect(getBlocksDictionarySpy).not.toHaveBeenCalled();
+
+        getBlocksDictionarySpy.mockRestore();
+      });
+    });
+
+    describe('processEpochsInTimeRange', () => {
+      it('should skip epoch processing when time range starts after campaign end', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+        const calculateEpochsSpy = jest.spyOn(service as any, 'calculateEpochsInRange');
+
+        const campaignEndTime = Math.floor(mockActiveCampaign.endDate.getTime() / 1000); // 1672574400
+        const startTimestamp = campaignEndTime + 3600; // 1 hour after campaign end
+        const endTimestamp = startTimestamp + 3600; // 2 hours after campaign end
+
+        await service['processEpochsInTimeRange'](mockActiveCampaign, startTimestamp, endTimestamp, new Map(), {
+          rates: new Map(),
+          timestamp: Date.now(),
+        });
+
+        expect(loggerSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Skipping epoch processing for campaign 1 - time range starts after campaign end'),
+        );
+        expect(calculateEpochsSpy).not.toHaveBeenCalled();
+
+        loggerSpy.mockRestore();
+        calculateEpochsSpy.mockRestore();
+      });
+
+      it('should process epochs when time range starts before campaign end', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+        const calculateEpochsSpy = jest.spyOn(service as any, 'calculateEpochsInRange').mockReturnValue([]);
+        const validateIntegritySpy = jest.spyOn(service as any, 'validateEpochIntegrity').mockReturnValue(true);
+
+        const campaignStartTime = Math.floor(mockActiveCampaign.startDate.getTime() / 1000); // 1672531200
+        const campaignEndTime = Math.floor(mockActiveCampaign.endDate.getTime() / 1000); // 1672574400
+        const startTimestamp = campaignStartTime + 3600; // 1 hour after campaign start
+        const endTimestamp = campaignEndTime - 3600; // 1 hour before campaign end
+
+        await service['processEpochsInTimeRange'](mockActiveCampaign, startTimestamp, endTimestamp, new Map(), {
+          rates: new Map(),
+          timestamp: Date.now(),
+        });
+
+        expect(loggerSpy).not.toHaveBeenCalledWith(expect.stringContaining('Skipping epoch processing'));
+        expect(calculateEpochsSpy).toHaveBeenCalledWith(mockActiveCampaign, startTimestamp, endTimestamp);
+
+        loggerSpy.mockRestore();
+        calculateEpochsSpy.mockRestore();
+        validateIntegritySpy.mockRestore();
+      });
+    });
+
+    describe('generateSnapshotsForEpoch', () => {
+      it('should stop generating snapshots when campaign ends', () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'debug').mockImplementation();
+
+        // Create an epoch that extends beyond campaign end
+        const campaignEndTime = Math.floor(mockActiveCampaign.endDate.getTime() / 1000); // 1672574400
+        const mockEpoch = {
+          epochNumber: 1,
+          startTimestamp: new Date((campaignEndTime - 1800) * 1000), // 30 minutes before campaign end
+          endTimestamp: new Date((campaignEndTime + 1800) * 1000), // 30 minutes after campaign end
+          totalRewards: new Decimal('100'),
+        };
+
+        const snapshots = service['generateSnapshotsForEpoch'](mockEpoch, new Map(), mockActiveCampaign, {
+          rates: new Map(),
+          timestamp: Date.now(),
+        });
+
+        // Should have stopped generating snapshots at campaign end
+        expect(loggerSpy).toHaveBeenCalledWith(
+          expect.stringContaining(`Stopping snapshots at ${campaignEndTime} - campaign 1 ended at ${campaignEndTime}`),
+        );
+
+        // All snapshots should be before campaign end
+        snapshots.forEach((snapshot) => {
+          expect(snapshot.timestamp).toBeLessThan(campaignEndTime);
+        });
+
+        loggerSpy.mockRestore();
+      });
+
+      it('should generate all snapshots when epoch ends before campaign', () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'debug').mockImplementation();
+
+        // Create an epoch that ends before campaign end
+        const campaignEndTime = Math.floor(mockActiveCampaign.endDate.getTime() / 1000);
+        const mockEpoch = {
+          epochNumber: 1,
+          startTimestamp: new Date((campaignEndTime - 3600) * 1000), // 1 hour before campaign end
+          endTimestamp: new Date((campaignEndTime - 1800) * 1000), // 30 minutes before campaign end
+          totalRewards: new Decimal('100'),
+        };
+
+        const snapshots = service['generateSnapshotsForEpoch'](mockEpoch, new Map(), mockActiveCampaign, {
+          rates: new Map(),
+          timestamp: Date.now(),
+        });
+
+        // Should not have logged stopping message
+        expect(loggerSpy).not.toHaveBeenCalledWith(expect.stringContaining('Stopping snapshots'));
+
+        loggerSpy.mockRestore();
+      });
+
+      it('should handle epoch that starts after campaign end', () => {
+        // Create an epoch that starts after campaign end
+        const campaignEndTime = Math.floor(mockActiveCampaign.endDate.getTime() / 1000);
+        const mockEpoch = {
+          epochNumber: 1,
+          startTimestamp: new Date((campaignEndTime + 1800) * 1000), // 30 minutes after campaign end
+          endTimestamp: new Date((campaignEndTime + 3600) * 1000), // 1 hour after campaign end
+          totalRewards: new Decimal('100'),
+        };
+
+        const snapshots = service['generateSnapshotsForEpoch'](mockEpoch, new Map(), mockActiveCampaign, {
+          rates: new Map(),
+          timestamp: Date.now(),
+        });
+
+        // Should generate no snapshots
+        expect(snapshots).toHaveLength(0);
+      });
+    });
+
+    describe('Integration Tests', () => {
+      it('should handle mixed campaign states in the same batch', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+        const campaignContexts = [
+          { campaign: mockActiveCampaign, strategyStates: new Map() }, // Active campaign
+          { campaign: mockExpiredCampaign, strategyStates: new Map() }, // Expired campaign
+        ];
+
+        const mockEvents = {
+          createdEvents: [
+            { block: { id: 1000 }, pair: { id: 1 } }, // For active campaign
+            { block: { id: 1000 }, pair: { id: 2 } }, // For expired campaign (should be skipped)
+          ],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+        };
+
+        const updateStrategyStatesSpy = jest.spyOn(service as any, 'updateStrategyStates').mockImplementation();
+        const processEpochsSpy = jest.spyOn(service as any, 'processEpochsInTimeRange').mockImplementation();
+
+        await service['processBatchForAllCampaigns'](campaignContexts, mockEvents as any, 1000, 1002, mockDeployment);
+
+        // Should skip expired campaign
+        expect(loggerSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Skipping campaign 2 - batch starts after campaign end'),
+        );
+
+        // Should process active campaign only once
+        expect(updateStrategyStatesSpy).toHaveBeenCalledTimes(1);
+        expect(processEpochsSpy).toHaveBeenCalledTimes(1);
+
+        loggerSpy.mockRestore();
+        updateStrategyStatesSpy.mockRestore();
+        processEpochsSpy.mockRestore();
+      });
+
+      it('should preserve event filtering per campaign', async () => {
+        // Create two campaigns with different end times
+        const earlyEndCampaign = {
+          ...mockActiveCampaign,
+          id: '3',
+          pairId: 2,
+          endDate: new Date('2023-01-01T08:00:00.000Z'), // Unix: 1672560000 (ends earlier)
+          pair: { id: 2, token0: { address: '0xtoken2' }, token1: { address: '0xtoken3' } },
+        };
+
+        const campaignContexts = [
+          { campaign: mockActiveCampaign, strategyStates: new Map() }, // Ends at 12:00
+          { campaign: earlyEndCampaign, strategyStates: new Map() }, // Ends at 08:00
+        ];
+
+        const mockEvents = {
+          createdEvents: [
+            { block: { id: 1002 }, pair: { id: 1 } }, // At 10:00 - valid for both campaigns
+            { block: { id: 1001 }, pair: { id: 2 } }, // At 14:00 - invalid for both (after both end)
+          ],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+        };
+
+        const updateStrategyStatesSpy = jest.spyOn(service as any, 'updateStrategyStates').mockImplementation();
+
+        await service['processBatchForAllCampaigns'](campaignContexts, mockEvents as any, 1000, 1003, mockDeployment);
+
+        // Check filtering for first campaign (ends at 12:00)
+        expect(updateStrategyStatesSpy).toHaveBeenNthCalledWith(
+          1,
+          [{ block: { id: 1002 }, pair: { id: 1 } }], // Event at 10:00 included
+          [],
+          [],
+          [],
+          expect.any(Map),
+        );
+
+        // Check filtering for second campaign (ends at 08:00)
+        expect(updateStrategyStatesSpy).toHaveBeenNthCalledWith(
+          2,
+          [], // No events before 08:00 for pair 2
+          [],
+          [],
+          [],
+          expect.any(Map),
+        );
+
+        updateStrategyStatesSpy.mockRestore();
       });
     });
   });
@@ -2059,6 +2808,202 @@ describe('MerklProcessorService', () => {
         const strategy1Reward = epochRewards.get('strategy1');
         expect(strategy1Reward.totalReward.eq(0)).toBe(true);
       });
+    });
+  });
+
+  describe('Historic Campaign Reprocessing Integration Tests', () => {
+    const mockDeployment = {
+      blockchainType: 'ethereum',
+      exchangeId: 'ethereum',
+      startBlock: 1000,
+    } as any;
+
+    beforeEach(() => {
+      // Mock getTimestampForBlock for integration tests
+      const mockGetTimestampForBlock = jest.fn().mockImplementation((blockId: number) => {
+        const timestamps = {
+          1000: Math.floor(new Date('2023-01-01T06:00:00.000Z').getTime() / 1000), // 1672552800
+          2000: Math.floor(new Date('2023-01-01T18:00:00.000Z').getTime() / 1000), // 1672596000
+        };
+        return Promise.resolve(timestamps[blockId] || 1672531200);
+      });
+
+      jest.spyOn(service as any, 'getTimestampForBlock').mockImplementation(mockGetTimestampForBlock);
+    });
+
+    it('should call markProcessedCampaignsInactive after processing is complete', async () => {
+      const mockActiveCampaign = {
+        id: '1',
+        blockchainType: 'ethereum',
+        exchangeId: 'ethereum',
+        pairId: 1,
+        rewardAmount: '1000',
+        startDate: new Date('2023-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-01T12:00:00.000Z'),
+        isActive: true,
+        pair: { id: 1, token0: { address: '0xtoken0' }, token1: { address: '0xtoken1' } },
+      } as any;
+
+      const mockCampaignService = {
+        getActiveCampaigns: jest.fn().mockResolvedValue([mockActiveCampaign]),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const mockLastProcessedBlockService = {
+        getOrInit: jest.fn().mockResolvedValue(1000),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+
+      // Replace services with mocks
+      Object.defineProperty(service, 'campaignService', { value: mockCampaignService, writable: true });
+      Object.defineProperty(service, 'lastProcessedBlockService', {
+        value: mockLastProcessedBlockService,
+        writable: true,
+      });
+
+      // Mock other required methods
+      jest.spyOn(service as any, 'initializeStrategyStates').mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'processBatchForAllCampaigns').mockResolvedValue(undefined);
+
+      // Mock epoch reward repository cleanup
+      const mockDeleteQueryBuilder = {
+        delete: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue(undefined),
+      };
+      mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockDeleteQueryBuilder);
+
+      await service.update(2000, mockDeployment);
+
+      // Verify that markProcessedCampaignsInactive was called with correct parameters
+      expect(mockCampaignService.markProcessedCampaignsInactive).toHaveBeenCalledWith(
+        mockDeployment,
+        [mockActiveCampaign],
+        Math.floor(new Date('2023-01-01T18:00:00.000Z').getTime() / 1000), // endBlock timestamp
+      );
+    });
+
+    it('should enable historic campaign reprocessing workflow', async () => {
+      // Historic campaign that ended but is manually marked active for reprocessing
+      const expiredCampaign = {
+        id: '2',
+        blockchainType: 'ethereum',
+        exchangeId: 'ethereum',
+        pairId: 2,
+        rewardAmount: '500',
+        startDate: new Date('2022-12-01T00:00:00.000Z'), // Ended in past
+        endDate: new Date('2022-12-31T23:59:59.000Z'), // Ended in past
+        isActive: true, // Manually set to active for reprocessing
+        pair: { id: 2, token0: { address: '0xtoken2' }, token1: { address: '0xtoken3' } },
+      } as any;
+
+      const mockCampaignService = {
+        getActiveCampaigns: jest.fn().mockResolvedValue([expiredCampaign]),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const mockLastProcessedBlockService = {
+        getOrInit: jest.fn().mockResolvedValue(1000),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+
+      // Replace services
+      Object.defineProperty(service, 'campaignService', { value: mockCampaignService, writable: true });
+      Object.defineProperty(service, 'lastProcessedBlockService', {
+        value: mockLastProcessedBlockService,
+        writable: true,
+      });
+
+      // Mock methods
+      jest.spyOn(service as any, 'initializeStrategyStates').mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'processBatchForAllCampaigns').mockResolvedValue(undefined);
+
+      const mockDeleteQueryBuilder = {
+        delete: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue(undefined),
+      };
+      mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockDeleteQueryBuilder);
+
+      await service.update(2000, mockDeployment);
+
+      // 1. Campaign should be returned by getActiveCampaigns (not filtered out)
+      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
+
+      // 2. Campaign should be processed (initializeStrategyStates called)
+      expect(service['initializeStrategyStates']).toHaveBeenCalledWith(
+        1000,
+        mockDeployment,
+        expiredCampaign,
+        expect.any(Map),
+      );
+
+      // 3. Post-processing should be called to mark campaign inactive if processed past its end
+      expect(mockCampaignService.markProcessedCampaignsInactive).toHaveBeenCalledWith(
+        mockDeployment,
+        [expiredCampaign],
+        expect.any(Number),
+      );
+    });
+
+    it('should handle mixed active and historic campaigns', async () => {
+      const activeCampaign = {
+        id: '1',
+        startDate: new Date('2023-01-01T00:00:00.000Z'),
+        endDate: new Date('2023-01-02T00:00:00.000Z'), // Active
+        isActive: true,
+        pair: { id: 1 },
+      } as any;
+
+      const historicCampaign = {
+        id: '2',
+        startDate: new Date('2022-12-01T00:00:00.000Z'),
+        endDate: new Date('2022-12-31T00:00:00.000Z'), // Ended in past
+        isActive: true, // Manually set for reprocessing
+        pair: { id: 2 },
+      } as any;
+
+      const mockCampaignService = {
+        getActiveCampaigns: jest.fn().mockResolvedValue([activeCampaign, historicCampaign]),
+        markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const mockLastProcessedBlockService = {
+        getOrInit: jest.fn().mockResolvedValue(1000),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+
+      Object.defineProperty(service, 'campaignService', { value: mockCampaignService, writable: true });
+      Object.defineProperty(service, 'lastProcessedBlockService', {
+        value: mockLastProcessedBlockService,
+        writable: true,
+      });
+
+      jest.spyOn(service as any, 'initializeStrategyStates').mockResolvedValue(undefined);
+      jest.spyOn(service as any, 'processBatchForAllCampaigns').mockResolvedValue(undefined);
+
+      const mockDeleteQueryBuilder = {
+        delete: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue(undefined),
+      };
+      mockEpochRewardRepository.createQueryBuilder.mockReturnValue(mockDeleteQueryBuilder);
+
+      await service.update(2000, mockDeployment);
+
+      // Both campaigns should be processed
+      expect(service['initializeStrategyStates']).toHaveBeenCalledTimes(2);
+      expect(service['processBatchForAllCampaigns']).toHaveBeenCalled();
+
+      // Post-processing should handle both campaigns
+      expect(mockCampaignService.markProcessedCampaignsInactive).toHaveBeenCalledWith(
+        mockDeployment,
+        [activeCampaign, historicCampaign],
+        expect.any(Number),
+      );
     });
   });
 });

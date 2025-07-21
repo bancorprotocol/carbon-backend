@@ -148,9 +148,9 @@ export class MerklController {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
         pair: { id: pair.id },
-        isActive: true,
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: { endDate: 'DESC' },
     });
 
     if (!campaign) {
@@ -191,16 +191,16 @@ export class MerklController {
     // Transform to Merkl format with wei conversion
     const rewards: EncompassingJSON['rewards'] = {};
 
-    // for (const reward of filteredRewards) {
-    //   if (!rewards[reward.owner]) {
-    //     rewards[reward.owner] = {};
-    //   }
+    for (const reward of filteredRewards) {
+      if (!rewards[reward.owner]) {
+        rewards[reward.owner] = {};
+      }
 
-    //   rewards[reward.owner][reward.reason] = {
-    //     amount: this.convertToWei(reward.rewardAmount, tokenDecimals),
-    //     timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
-    //   };
-    // }
+      rewards[reward.owner][reward.reason] = {
+        amount: this.convertToWei(reward.rewardAmount, tokenDecimals),
+        timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
+      };
+    }
 
     return {
       rewardToken: campaign.rewardTokenAddress,
