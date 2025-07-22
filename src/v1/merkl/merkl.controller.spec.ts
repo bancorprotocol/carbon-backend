@@ -12,6 +12,9 @@ import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { TokenService } from '../../token/token.service';
 import Decimal from 'decimal.js';
+import { BadRequestException } from '@nestjs/common';
+import { MerklDataQueryDto } from './data.dto';
+import { toChecksumAddress } from 'web3-utils';
 
 describe('MerklController', () => {
   let controller: MerklController;
@@ -102,7 +105,7 @@ describe('MerklController', () => {
   });
 
   describe('getData', () => {
-    it('should return active campaign data with decimal precision TVL and APR', async () => {
+    it('should return latest campaign data for all pairs when no pair is specified', async () => {
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -141,22 +144,37 @@ describe('MerklController', () => {
       ];
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-      mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockCampaignRepository.find.mockResolvedValue(mockCampaigns);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': {
-          '0xdAC17F958D2ee523a2206206994597C13D831ec7': { id: 1 },
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
         },
-        '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599': {
-          '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': { id: 2 },
+        [toChecksumAddress('0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599')]: {
+          [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+            id: 2,
+            token0: { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
+            token1: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          },
         },
       });
       mockTvlService.getTvlByPair
         .mockResolvedValueOnce([{ tvlUsd: '100000000000000000000000' }]) // For first campaign
         .mockResolvedValueOnce([{ tvlUsd: '50000000000000000000000' }]); // For second campaign
 
-      const result: DataJSON = await controller.getData(deployment as any);
+      const result: DataJSON = await controller.getData({}, ExchangeId.OGEthereum);
 
-      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(deployment);
+      expect(mockCampaignRepository.find).toHaveBeenCalledWith({
+        where: {
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+        },
+        relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: { endDate: 'DESC' },
+      });
       expect(result).toHaveLength(2);
 
       // Verify first campaign data with decimal precision
@@ -178,59 +196,89 @@ describe('MerklController', () => {
       expect(result[1].opportunityName).toBe('WBTC/ETH High Yield');
     });
 
-    it('should filter out inactive campaigns', async () => {
+    it('should return data for specific pair when pair is provided', async () => {
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
         startBlock: 18000000,
       };
 
-      const mockCampaigns = [
-        {
-          id: '1',
-          rewardAmount: '100000000000000000000000',
-          startDate: new Date(Date.now() + 86400 * 1000), // Starts tomorrow (not active yet)
-          endDate: new Date(Date.now() + 86400 * 30 * 1000),
-          isActive: true,
-          opportunityName: 'Future Campaign',
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardAmount: '100000000000000000000000',
+        startDate: new Date(Date.now() - 86400 * 1000),
+        endDate: new Date(Date.now() + 86400 * 30 * 1000),
+        isActive: true,
+        opportunityName: 'ETH/USDC Liquidity Mining',
+        pair: {
+          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+        },
+      };
+
+      const query = {
+        pair: {
+          token0: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          token1: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '100000000000000000000000' }]);
+
+      const result: DataJSON = await controller.getData(query, ExchangeId.OGEthereum);
+
+      expect(mockCampaignRepository.findOne).toHaveBeenCalledWith({
+        where: {
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
           pair: {
             token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
             token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
           },
         },
-        {
-          id: '2',
-          rewardAmount: '50000000000000000000000',
-          startDate: new Date(Date.now() - 86400 * 30 * 1000), // Started 30 days ago
-          endDate: new Date(Date.now() - 86400 * 1000), // Ended yesterday
-          isActive: true,
-          opportunityName: 'Expired Campaign',
-          pair: {
-            token0: { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
-            token1: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
-          },
-        },
-        {
-          id: '3',
-          rewardAmount: '75000000000000000000000',
-          startDate: new Date(Date.now() - 86400 * 1000),
-          endDate: new Date(Date.now() + 86400 * 30 * 1000),
-          isActive: false, // Manually deactivated
-          opportunityName: 'Deactivated Campaign',
-          pair: {
-            token0: { address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984' },
-            token1: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
-          },
-        },
-      ];
+        relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: { endDate: 'DESC' },
+      });
 
-      mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      expect(result).toHaveLength(1);
+      expect(result[0].pair).toBe(
+        '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8_0xdac17f958d2ee523a2206206994597c13d831ec7',
+      );
+      expect(result[0].tvl).toBe('100000000000000000000000');
+      expect(result[0].opportunityName).toBe('ETH/USDC Liquidity Mining');
+    });
+
+    it('should throw BadRequestException when requested pair does not exist', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const query = {
+        pair: {
+          token0: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          token1: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({});
 
-      const result: DataJSON = await controller.getData(deployment as any);
-
-      // Should return empty array since no campaigns are currently active
-      expect(result).toHaveLength(0);
+      await expect(controller.getData(query, ExchangeId.OGEthereum)).rejects.toThrow(BadRequestException);
     });
 
     it('should handle zero TVL scenarios', async () => {
@@ -240,27 +288,35 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
-      const mockCampaigns = [
-        {
-          id: '1',
-          rewardAmount: '100000000000000000000000',
-          startDate: new Date(Date.now() - 86400 * 1000),
-          endDate: new Date(Date.now() + 86400 * 30 * 1000),
-          isActive: true,
-          opportunityName: 'Zero TVL Campaign',
-          pair: {
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardAmount: '100000000000000000000000',
+        startDate: new Date(Date.now() - 86400 * 1000),
+        endDate: new Date(Date.now() + 86400 * 30 * 1000),
+        isActive: true,
+        opportunityName: 'Zero TVL Campaign',
+        pair: {
+          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue([mockCampaign]);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
             token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
             token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
           },
         },
-      ];
-
-      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-      mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
-      mockPairService.allAsDictionary.mockResolvedValue({});
+      });
       mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '0' }]);
 
-      const result: DataJSON = await controller.getData(deployment as any);
+      const result: DataJSON = await controller.getData({}, ExchangeId.OGEthereum);
 
       expect(result).toHaveLength(1);
       expect(result[0].tvl).toBe('0');
@@ -277,40 +333,44 @@ describe('MerklController', () => {
         startBlock: 18000000,
       };
 
-      const mockCampaigns = [
-        {
-          id: '1',
-          rewardAmount: '999999999999999999999999999999999999999', // Very large reward
-          startDate: new Date(Date.now() - 86400 * 1000),
-          endDate: new Date(Date.now() + 86400 * 365 * 1000), // 1 year campaign
-          isActive: true,
-          opportunityName: 'Whale Campaign',
-          pair: {
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardAmount: '999999999999999999999999999999999999999', // Very large reward
+        startDate: new Date(Date.now() - 86400 * 1000),
+        endDate: new Date(Date.now() + 86400 * 365 * 1000), // 1 year campaign
+        isActive: true,
+        opportunityName: 'Whale Campaign',
+        pair: {
+          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue([mockCampaign]);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
             token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
             token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
           },
         },
-      ];
-
-      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-      mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
-      mockPairService.allAsDictionary.mockResolvedValue({
-        '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8': {
-          '0xdAC17F958D2ee523a2206206994597C13D831ec7': { id: 1 },
-        },
       });
       mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '888888888888888888888888888888888888888' }]);
 
-      const result: DataJSON = await controller.getData(deployment as any);
+      const result: DataJSON = await controller.getData({}, ExchangeId.OGEthereum);
 
       expect(result).toHaveLength(1);
 
       // Verify large numbers maintain precision as strings
-      const rewardDecimal = new Decimal(mockCampaigns[0].rewardAmount);
+      const rewardDecimal = new Decimal(mockCampaign.rewardAmount);
       const tvlDecimal = new Decimal(result[0].tvl);
 
       // Check the original string values are maintained
-      expect(mockCampaigns[0].rewardAmount).toBe('999999999999999999999999999999999999999');
+      expect(mockCampaign.rewardAmount).toBe('999999999999999999999999999999999999999');
       expect(result[0].tvl).toBe('888888888888888888888888888888888888888');
 
       // Verify Decimal can handle them (may be in scientific notation for toString)
@@ -375,15 +435,19 @@ describe('MerklController', () => {
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
-          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
       mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
-      const result = await controller.getRewards({ pair }, deployment as any);
+      const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
       expect(result.rewards).toEqual({
@@ -452,15 +516,19 @@ describe('MerklController', () => {
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
-          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
       mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
-      const result = await controller.getRewards({ pair }, deployment as any);
+      const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
@@ -504,19 +572,21 @@ describe('MerklController', () => {
         },
       ];
 
-      const mockTokensByAddress = {}; // Empty - token not found
-
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
-          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
-      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockTokenService.allByAddress.mockResolvedValue({}); // Empty - token not found
       mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
-      const result = await controller.getRewards({ pair }, deployment as any);
+      const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
@@ -553,15 +623,19 @@ describe('MerklController', () => {
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0x1234567890abcdef1234567890abcdef12345678': {
-          '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd': { id: 1 },
+        [toChecksumAddress('0x1234567890abcdef1234567890abcdef12345678')]: {
+          [toChecksumAddress('0xabcdefabcdefabcdefabcdefabcdefabcdefabcd')]: {
+            id: 1,
+            token0: { address: '0x1234567890abcdef1234567890abcdef12345678' },
+            token1: { address: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd' },
+          },
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue({});
       mockEpochRewardRepository.find.mockResolvedValue([]); // Empty rewards
 
-      const result = await controller.getRewards({ pair }, deployment as any);
+      const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({});
       expect(Object.keys(result.rewards)).toHaveLength(0);
@@ -610,15 +684,19 @@ describe('MerklController', () => {
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': {
-          '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8': { id: 1 },
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
       mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
 
-      const result = await controller.getRewards({ pair }, deployment as any);
+      const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
@@ -650,12 +728,19 @@ describe('MerklController', () => {
 
       for (const deployment of deployments) {
         mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-        mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
+        mockCampaignRepository.find.mockResolvedValue([]);
         mockPairService.allAsDictionary.mockResolvedValue({});
 
-        const result = await controller.getData(deployment as any);
+        const result = await controller.getData({}, deployment.exchangeId);
 
-        expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(deployment);
+        expect(mockCampaignRepository.find).toHaveBeenCalledWith({
+          where: {
+            blockchainType: deployment.blockchainType,
+            exchangeId: deployment.exchangeId,
+          },
+          relations: ['pair', 'pair.token0', 'pair.token1'],
+          order: { endDate: 'DESC' },
+        });
         expect(result).toEqual([]);
       }
     });
@@ -683,11 +768,11 @@ describe('MerklController', () => {
       ];
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-      mockCampaignService.getActiveCampaigns.mockResolvedValue(mockCampaigns);
+      mockCampaignRepository.find.mockResolvedValue(mockCampaigns);
       mockPairService.allAsDictionary.mockResolvedValue({});
       mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]);
 
-      const result: DataJSON = await controller.getData(deployment as any);
+      const result: DataJSON = await controller.getData({}, ExchangeId.OGEthereum);
 
       expect(result).toHaveLength(1);
       expect(result[0].pair).toBe('_invalid_address'); // Lowercased
@@ -701,13 +786,13 @@ describe('MerklController', () => {
       };
 
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
-      mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
+      mockCampaignRepository.find.mockResolvedValue([]);
       mockPairService.allAsDictionary.mockResolvedValue({});
 
       // Simulate concurrent calls
       const promises = Array(5)
         .fill(null)
-        .map(() => controller.getData(deployment as any));
+        .map(() => controller.getData({}, ExchangeId.OGEthereum));
       const results = await Promise.all(promises);
 
       // All should succeed with empty results
@@ -715,7 +800,7 @@ describe('MerklController', () => {
         expect(result).toEqual([]);
       });
 
-      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledTimes(5);
+      expect(mockCampaignRepository.find).toHaveBeenCalledTimes(5);
     });
   });
 });

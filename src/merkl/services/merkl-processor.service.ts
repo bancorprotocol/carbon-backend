@@ -635,15 +635,17 @@ export class MerklProcessorService {
     while (epochStart < campaignEndTime) {
       const epochEnd = Math.min(epochStart + this.EPOCH_DURATION, campaignEndTime);
       const epochDuration = epochEnd - epochStart;
-      let epochRewards: Decimal;
 
-      // For all epochs except the last, use proportional calculation
-      if (epochStart + this.EPOCH_DURATION >= campaignEndTime) {
-        // Final epoch: give exactly remaining balance to ensure total never exceeds campaign amount
+      // Always use proportional calculation for all epochs
+      let epochRewards = new Decimal(campaign.rewardAmount).mul(epochDuration).div(totalCampaignDuration);
+
+      // Safety check: ensure we never exceed campaign total
+      const projectedTotal = cumulativeRewards.add(epochRewards);
+      if (projectedTotal.gt(new Decimal(campaign.rewardAmount))) {
+        // Cap the epoch reward to remaining budget
         epochRewards = new Decimal(campaign.rewardAmount).minus(cumulativeRewards);
-      } else {
-        // Regular epoch: proportional calculation
-        epochRewards = new Decimal(campaign.rewardAmount).mul(epochDuration).div(totalCampaignDuration);
+        // Ensure non-negative
+        epochRewards = Decimal.max(epochRewards, 0);
       }
 
       allEpochs.push({
@@ -771,42 +773,17 @@ export class MerklProcessorService {
 
     // Generate snapshots every 5 minutes within the epoch
     const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache);
-    const initialRewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
-
-    // Track rewards that need to be redistributed
-    let accumulatedRedistribution = new Decimal(0);
-    let processedSnapshots = 0;
+    const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
 
     for (let i = 0; i < snapshots.length; i++) {
       const snapshot = snapshots[i];
-      processedSnapshots++;
-
-      // Calculate current reward per snapshot including any redistribution
-      const remainingSnapshots = snapshots.length - processedSnapshots;
-      const baseReward = initialRewardPerSnapshot;
-      const redistributionBonus =
-        remainingSnapshots > 0 ? accumulatedRedistribution.div(remainingSnapshots + 1) : accumulatedRedistribution;
-      const currentSnapshotReward = baseReward.add(redistributionBonus);
-
-      // Adjust accumulated redistribution
-      accumulatedRedistribution = accumulatedRedistribution.sub(redistributionBonus);
-
-      const snapshotRewards = this.calculateSnapshotRewards(snapshot, currentSnapshotReward, campaign);
+      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot, campaign);
 
       // Check if snapshot had no eligible liquidity
       const hasEligibleLiquidity = snapshotRewards.size > 0;
 
       if (!hasEligibleLiquidity) {
-        // Add this snapshot's reward to redistribution pool
-        accumulatedRedistribution = accumulatedRedistribution.add(currentSnapshotReward);
-
-        // this.logger.debug(
-        //   `Snapshot ${i} for epoch ${
-        //     epoch.epochNumber
-        //   } had no eligible liquidity, adding ${currentSnapshotReward.toString()} to redistribution pool (total: ${accumulatedRedistribution.toString()})`,
-        // );
-
-        continue; // Skip this snapshot
+        continue; // Skip this snapshot, rewards are lost
       }
 
       // Accumulate rewards per strategy
@@ -818,21 +795,6 @@ export class MerklProcessorService {
         existing.totalReward = existing.totalReward.add(reward);
         epochRewards.set(strategyId, existing);
       }
-
-      // this.logger.debug(
-      //   `Snapshot ${i} for epoch ${epoch.epochNumber} distributed ${currentSnapshotReward.toString()} rewards to ${
-      //     snapshotRewards.size
-      //   } strategies`,
-      // );
-    }
-
-    // Handle any remaining redistribution (edge case: if last snapshots had no liquidity)
-    if (accumulatedRedistribution.gt(0)) {
-      this.logger.warn(
-        `Epoch ${
-          epoch.epochNumber
-        } ended with ${accumulatedRedistribution.toString()} unallocated rewards (no eligible liquidity in final snapshots)`,
-      );
     }
 
     return epochRewards;
@@ -991,6 +953,11 @@ export class MerklProcessorService {
     }
 
     if (rewardZoneBoundary.gte(orderPriceHigh)) {
+      return new Decimal(0);
+    }
+
+    // Add check for A == 0 to prevent division by zero
+    if (A.eq(0)) {
       return new Decimal(0);
     }
 
