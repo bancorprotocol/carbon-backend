@@ -42,7 +42,7 @@ export class ActivityV2Service {
     await this.activityRepository
       .createQueryBuilder()
       .delete()
-      .where('"blockNumber" >= :lastProcessedBlock', { lastProcessedBlock })
+      .where('"blockNumber" > :lastProcessedBlock', { lastProcessedBlock })
       .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
@@ -108,8 +108,8 @@ export class ActivityV2Service {
     }
 
     if (params.ownerId) {
-      queryBuilder.andWhere('(activity.creationWallet = :ownerId OR activity.currentOwner = :ownerId)', {
-        ownerId: params.ownerId,
+      queryBuilder.andWhere('LOWER(activity.creationWallet) = :ownerId OR LOWER(activity.currentOwner) = :ownerId', {
+        ownerId: params.ownerId.toLowerCase(),
       });
     }
 
@@ -206,9 +206,10 @@ export class ActivityV2Service {
     }
 
     if (params.ownerId) {
-      baseQueryBuilder.andWhere('(activity.creationWallet = :ownerId OR activity.currentOwner = :ownerId)', {
-        ownerId: params.ownerId,
-      });
+      baseQueryBuilder.andWhere(
+        '(LOWER(activity.creationWallet) = :ownerId OR LOWER(activity.currentOwner) = :ownerId)',
+        { ownerId: params.ownerId.toLowerCase() },
+      );
     }
 
     if (params.strategyIds) {
