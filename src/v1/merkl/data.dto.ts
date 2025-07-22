@@ -1,4 +1,4 @@
-import { IsString, ValidateNested, IsOptional } from 'class-validator';
+import { IsString, ValidateNested } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsAddress, formatEthereumAddress } from '../../isAddress.validator';
@@ -29,10 +29,9 @@ export class MerklDataQueryDto {
   })
   @ApiProperty({
     type: String,
-    description: 'Optional token pair in the format address1_address2',
-    required: false,
+    description: 'Token pair in the format address1_address2',
+    required: true,
     example: '0x1234...5678_0x8765...4321',
   })
-  @IsOptional()
-  pair?: TokenPair;
+  pair: TokenPair;
 }
