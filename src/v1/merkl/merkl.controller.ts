@@ -10,6 +10,7 @@ import { CampaignService } from '../../merkl/services/campaign.service';
 import { DataJSON } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { MerklRewardsQueryDto } from './rewards.dto';
+import { MerklDataQueryDto } from './data.dto';
 import { Deployment, DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
@@ -45,64 +46,113 @@ export class MerklController {
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
   @ApiExchangeIdParam()
-  async getData(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+  async getData(@Query() query: MerklDataQueryDto, @ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
     const deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
-    const campaigns = await this.campaignService.getActiveCampaigns(deployment);
-    const currentTime = Math.floor(Date.now() / 1000);
+    const pairsDictionary = await this.pairService.allAsDictionary(deployment);
 
-    const data: DataJSON = [];
+    // If specific pair is requested, validate it exists
+    if (query.pair) {
+      const token0Checksum = toChecksumAddress(query.pair.token0);
+      const token1Checksum = toChecksumAddress(query.pair.token1);
+      const pair = pairsDictionary[token0Checksum]?.[token1Checksum];
 
-    for (const campaign of campaigns) {
-      // Convert Date objects to Unix timestamps (seconds) for comparison
-      const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
-      const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
-
-      // Check if campaign is currently active
-      const isCurrentlyActive = currentTime >= campaignStartTime && currentTime <= campaignEndTime && campaign.isActive;
-
-      if (!isCurrentlyActive) continue;
-
-      // Get TVL for this pair using the TVL service with recent time range
-      const pairsDictionary = await this.pairService.allAsDictionary(deployment);
-
-      // Check if the pair exists in the dictionary first
-      const token0Address = campaign.pair.token0.address;
-      const token1Address = campaign.pair.token1.address;
-      const pairExists = pairsDictionary[token0Address] && pairsDictionary[token0Address][token1Address];
-
-      let tvl = new Decimal(0);
-      if (pairExists) {
-        // Get TVL data from the last 24 hours to find the most recent value
-        const now = Math.floor(Date.now() / 1000);
-        const oneDayAgo = now - 24 * 60 * 60;
-
-        const tvlParams: TvlPairsDto = {
-          pairs: [
-            {
-              token0: token0Address,
-              token1: token1Address,
-            },
-          ],
-          start: oneDayAgo,
-          end: now,
-          limit: 100, // Get more entries to find the most recent
-        };
-
-        const tvlData = await this.tvlService.getTvlByPair(deployment, tvlParams, pairsDictionary);
-        // Take the most recent entry (data is sorted by timestamp ascending)
-        tvl = tvlData.length > 0 ? new Decimal(tvlData[tvlData.length - 1].tvlUsd) : new Decimal(0);
+      if (!pair) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: `No pair found for tokens ${query.pair.token0} and ${query.pair.token1}`,
+        });
       }
 
-      // Calculate APR: (daily rewards * 365) / TVL
+      // Get the latest campaign for the requested pair
+      const campaign = await this.campaignRepository.findOne({
+        where: {
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          pair: {
+            token0: { address: pair.token0.address },
+            token1: { address: pair.token1.address },
+          },
+        },
+        relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: { endDate: 'DESC' },
+      });
+
+      return this.processCampaigns(campaign ? [campaign] : [], pairsDictionary, deployment);
+    }
+
+    // If no specific pair requested, get the latest campaign for each pair
+    const allCampaigns = await this.campaignRepository.find({
+      where: {
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+      },
+      relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: { endDate: 'DESC' },
+    });
+
+    // Group campaigns by pair and take the latest one for each
+    const latestCampaignsByPair = new Map();
+    for (const campaign of allCampaigns) {
+      const pairKey = `${campaign.pair.token0.address}_${campaign.pair.token1.address}`;
+      if (!latestCampaignsByPair.has(pairKey)) {
+        latestCampaignsByPair.set(pairKey, campaign);
+      }
+    }
+
+    return this.processCampaigns(Array.from(latestCampaignsByPair.values()), pairsDictionary, deployment);
+  }
+
+  private async processCampaigns(
+    campaigns: Campaign[],
+    pairsDictionary: any,
+    deployment: Deployment,
+  ): Promise<DataJSON> {
+    const data: DataJSON = [];
+    const currentTime = Math.floor(Date.now() / 1000);
+
+    for (const campaign of campaigns) {
+      if (!campaign) continue;
+
+      const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
+      const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
+      const token0Address = campaign.pair.token0.address;
+      const token1Address = campaign.pair.token1.address;
+
+      let tvl = new Decimal(0);
+      // Get TVL data from the last 24 hours to find the most recent value
+      const now = Math.floor(Date.now() / 1000);
+      const oneDayAgo = now - 24 * 60 * 60;
+
+      const tvlParams: TvlPairsDto = {
+        pairs: [
+          {
+            token0: token0Address,
+            token1: token1Address,
+          },
+        ],
+        start: oneDayAgo,
+        end: now,
+        limit: 100,
+      };
+
+      const tvlData = await this.tvlService.getTvlByPair(deployment, tvlParams, pairsDictionary);
+      tvl = tvlData.length > 0 ? new Decimal(tvlData[tvlData.length - 1].tvlUsd) : new Decimal(0);
+
+      // Calculate APR
       const campaignDurationDays = (campaignEndTime - campaignStartTime) / (24 * 60 * 60);
       const rewardsPerDay = new Decimal(campaign.rewardAmount).div(campaignDurationDays);
       const aprDecimal = rewardsPerDay.mul(365).div(tvl);
 
+      const isActive = currentTime >= campaignStartTime && currentTime <= campaignEndTime && campaign.isActive;
+
       data.push({
-        pair: `${campaign.pair.token0.address.toLowerCase()}_${campaign.pair.token1.address.toLowerCase()}`,
+        pair: `${token0Address.toLowerCase()}_${token1Address.toLowerCase()}`,
         tvl: tvl.toFixed(),
         apr: aprDecimal.toFixed(),
         opportunityName: campaign.opportunityName,
+        // Add isActive as a comment in the response
+        ...(isActive && { opportunityName: `${campaign.opportunityName || ''}` }),
       });
     }
 
@@ -132,7 +182,7 @@ export class MerklController {
     const pairsDictionary = await this.pairService.allAsDictionary(deployment);
 
     // Find the pair using case-insensitive lookup
-    const pair = pairsDictionary[token0Address]?.[token1Address];
+    const pair = pairsDictionary[toChecksumAddress(token0Address)]?.[toChecksumAddress(token1Address)];
 
     if (!pair) {
       throw new BadRequestException({
@@ -148,9 +198,9 @@ export class MerklController {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
         pair: { id: pair.id },
-        isActive: true,
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: { endDate: 'DESC' },
     });
 
     if (!campaign) {
@@ -191,16 +241,16 @@ export class MerklController {
     // Transform to Merkl format with wei conversion
     const rewards: EncompassingJSON['rewards'] = {};
 
-    // for (const reward of filteredRewards) {
-    //   if (!rewards[reward.owner]) {
-    //     rewards[reward.owner] = {};
-    //   }
+    for (const reward of filteredRewards) {
+      if (!rewards[reward.owner]) {
+        rewards[reward.owner] = {};
+      }
 
-    //   rewards[reward.owner][reward.reason] = {
-    //     amount: this.convertToWei(reward.rewardAmount, tokenDecimals),
-    //     timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
-    //   };
-    // }
+      rewards[reward.owner][reward.reason] = {
+        amount: this.convertToWei(reward.rewardAmount, tokenDecimals),
+        timestamp: Math.floor(reward.epochEndTimestamp.getTime() / 1000).toString(),
+      };
+    }
 
     return {
       rewardToken: campaign.rewardTokenAddress,

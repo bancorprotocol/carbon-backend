@@ -425,8 +425,8 @@ describe('CampaignService', () => {
       exchangeId: ExchangeId.OGEthereum,
     };
 
-    describe('getActiveCampaigns - lifecycle management', () => {
-      it('should automatically set expired campaigns to inactive and return only active campaigns', async () => {
+    describe('getActiveCampaigns - no auto-expiration', () => {
+      it('should return all campaigns marked as active regardless of timestamps', async () => {
         const now = new Date();
         const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
         const futureDate = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 1 day from now
@@ -442,7 +442,7 @@ describe('CampaignService', () => {
             startDate: new Date(now.getTime() - 48 * 60 * 60 * 1000), // Started 2 days ago
             endDate: pastDate, // Expired 1 day ago
             opportunityName: 'Expired Campaign',
-            isActive: true, // Should be set to false
+            isActive: true, // Still marked as active for reprocessing
             createdAt: new Date(),
             updatedAt: new Date(),
           },
@@ -480,16 +480,18 @@ describe('CampaignService', () => {
 
         const result = await service.getActiveCampaigns(deployment as any);
 
-        // Should update expired campaigns to inactive
-        expect(mockRepository.update).toHaveBeenCalledWith(['1'], { isActive: false });
+        // Should NOT update campaigns to inactive anymore
+        expect(mockRepository.update).not.toHaveBeenCalled();
 
-        // Should only return currently active campaigns (not expired or future)
-        expect(result).toHaveLength(1);
-        expect(result[0].id).toBe('2');
-        expect(result[0].opportunityName).toBe('Active Campaign');
+        // Should return all campaigns marked as active, regardless of timestamps
+        expect(result).toHaveLength(3);
+        expect(result.map((c) => c.id)).toEqual(['1', '2', '3']);
+        expect(result[0].opportunityName).toBe('Expired Campaign');
+        expect(result[1].opportunityName).toBe('Active Campaign');
+        expect(result[2].opportunityName).toBe('Future Campaign');
       });
 
-      it('should handle multiple expired campaigns', async () => {
+      it('should return all active campaigns including multiple historically expired ones', async () => {
         const now = new Date();
         const pastDate1 = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
         const pastDate2 = new Date(now.getTime() - 48 * 60 * 60 * 1000); // 2 days ago
@@ -529,11 +531,14 @@ describe('CampaignService', () => {
 
         const result = await service.getActiveCampaigns(deployment as any);
 
-        // Should update both expired campaigns to inactive
-        expect(mockRepository.update).toHaveBeenCalledWith(['1', '2'], { isActive: false });
+        // Should NOT update campaigns to inactive
+        expect(mockRepository.update).not.toHaveBeenCalled();
 
-        // Should return empty array since no campaigns are currently active
-        expect(result).toHaveLength(0);
+        // Should return all campaigns marked as active
+        expect(result).toHaveLength(2);
+        expect(result.map((c) => c.id)).toEqual(['1', '2']);
+        expect(result[0].opportunityName).toBe('Expired Campaign 1');
+        expect(result[1].opportunityName).toBe('Expired Campaign 2');
       });
 
       it('should not affect campaigns that are not expired', async () => {
@@ -569,7 +574,7 @@ describe('CampaignService', () => {
         expect(result[0].id).toBe('1');
       });
 
-      it('should handle campaigns that have not started yet', async () => {
+      it('should return future campaigns if marked as active', async () => {
         const now = new Date();
 
         const campaigns = [
@@ -593,11 +598,13 @@ describe('CampaignService', () => {
 
         const result = await service.getActiveCampaigns(deployment as any);
 
-        // Should not call update since campaign is not expired
+        // Should not call update
         expect(mockRepository.update).not.toHaveBeenCalled();
 
-        // Should return empty array since campaign hasn't started yet
-        expect(result).toHaveLength(0);
+        // Should return campaigns marked as active regardless of start time
+        expect(result).toHaveLength(1);
+        expect(result[0].id).toBe('1');
+        expect(result[0].opportunityName).toBe('Future Campaign');
       });
 
       it('should handle edge case where campaign ends exactly at current time', async () => {
@@ -630,8 +637,106 @@ describe('CampaignService', () => {
       });
     });
 
-    describe('getCampaignByPair - lifecycle management', () => {
-      it('should automatically set expired campaign to inactive and return null', async () => {
+    describe('markProcessedCampaignsInactive', () => {
+      it('should mark campaigns inactive only if processed up to their end time', async () => {
+        const campaigns = [
+          {
+            id: '1',
+            endDate: new Date('2023-01-01T12:00:00.000Z'), // Unix: 1672574400
+          },
+          {
+            id: '2',
+            endDate: new Date('2023-01-02T12:00:00.000Z'), // Unix: 1672660800
+          },
+          {
+            id: '3',
+            endDate: new Date('2023-01-03T12:00:00.000Z'), // Unix: 1672747200
+          },
+        ] as Campaign[];
+
+        // Processed up to 2023-01-02 14:00:00 (Unix: 1672668000)
+        const processedUpToTimestamp = Math.floor(new Date('2023-01-02T14:00:00.000Z').getTime() / 1000);
+
+        await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
+
+        // Should mark campaigns 1 and 2 as inactive (ended before processed timestamp)
+        expect(mockRepository.update).toHaveBeenCalledWith(['1', '2'], { isActive: false });
+      });
+
+      it('should not mark campaigns inactive if not processed past their end time', async () => {
+        const campaigns = [
+          {
+            id: '1',
+            endDate: new Date('2023-01-02T12:00:00.000Z'), // Unix: 1672660800
+          },
+          {
+            id: '2',
+            endDate: new Date('2023-01-03T12:00:00.000Z'), // Unix: 1672747200
+          },
+        ] as Campaign[];
+
+        // Processed only up to 2023-01-01 12:00:00 (Unix: 1672574400)
+        const processedUpToTimestamp = Math.floor(new Date('2023-01-01T12:00:00.000Z').getTime() / 1000);
+
+        await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
+
+        // Should not mark any campaigns as inactive
+        expect(mockRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('should handle empty campaigns array', async () => {
+        const processedUpToTimestamp = Math.floor(new Date().getTime() / 1000);
+
+        await service.markProcessedCampaignsInactive(deployment as any, [], processedUpToTimestamp);
+
+        expect(mockRepository.update).not.toHaveBeenCalled();
+      });
+
+      it('should handle campaigns that end exactly at processed timestamp', async () => {
+        const campaigns = [
+          {
+            id: '1',
+            endDate: new Date('2023-01-01T12:00:00.000Z'), // Unix: 1672574400
+          },
+        ] as Campaign[];
+
+        // Processed exactly to campaign end time
+        const processedUpToTimestamp = 1672574400;
+
+        await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
+
+        // Should mark campaign as inactive (processed >= end time)
+        expect(mockRepository.update).toHaveBeenCalledWith(['1'], { isActive: false });
+      });
+
+      it('should log the number of campaigns marked inactive', async () => {
+        const loggerSpy = jest.spyOn(service['logger'], 'log').mockImplementation();
+
+        const campaigns = [
+          {
+            id: '1',
+            endDate: new Date('2023-01-01T12:00:00.000Z'),
+          },
+          {
+            id: '2',
+            endDate: new Date('2023-01-01T14:00:00.000Z'),
+          },
+        ] as Campaign[];
+
+        const processedUpToTimestamp = Math.floor(new Date('2023-01-01T16:00:00.000Z').getTime() / 1000);
+
+        await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
+
+        expect(loggerSpy).toHaveBeenCalledWith(
+          expect.stringContaining('Post-processing: Set 2 campaigns to inactive after processing up to timestamp'),
+        );
+
+        loggerSpy.mockRestore();
+      });
+    });
+
+    describe('getCampaignByPair - no auto-expiration', () => {
+      it('should return expired campaign if marked as active', async () => {
         const now = new Date();
         const pastDate = new Date(now.getTime() - 24 * 60 * 60 * 1000); // 1 day ago
 
@@ -654,14 +759,14 @@ describe('CampaignService', () => {
 
         const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
 
-        // Should update expired campaign to inactive
-        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: false });
+        // Should NOT update campaign to inactive
+        expect(mockRepository.update).not.toHaveBeenCalled();
 
-        // Should return null since campaign is expired
-        expect(result).toBeNull();
+        // Should return the campaign even if expired (for historic reprocessing)
+        expect(result).toEqual(expiredCampaign);
       });
 
-      it('should return null for campaign that has not started yet', async () => {
+      it('should return future campaign if marked as active', async () => {
         const now = new Date();
 
         const futureCampaign = {
@@ -683,11 +788,11 @@ describe('CampaignService', () => {
 
         const result = await service.getCampaignByPair(deployment as any, 'ETH_USDC');
 
-        // Should not call update since campaign is not expired
+        // Should not call update
         expect(mockRepository.update).not.toHaveBeenCalled();
 
-        // Should return null since campaign hasn't started
-        expect(result).toBeNull();
+        // Should return the campaign regardless of start time
+        expect(result).toEqual(futureCampaign);
       });
 
       it('should return campaign if it is currently active', async () => {

@@ -88,46 +88,9 @@ export class MerklProcessorService {
   private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
     // Ethereum mainnet
     [ExchangeId.OGEthereum]: {
-      tokenWeightings: {
-        // USDT - 2x weighting
-        '0xdac17f958d2ee523a2206206994597c13d831ec7': 2.0,
-
-        // ETH - 1.25x weighting
-        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2': 1.25, // WETH
-        '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': 1.25, // Native ETH (if used)
-
-        // BTC - 1.25x weighting
-        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 1.25, // WBTC
-
-        // ETH LSTs - 1.25x weighting
-        '0x7f39c581f595b53c5cb19bd0b3f8da6c935e2ca0': 1.25, // wstETH
-        '0xae78736cd615f374d3085123a210448e74fc6393': 1.25, // rETH
-        '0xa2e3356610840701bdf5611a53974510ae27e2e1': 1.25, // wBETH
-        '0xbe9895146f7af43049ca1c1ae358b0541ea49704': 1.25, // cbETH
-
-        // BTC LSTs - 1.25x weighting
-        '0x8236a87084f8b84306f72007f36f2618a5634494': 1.25, // LBTC
-
-        // TON - 0.5x weighting (placeholder addresses - need real ones)
-        '0x_TON_PLACEHOLDER': 0.5,
-
-        // TON LSTs - 1x weighting (placeholder addresses - need real ones)
-        '0x_TON_LST_PLACEHOLDER': 1.0,
-
-        // TAC - 0.75x weighting (placeholder addresses - need real ones)
-        '0x_TAC_PLACEHOLDER': 0.75,
-
-        // TAC LSTs - 0.75x weighting (placeholder addresses - need real ones)
-        '0x_TAC_LST_PLACEHOLDER': 0.75,
-      },
-      whitelistedAssets: [
-        // Common stablecoins that might be whitelisted
-        '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8', // USDC
-        '0x6b175474e89094c44da98b954eedeac495271d0f', // DAI
-        '0x4fabb145d64652a948d72533023f6e7a623c7c53', // BUSD
-        // Add other whitelisted assets as needed
-      ],
-      defaultWeighting: 0, // Other assets get no incentives
+      tokenWeightings: {},
+      whitelistedAssets: [],
+      defaultWeighting: 1, // Other assets get no incentives
     },
     [ExchangeId.OGCoti]: {
       tokenWeightings: {
@@ -241,6 +204,10 @@ export class MerklProcessorService {
       // 7. Update the global lastProcessedBlock after each batch
       await this.lastProcessedBlockService.update(globalKey, batchEnd);
     }
+
+    // 8. Post-processing: Mark campaigns inactive if we've processed past their end time
+    const endBlockTimestamp = await this.getTimestampForBlock(endBlock, deployment);
+    await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
   }
 
   private async processBatchForAllCampaigns(
@@ -258,25 +225,60 @@ export class MerklProcessorService {
     const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
     const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
 
+    // COLLECT ALL UNIQUE BLOCK IDs FROM ALL EVENTS
+    const allBlockIds = new Set<number>();
+    [...events.createdEvents, ...events.updatedEvents, ...events.deletedEvents, ...events.transferEvents].forEach(
+      (event) => allBlockIds.add(event.block.id),
+    );
+
+    // FETCH ALL BLOCK TIMESTAMPS AT ONCE (only if we have events)
+    let blockTimestamps: Record<number, Date> = {};
+    if (allBlockIds.size > 0) {
+      blockTimestamps = await this.blockService.getBlocksDictionary([...allBlockIds], deployment);
+    }
+
     // Create price cache once for all campaigns in this batch
     const campaigns = campaignContexts.map((ctx) => ctx.campaign);
     const priceCache = await this.createPriceCache(campaigns, batchStartTimestamp, deployment);
 
     // Process each campaign with the same batch of events
     for (const context of campaignContexts) {
-      // Filter events for this campaign's pair only
-      const pairCreatedEvents = events.createdEvents.filter((e) => e.pair.id === context.campaign.pair.id);
-      const pairUpdatedEvents = events.updatedEvents.filter((e) => e.pair.id === context.campaign.pair.id);
-      const pairDeletedEvents = events.deletedEvents.filter((e) => e.pair.id === context.campaign.pair.id);
+      const campaignEndTimestamp = Math.floor(context.campaign.endDate.getTime() / 1000);
 
-      // For transfer events, filter by strategies that belong to this pair
+      // Skip campaign if entire batch is after campaign end
+      if (batchStartTimestamp >= campaignEndTimestamp) {
+        this.logger.warn(`Skipping campaign ${context.campaign.id} - batch starts after campaign end`);
+        continue;
+      }
+
+      // EFFICIENT EVENT FILTERING using cached timestamps
+      const filterEventsByCampaignEnd = <T extends { block: { id: number } }>(eventList: T[]): T[] => {
+        return eventList.filter((event) => {
+          const eventTimestamp = Math.floor(blockTimestamps[event.block.id].getTime() / 1000);
+          return eventTimestamp < campaignEndTimestamp;
+        });
+      };
+      // Filter events for this campaign's pair AND campaign end time
+      const pairCreatedEvents = filterEventsByCampaignEnd(
+        events.createdEvents.filter((e) => e.pair.id === context.campaign.pair.id),
+      );
+      const pairUpdatedEvents = filterEventsByCampaignEnd(
+        events.updatedEvents.filter((e) => e.pair.id === context.campaign.pair.id),
+      );
+      const pairDeletedEvents = filterEventsByCampaignEnd(
+        events.deletedEvents.filter((e) => e.pair.id === context.campaign.pair.id),
+      );
+
+      // For transfer events, filter by strategies that belong to this pair AND campaign end time
       const pairStrategies = Array.from(context.strategyStates.values()).filter(
         (s) => s.pairId === context.campaign.pair.id,
       );
       const pairStrategyIds = new Set(pairStrategies.map((s) => s.strategyId));
-      const pairTransferEvents = events.transferEvents.filter((e) => pairStrategyIds.has(e.strategyId));
+      const pairTransferEvents = filterEventsByCampaignEnd(
+        events.transferEvents.filter((e) => pairStrategyIds.has(e.strategyId)),
+      );
 
-      // Update strategy states with events from this batch
+      // Update strategy states with filtered events from this batch
       this.updateStrategyStates(
         pairCreatedEvents,
         pairUpdatedEvents,
@@ -593,6 +595,13 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
   ): Promise<void> {
+    // Skip if start timestamp is after campaign end
+    const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
+    if (startTimestamp >= campaignEndTimestamp) {
+      this.logger.warn(`Skipping epoch processing for campaign ${campaign.id} - time range starts after campaign end`);
+      return;
+    }
+
     const epochs = this.calculateEpochsInRange(campaign, startTimestamp, endTimestamp);
 
     // Validate epoch integrity before processing
@@ -615,28 +624,54 @@ export class MerklProcessorService {
     // Convert Date objects to Unix timestamps (seconds)
     const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
     const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
+    const totalCampaignDuration = campaignEndTime - campaignStartTime;
 
+    // First pass: calculate all epochs for the entire campaign to ensure exact total
+    const allEpochs = [];
     let epochStart = campaignStartTime;
     let epochNumber = 1;
+    let cumulativeRewards = new Decimal(0);
 
     while (epochStart < campaignEndTime) {
       const epochEnd = Math.min(epochStart + this.EPOCH_DURATION, campaignEndTime);
+      const epochDuration = epochEnd - epochStart;
 
-      // Check if this epoch intersects with our time range
-      if (epochEnd > startTimestamp && epochStart < endTimestamp) {
-        const epochDuration = epochEnd - epochStart;
-        const rewardsPerSecond = new Decimal(campaign.rewardAmount).div(campaignEndTime - campaignStartTime);
+      // Always use proportional calculation for all epochs
+      let epochRewards = new Decimal(campaign.rewardAmount).mul(epochDuration).div(totalCampaignDuration);
 
-        epochs.push({
-          epochNumber,
-          startTimestamp: new Date(epochStart * 1000),
-          endTimestamp: new Date(epochEnd * 1000),
-          totalRewards: rewardsPerSecond.mul(epochDuration),
-        });
+      // Safety check: ensure we never exceed campaign total
+      const projectedTotal = cumulativeRewards.add(epochRewards);
+      if (projectedTotal.gt(new Decimal(campaign.rewardAmount))) {
+        // Cap the epoch reward to remaining budget
+        epochRewards = new Decimal(campaign.rewardAmount).minus(cumulativeRewards);
+        // Ensure non-negative
+        epochRewards = Decimal.max(epochRewards, 0);
       }
 
+      allEpochs.push({
+        epochNumber,
+        startTimestamp: new Date(epochStart * 1000),
+        endTimestamp: new Date(epochEnd * 1000),
+        totalRewards: epochRewards,
+        start: epochStart,
+        end: epochEnd,
+      });
+
+      cumulativeRewards = cumulativeRewards.add(epochRewards);
       epochStart = epochEnd;
       epochNumber++;
+    }
+
+    // Second pass: filter epochs that intersect with the requested time range
+    for (const epoch of allEpochs) {
+      if (epoch.end > startTimestamp && epoch.start < endTimestamp) {
+        epochs.push({
+          epochNumber: epoch.epochNumber,
+          startTimestamp: epoch.startTimestamp,
+          endTimestamp: epoch.endTimestamp,
+          totalRewards: epoch.totalRewards,
+        });
+      }
     }
 
     return epochs;
@@ -738,42 +773,17 @@ export class MerklProcessorService {
 
     // Generate snapshots every 5 minutes within the epoch
     const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache);
-    const initialRewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
-
-    // Track rewards that need to be redistributed
-    let accumulatedRedistribution = new Decimal(0);
-    let processedSnapshots = 0;
+    const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
 
     for (let i = 0; i < snapshots.length; i++) {
       const snapshot = snapshots[i];
-      processedSnapshots++;
-
-      // Calculate current reward per snapshot including any redistribution
-      const remainingSnapshots = snapshots.length - processedSnapshots;
-      const baseReward = initialRewardPerSnapshot;
-      const redistributionBonus =
-        remainingSnapshots > 0 ? accumulatedRedistribution.div(remainingSnapshots + 1) : accumulatedRedistribution;
-      const currentSnapshotReward = baseReward.add(redistributionBonus);
-
-      // Adjust accumulated redistribution
-      accumulatedRedistribution = accumulatedRedistribution.sub(redistributionBonus);
-
-      const snapshotRewards = this.calculateSnapshotRewards(snapshot, currentSnapshotReward, campaign);
+      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot, campaign);
 
       // Check if snapshot had no eligible liquidity
       const hasEligibleLiquidity = snapshotRewards.size > 0;
 
       if (!hasEligibleLiquidity) {
-        // Add this snapshot's reward to redistribution pool
-        accumulatedRedistribution = accumulatedRedistribution.add(currentSnapshotReward);
-
-        // this.logger.debug(
-        //   `Snapshot ${i} for epoch ${
-        //     epoch.epochNumber
-        //   } had no eligible liquidity, adding ${currentSnapshotReward.toString()} to redistribution pool (total: ${accumulatedRedistribution.toString()})`,
-        // );
-
-        continue; // Skip this snapshot
+        continue; // Skip this snapshot, rewards are lost
       }
 
       // Accumulate rewards per strategy
@@ -785,21 +795,6 @@ export class MerklProcessorService {
         existing.totalReward = existing.totalReward.add(reward);
         epochRewards.set(strategyId, existing);
       }
-
-      // this.logger.debug(
-      //   `Snapshot ${i} for epoch ${epoch.epochNumber} distributed ${currentSnapshotReward.toString()} rewards to ${
-      //     snapshotRewards.size
-      //   } strategies`,
-      // );
-    }
-
-    // Handle any remaining redistribution (edge case: if last snapshots had no liquidity)
-    if (accumulatedRedistribution.gt(0)) {
-      this.logger.warn(
-        `Epoch ${
-          epoch.epochNumber
-        } ended with ${accumulatedRedistribution.toString()} unallocated rewards (no eligible liquidity in final snapshots)`,
-      );
     }
 
     return epochRewards;
@@ -815,8 +810,16 @@ export class MerklProcessorService {
 
     let currentTime = Math.floor(epoch.startTimestamp.getTime() / 1000);
     const endTime = Math.floor(epoch.endTimestamp.getTime() / 1000);
+    const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
 
     while (currentTime < endTime) {
+      // Skip snapshots after campaign end
+      if (currentTime >= campaignEndTimestamp) {
+        this.logger.debug(
+          `Stopping snapshots at ${currentTime} - campaign ${campaign.id} ended at ${campaignEndTimestamp}`,
+        );
+        break;
+      }
       // Get target price for this snapshot using price cache
       const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
 
@@ -950,6 +953,11 @@ export class MerklProcessorService {
     }
 
     if (rewardZoneBoundary.gte(orderPriceHigh)) {
+      return new Decimal(0);
+    }
+
+    // Add check for A == 0 to prevent division by zero
+    if (A.eq(0)) {
       return new Decimal(0);
     }
 
