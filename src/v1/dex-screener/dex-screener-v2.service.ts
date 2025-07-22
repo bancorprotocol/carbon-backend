@@ -61,7 +61,7 @@ export class DexScreenerV2Service {
     await this.dexScreenerEventV2Repository
       .createQueryBuilder()
       .delete()
-      .where('"blockNumber" >= :lastProcessedBlock', { lastProcessedBlock })
+      .where('"blockNumber" > :lastProcessedBlock', { lastProcessedBlock })
       .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
       .execute();
