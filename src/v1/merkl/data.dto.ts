@@ -1,4 +1,4 @@
-import { IsString, ValidateNested, IsOptional } from 'class-validator';
+import { IsString, ValidateNested, IsNotEmpty } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { IsAddress, formatEthereumAddress } from '../../isAddress.validator';
@@ -14,10 +14,11 @@ export class TokenPair {
 }
 
 export class MerklDataQueryDto {
+  @IsNotEmpty()
   @ValidateNested()
   @Type(() => TokenPair)
   @Transform(({ value }) => {
-    if (!value) return undefined;
+    if (!value) return value; // Let validation decorators handle undefined/empty
     if (typeof value === 'string') {
       const [token0, token1] = value.split('_').map((addr: string, index: number) => {
         const key = index === 0 ? 'token0' : 'token1';
@@ -29,10 +30,9 @@ export class MerklDataQueryDto {
   })
   @ApiProperty({
     type: String,
-    description: 'Optional token pair in the format address1_address2',
-    required: false,
+    description: 'Token pair in the format address1_address2',
+    required: true,
     example: '0x1234...5678_0x8765...4321',
   })
-  @IsOptional()
-  pair?: TokenPair;
+  pair: TokenPair;
 }
