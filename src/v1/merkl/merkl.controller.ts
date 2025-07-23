@@ -127,7 +127,8 @@ export class MerklController {
     };
 
     const tvlData = await this.tvlService.getTvlByPair(deployment, tvlParams, pairsDictionary);
-    tvl = tvlData.length > 0 ? new Decimal(tvlData[tvlData.length - 1].tvlUsd) : new Decimal(0);
+    const latestTvlUsd = tvlData.length > 0 ? tvlData[tvlData.length - 1].tvlUsd : 0;
+    tvl = isNaN(latestTvlUsd) ? new Decimal(0) : new Decimal(latestTvlUsd);
 
     // Calculate APR
     const campaignDurationDays = (campaignEndTime - campaignStartTime) / (24 * 60 * 60);
