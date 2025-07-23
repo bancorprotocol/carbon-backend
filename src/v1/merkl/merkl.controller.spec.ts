@@ -11,6 +11,7 @@ import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { TokenService } from '../../token/token.service';
+import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { BadRequestException } from '@nestjs/common';
 import { MerklDataQueryDto } from './data.dto';
@@ -22,6 +23,7 @@ describe('MerklController', () => {
   let deploymentService: DeploymentService;
   let pairService: PairService;
   let tokenService: TokenService;
+  let historicQuoteService: HistoricQuoteService;
   let campaignRepository: Repository<Campaign>;
   let epochRewardRepository: Repository<EpochReward>;
 
@@ -44,6 +46,10 @@ describe('MerklController', () => {
 
   const mockTokenService = {
     allByAddress: jest.fn(),
+  };
+
+  const mockHistoricQuoteService = {
+    getUsdRates: jest.fn(),
   };
 
   const mockCampaignRepository = {
@@ -81,6 +87,10 @@ describe('MerklController', () => {
           useValue: mockTokenService,
         },
         {
+          provide: HistoricQuoteService,
+          useValue: mockHistoricQuoteService,
+        },
+        {
           provide: getRepositoryToken(Campaign),
           useValue: mockCampaignRepository,
         },
@@ -96,6 +106,7 @@ describe('MerklController', () => {
     deploymentService = module.get<DeploymentService>(DeploymentService);
     pairService = module.get<PairService>(PairService);
     tokenService = module.get<TokenService>(TokenService);
+    historicQuoteService = module.get<HistoricQuoteService>(HistoricQuoteService);
     campaignRepository = module.get<Repository<Campaign>>(getRepositoryToken(Campaign));
     epochRewardRepository = module.get<Repository<EpochReward>>(getRepositoryToken(EpochReward));
   });
@@ -105,7 +116,7 @@ describe('MerklController', () => {
   });
 
   describe('getData', () => {
-    it('should return campaign data for a specific pair', async () => {
+    it('should return campaign data for a specific pair with USD converted APR', async () => {
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -117,6 +128,7 @@ describe('MerklController', () => {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
         rewardAmount: '100000000000000000000000', // 100,000 tokens in wei
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         startDate: new Date(Date.now() - 86400 * 1000), // Started 1 day ago
         endDate: new Date(Date.now() + 86400 * 30 * 1000), // Ends in 30 days
         isActive: true,
@@ -134,6 +146,16 @@ describe('MerklController', () => {
         },
       };
 
+      // Mock USD rate for reward token (e.g., $0.013 per token)
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.013,
+          provider: 'coingecko',
+        },
+      ];
+
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
         [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
@@ -145,7 +167,8 @@ describe('MerklController', () => {
         },
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
-      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '100000000000000000000000' }]);
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]); // $1M TVL
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
 
       const result: DataResponseDto = await controller.getData(query, ExchangeId.OGEthereum);
 
@@ -162,13 +185,25 @@ describe('MerklController', () => {
         order: { endDate: 'DESC' },
       });
 
+      expect(mockHistoricQuoteService.getUsdRates).toHaveBeenCalledWith(
+        deployment,
+        ['0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984'],
+        expect.any(String), // thirtyDaysAgo
+        expect.any(String), // nowIso
+      );
+
       // Verify single object is returned (not array)
       expect(result.pair).toBe('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8_0xdac17f958d2ee523a2206206994597c13d831ec7');
-      expect(result.tvl).toBe('100000000000000000000000');
+      expect(result.tvl).toBe('1000000');
       expect(result.opportunityName).toBe('ETH/USDC Liquidity Mining');
 
-      // Verify APR calculation precision
-      const expectedAPR = new Decimal('100000000000000000000000').div(31).mul(365).div('100000000000000000000000');
+      // Verify APR calculation with USD conversion
+      // rewardAmountUsd = 100000000000000000000000 * 0.013 = 1300000000000000000000
+      // rewardsPerDayUsd = 1300000000000000000000 / 31 = 41935483870967741935.48387096774194
+      // aprDecimal = 41935483870967741935.48387096774194 * 365 / 1000000 = 15306451612903225.806451612903226
+      const expectedRewardAmountUsd = new Decimal('100000000000000000000000').mul(0.013);
+      const expectedRewardsPerDayUsd = expectedRewardAmountUsd.div(31);
+      const expectedAPR = expectedRewardsPerDayUsd.mul(365).div('1000000');
       expect(result.apr).toBe(expectedAPR.toString());
     });
 
@@ -184,6 +219,7 @@ describe('MerklController', () => {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
         rewardAmount: '100000000000000000000000',
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         startDate: new Date(Date.now() - 86400 * 1000),
         endDate: new Date(Date.now() + 86400 * 30 * 1000),
         isActive: true,
@@ -201,6 +237,15 @@ describe('MerklController', () => {
         },
       };
 
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.013,
+          provider: 'coingecko',
+        },
+      ];
+
       mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
       mockPairService.allAsDictionary.mockResolvedValue({
         [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
@@ -213,6 +258,7 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '100000000000000000000000' }]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
 
       const result: DataResponseDto = await controller.getData(query, ExchangeId.OGEthereum);
 
@@ -295,6 +341,7 @@ describe('MerklController', () => {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
         rewardAmount: '100000000000000000000000',
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         startDate: new Date(Date.now() - 86400 * 1000),
         endDate: new Date(Date.now() + 86400 * 30 * 1000),
         isActive: true,
@@ -332,7 +379,7 @@ describe('MerklController', () => {
       expect(result.opportunityName).toBe('Zero TVL Campaign');
     });
 
-    it('should handle very large reward amounts and TVL values', async () => {
+    it('should handle cases where reward token price is not available', async () => {
       const deployment = {
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
@@ -343,11 +390,12 @@ describe('MerklController', () => {
         id: '1',
         blockchainType: BlockchainType.Ethereum,
         exchangeId: ExchangeId.OGEthereum,
-        rewardAmount: '999999999999999999999999999999999999999', // Very large reward
+        rewardAmount: '100000000000000000000000',
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
         startDate: new Date(Date.now() - 86400 * 1000),
-        endDate: new Date(Date.now() + 86400 * 365 * 1000), // 1 year campaign
+        endDate: new Date(Date.now() + 86400 * 30 * 1000),
         isActive: true,
-        opportunityName: 'Whale Campaign',
+        opportunityName: 'No Price Campaign',
         pair: {
           token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
           token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
@@ -372,7 +420,137 @@ describe('MerklController', () => {
           },
         },
       });
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue([]); // No price data
+
+      const result: DataResponseDto = await controller.getData(query, ExchangeId.OGEthereum);
+
+      expect(result.tvl).toBe('1000000');
+      expect(result.apr).toBe('0'); // Should be 0 when no price is available
+      expect(result.opportunityName).toBe('No Price Campaign');
+    });
+
+    it('should handle NaN TVL values and return APR as 0', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardAmount: '100000000000000000000000',
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        startDate: new Date(Date.now() - 86400 * 1000),
+        endDate: new Date(Date.now() + 86400 * 30 * 1000),
+        isActive: true,
+        opportunityName: 'NaN TVL Campaign',
+        pair: {
+          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+        },
+      };
+
+      const query = {
+        pair: {
+          token0: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          token1: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        },
+      };
+
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.013,
+          provider: 'coingecko',
+        },
+      ];
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      });
+      mockTvlService.getTvlByPair.mockResolvedValue([
+        {
+          timestamp: 1753142400,
+          pairId: 1930,
+          pairName: 'LBTC_TAC',
+          tvlUsd: NaN, // This is the key test case
+          token0: '0xecac9c5f704e954931349da37f60e39f515c11c1',
+          token1: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+        },
+      ]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
+
+      const result: DataResponseDto = await controller.getData(query, ExchangeId.OGEthereum);
+
+      expect(result.tvl).toBe('0'); // Should be 0 when TVL is NaN
+      expect(result.apr).toBe('0'); // Should be 0 when TVL is NaN
+      expect(result.opportunityName).toBe('NaN TVL Campaign');
+    });
+
+    it('should handle very large reward amounts and TVL values', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardAmount: '999999999999999999999999999999999999999', // Very large reward
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        startDate: new Date(Date.now() - 86400 * 1000),
+        endDate: new Date(Date.now() + 86400 * 365 * 1000), // 1 year campaign
+        isActive: true,
+        opportunityName: 'Whale Campaign',
+        pair: {
+          token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+          token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+        },
+      };
+
+      const query = {
+        pair: {
+          token0: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          token1: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+        },
+      };
+
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.001, // Small price for very large amounts
+          provider: 'coingecko',
+        },
+      ];
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      });
       mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '888888888888888888888888888888888888888' }]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
 
       const result: DataResponseDto = await controller.getData(query, ExchangeId.OGEthereum);
 
