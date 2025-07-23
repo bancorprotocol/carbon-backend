@@ -17,6 +17,7 @@ import { TvlService } from '../../tvl/tvl.service';
 import { TvlPairsDto } from '../analytics/tvl.pairs.dto';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { TokenService } from '../../token/token.service';
+import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 
 @Controller({ version: '1', path: ':exchangeId?/merkle' })
 export class MerklController {
@@ -28,6 +29,7 @@ export class MerklController {
     private pairService: PairService,
     private tvlService: TvlService,
     private tokenService: TokenService,
+    private historicQuoteService: HistoricQuoteService,
   ) {}
 
   /**
@@ -140,8 +142,35 @@ export class MerklController {
       };
     }
 
-    const rewardsPerDay = new Decimal(campaign.rewardAmount).div(campaignDurationDays);
-    const aprDecimal = rewardsPerDay.mul(365).div(tvl);
+    // Get USD price of reward token from last 30 days
+    let rewardTokenUsdPrice = new Decimal(0);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
+
+    const usdRates = await this.historicQuoteService.getUsdRates(
+      deployment,
+      [campaign.rewardTokenAddress],
+      thirtyDaysAgo,
+      nowIso,
+    );
+
+    // Filter for the reward token and get the most recent rate
+    const rewardTokenRates = usdRates.filter(
+      (rate) => rate.address.toLowerCase() === campaign.rewardTokenAddress.toLowerCase(),
+    );
+
+    if (rewardTokenRates.length > 0) {
+      // Sort by day (timestamp) and take the most recent
+      const mostRecentRate = rewardTokenRates.sort((a, b) => b.day - a.day)[0];
+      rewardTokenUsdPrice = new Decimal(mostRecentRate.usd || 0);
+    }
+
+    // Convert reward amount to USD
+    const rewardAmountUsd = new Decimal(campaign.rewardAmount).mul(rewardTokenUsdPrice);
+    const rewardsPerDayUsd = rewardAmountUsd.div(campaignDurationDays);
+
+    // Calculate APR using USD values for both numerator and denominator
+    const aprDecimal = rewardsPerDayUsd.mul(365).div(tvl);
 
     const isActive = currentTime >= campaignStartTime && currentTime <= campaignEndTime && campaign.isActive;
 
