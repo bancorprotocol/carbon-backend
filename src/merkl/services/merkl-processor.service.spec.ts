@@ -234,7 +234,9 @@ describe('MerklProcessorService', () => {
   describe('calculateTargetSqrtPriceScaled', () => {
     it('should calculate target sqrt price scaled correctly', () => {
       const targetPrice = new Decimal('2600'); // ETH price
-      const result = service['calculateTargetSqrtPriceScaled'](targetPrice);
+      const ethDecimals = 18;
+      const usdtDecimals = 6;
+      const result = service['calculateTargetSqrtPriceScaled'](targetPrice, ethDecimals, usdtDecimals);
 
       expect(result).toBeInstanceOf(Decimal);
       expect(result.gt(0)).toBe(true);
@@ -244,7 +246,9 @@ describe('MerklProcessorService', () => {
   describe('calculateInvTargetSqrtPriceScaled', () => {
     it('should calculate inverse target sqrt price scaled correctly', () => {
       const targetPrice = new Decimal('2600'); // ETH price
-      const result = service['calculateInvTargetSqrtPriceScaled'](targetPrice);
+      const ethDecimals = 18;
+      const usdtDecimals = 6;
+      const result = service['calculateInvTargetSqrtPriceScaled'](targetPrice, ethDecimals, usdtDecimals);
 
       expect(result).toBeInstanceOf(Decimal);
       expect(result.gt(0)).toBe(true);

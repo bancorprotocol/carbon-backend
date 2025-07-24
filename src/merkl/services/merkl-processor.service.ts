@@ -956,12 +956,25 @@ export class MerklProcessorService {
         continue;
       }
 
+      // Simple consistent rule: token0 = base, token1 = quote
+      // Handle cases where decimal information might be missing (fallback to 18/6 for ETH/USDT-like pairs)
+      const token0Decimals = campaign.pair.token0.decimals ?? 18;
+      const token1Decimals = campaign.pair.token1.decimals ?? 6;
+
       // Generate snapshot with current state (deep clone to prevent reference sharing)
       snapshots.push({
         timestamp: currentTime,
         targetPrice,
-        targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(targetPrice),
-        invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(targetPrice),
+        targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(
+          targetPrice,
+          token0Decimals, // base decimals
+          token1Decimals, // quote decimals
+        ),
+        invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(
+          targetPrice,
+          token0Decimals, // base decimals
+          token1Decimals, // quote decimals
+        ),
         strategies: this.deepCloneStrategyStates(currentStrategyStates), // Deep clone to prevent mutations affecting past snapshots
       });
 
@@ -1131,12 +1144,20 @@ export class MerklProcessorService {
     return Decimal.max(eligibleLiquidity, 0);
   }
 
-  private calculateTargetSqrtPriceScaled(targetPrice: Decimal): Decimal {
-    return targetPrice.sqrt().mul(this.SCALING_CONSTANT);
+  private calculateTargetSqrtPriceScaled(targetPrice: Decimal, baseDecimals: number, quoteDecimals: number): Decimal {
+    // Following Python implementation: adjusted_price = naive_rate * (10^quote_decimals) / (10^base_decimals)
+    const adjustedPrice = targetPrice.mul(new Decimal(10).pow(quoteDecimals)).div(new Decimal(10).pow(baseDecimals));
+    return adjustedPrice.sqrt().mul(this.SCALING_CONSTANT);
   }
 
-  private calculateInvTargetSqrtPriceScaled(targetPrice: Decimal): Decimal {
-    return new Decimal(1).div(targetPrice.sqrt()).mul(this.SCALING_CONSTANT);
+  private calculateInvTargetSqrtPriceScaled(
+    targetPrice: Decimal,
+    baseDecimals: number,
+    quoteDecimals: number,
+  ): Decimal {
+    // Following Python implementation: adjusted_price = naive_rate * (10^quote_decimals) / (10^base_decimals)
+    const adjustedPrice = targetPrice.mul(new Decimal(10).pow(quoteDecimals)).div(new Decimal(10).pow(baseDecimals));
+    return new Decimal(1).div(adjustedPrice.sqrt()).mul(this.SCALING_CONSTANT);
   }
 
   private async getTimestampForBlock(blockNumber: number, deployment: Deployment): Promise<number> {
@@ -1323,7 +1344,22 @@ export class MerklProcessorService {
       return null; // Skip snapshot when rates are missing
     }
 
-    return new Decimal(token1Rate).div(token0Rate);
+    // Simple consistent rule: token0 = base, token1 = quote
+    // Handle cases where decimal information might be missing (fallback to 18/6 for ETH/USDT-like pairs)
+    const token0Decimals = campaign.pair.token0.decimals ?? 18;
+    const token1Decimals = campaign.pair.token1.decimals ?? 6;
+
+    // Get rates for token0 (base) and token1 (quote)
+    const baseRate = priceCache.rates.get(token0Address);
+    const quoteRate = priceCache.rates.get(token1Address);
+
+    if (!baseRate || !quoteRate || baseRate === 0) {
+      this.logger.warn(`Missing USD rates for base/quote tokens at timestamp ${timestamp} - skipping snapshot`);
+      return null;
+    }
+
+    // Return price as "quote tokens per base token" (e.g., token1 per token0)
+    return new Decimal(baseRate).div(quoteRate);
   }
 
   private findClosestRate(rates: any[], tokenAddress: string, targetTimestamp: number): number | null {
