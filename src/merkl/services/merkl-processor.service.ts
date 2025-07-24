@@ -948,18 +948,16 @@ export class MerklProcessorService {
         eventIndex++;
       }
 
-      // Get target price for this snapshot
-      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
+      // Extract semantic base/quote tokens from strategy data first (needed for target price)
+      const semanticTokens = this.extractSemanticTokensFromStrategies(currentStrategyStates);
+
+      // Get target price for this snapshot using semantic tokens
+      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache, semanticTokens);
       if (targetPrice === null) {
         this.logger.warn(`Skipping snapshot at timestamp ${currentTime} - no USD rates available`);
         currentTime += this.SNAPSHOT_INTERVAL;
         continue;
       }
-
-      // Simple consistent rule: token0 = base, token1 = quote
-      // Handle cases where decimal information might be missing (fallback to 18/6 for ETH/USDT-like pairs)
-      const token0Decimals = campaign.pair.token0.decimals ?? 18;
-      const token1Decimals = campaign.pair.token1.decimals ?? 6;
 
       // Generate snapshot with current state (deep clone to prevent reference sharing)
       snapshots.push({
@@ -967,13 +965,13 @@ export class MerklProcessorService {
         targetPrice,
         targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(
           targetPrice,
-          token0Decimals, // base decimals
-          token1Decimals, // quote decimals
+          semanticTokens.baseDecimals,
+          semanticTokens.quoteDecimals,
         ),
         invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(
           targetPrice,
-          token0Decimals, // base decimals
-          token1Decimals, // quote decimals
+          semanticTokens.baseDecimals,
+          semanticTokens.quoteDecimals,
         ),
         strategies: this.deepCloneStrategyStates(currentStrategyStates), // Deep clone to prevent mutations affecting past snapshots
       });
@@ -1329,36 +1327,35 @@ export class MerklProcessorService {
     };
   }
 
-  private getTargetPriceAtTime(timestamp: number, campaign: Campaign, priceCache: PriceCache): Decimal | null {
-    const token0Address = campaign.pair.token0.address.toLowerCase();
-    const token1Address = campaign.pair.token1.address.toLowerCase();
+  private getTargetPriceAtTime(
+    timestamp: number,
+    campaign: Campaign,
+    priceCache: PriceCache,
+    semanticTokens: {
+      baseTokenAddress: string;
+      quoteTokenAddress: string;
+      baseDecimals: number;
+      quoteDecimals: number;
+    },
+  ): Decimal | null {
+    // Use semantic base/quote tokens from strategy data
+    const baseTokenAddress = semanticTokens.baseTokenAddress.toLowerCase();
+    const quoteTokenAddress = semanticTokens.quoteTokenAddress.toLowerCase();
 
-    // Get USD rates from cache
-    const token0Rate = priceCache.rates.get(token0Address);
-    const token1Rate = priceCache.rates.get(token1Address);
+    // Get USD rates from cache using semantic tokens
+    const baseRate = priceCache.rates.get(baseTokenAddress);
+    const quoteRate = priceCache.rates.get(quoteTokenAddress);
 
-    if (!token0Rate || !token1Rate || token0Rate === 0) {
+    if (!baseRate || !quoteRate || baseRate === 0) {
       this.logger.warn(
-        `Missing USD rates for tokens ${token0Address}/${token1Address} at timestamp ${timestamp} - skipping snapshot`,
+        `Missing USD rates for semantic tokens base=${baseTokenAddress}/quote=${quoteTokenAddress} at timestamp ${timestamp} - skipping snapshot`,
       );
       return null; // Skip snapshot when rates are missing
     }
 
-    // Simple consistent rule: token0 = base, token1 = quote
-    // Handle cases where decimal information might be missing (fallback to 18/6 for ETH/USDT-like pairs)
-    const token0Decimals = campaign.pair.token0.decimals ?? 18;
-    const token1Decimals = campaign.pair.token1.decimals ?? 6;
-
-    // Get rates for token0 (base) and token1 (quote)
-    const baseRate = priceCache.rates.get(token0Address);
-    const quoteRate = priceCache.rates.get(token1Address);
-
-    if (!baseRate || !quoteRate || baseRate === 0) {
-      this.logger.warn(`Missing USD rates for base/quote tokens at timestamp ${timestamp} - skipping snapshot`);
-      return null;
-    }
-
-    // Return price as "quote tokens per base token" (e.g., token1 per token0)
+    // Following Python implementation: return price as "quote tokens per base token"
+    // This aligns with Python's target_price_info format ('QUOTE', 'BASE', price)
+    // where price represents QUOTE per BASE (e.g., USDT per ETH)
     return new Decimal(baseRate).div(quoteRate);
   }
 
@@ -1457,8 +1454,8 @@ export class MerklProcessorService {
               subEpochData.total_reward,
               subEpochData.strategy_liquidity.liquidity0_bid,
               subEpochData.strategy_liquidity.liquidity1_ask,
-              subEpochData.market_data.token0_address,
-              subEpochData.market_data.token1_address,
+              `"${subEpochData.market_data.token0_address}"`,
+              `"${subEpochData.market_data.token1_address}"`,
               subEpochData.market_data.token0_usd_rate,
               subEpochData.market_data.token1_usd_rate,
               subEpochData.market_data.target_price,
@@ -1516,9 +1513,9 @@ export class MerklProcessorService {
     // Process only the target strategy in the snapshot for data collection
     for (const [strategyId, strategy] of snapshot.strategies) {
       // Only collect data for the target strategy
-      if (strategyId !== TARGET_STRATEGY_ID) {
-        continue;
-      }
+      // if (strategyId !== TARGET_STRATEGY_ID) {
+      //   continue;
+      // }
 
       const lpKey = `LP_${strategyId}`;
 
@@ -1670,5 +1667,46 @@ export class MerklProcessorService {
         this.processTransferEvent(event.event as VoucherTransferEvent, strategyStates);
         break;
     }
+  }
+
+  /**
+   * Extract semantic base/quote token information from strategy data.
+   * This mirrors Python's _get_token_decimals_from_snapshot method.
+   * Assumes all strategies in snapshot pertain to the same token pair.
+   */
+  private extractSemanticTokensFromStrategies(strategies: Map<string, StrategyState>): {
+    baseTokenAddress: string;
+    quoteTokenAddress: string;
+    baseDecimals: number;
+    quoteDecimals: number;
+  } {
+    if (strategies.size === 0) {
+      throw new Error('Cannot extract semantic tokens from empty strategy collection');
+    }
+
+    // Get first strategy to determine semantic token ordering
+    const firstStrategy = strategies.values().next().value as StrategyState;
+
+    // In our implementation, strategies store tokens as token0/token1 (lexicographic)
+    // But we need to determine the semantic base/quote ordering
+    // The key insight from Python is that strategies define the semantic ordering
+    // For now, we'll use the strategy's token0 as semantic base and token1 as semantic quote
+    // This creates consistency within each campaign's strategy data
+    const baseTokenAddress = firstStrategy.token0Address;
+    const quoteTokenAddress = firstStrategy.token1Address;
+    const baseDecimals = firstStrategy.token0Decimals;
+    const quoteDecimals = firstStrategy.token1Decimals;
+
+    this.logger.debug(
+      `Extracted semantic tokens from strategies: base=${baseTokenAddress} (${baseDecimals} decimals), ` +
+        `quote=${quoteTokenAddress} (${quoteDecimals} decimals)`,
+    );
+
+    return {
+      baseTokenAddress,
+      quoteTokenAddress,
+      baseDecimals,
+      quoteDecimals,
+    };
   }
 }
