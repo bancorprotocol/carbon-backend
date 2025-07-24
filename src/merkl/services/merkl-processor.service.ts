@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
+import { promises as fs } from 'fs';
+import { createWriteStream } from 'fs';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
 import { CampaignService } from './campaign.service';
@@ -60,6 +62,20 @@ interface PriceCache {
   timestamp: number; // When this cache was created
 }
 
+interface BatchEvents {
+  createdEvents: StrategyCreatedEvent[];
+  updatedEvents: StrategyUpdatedEvent[];
+  deletedEvents: StrategyDeletedEvent[];
+  transferEvents: VoucherTransferEvent[];
+  blockTimestamps: Record<number, Date>;
+}
+
+interface TimestampedEvent {
+  timestamp: number;
+  type: 'created' | 'updated' | 'deleted' | 'transfer';
+  event: StrategyCreatedEvent | StrategyUpdatedEvent | StrategyDeletedEvent | VoucherTransferEvent;
+}
+
 type StrategyStatesMap = Map<string, StrategyState>;
 
 interface CampaignContext {
@@ -82,6 +98,14 @@ export class MerklProcessorService {
   private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
   private readonly TOLERANCE_PERCENTAGE = 0.02; // 2%
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
+
+  // Data collection for JSON output
+  private rewardBreakdown: any = {};
+  private currentEpochStart = '';
+  private currentEpochNumber = 0;
+  private currentCampaign: Campaign | null = null;
+  private priceCache: PriceCache | null = null;
+  private globalSubEpochNumber = 0; // Global counter for sub-epoch numbering across all epochs
 
   // Token weighting configuration per deployment
   // !!! MUST BE LOWERCASE ADDRESSES !!!
@@ -143,6 +167,10 @@ export class MerklProcessorService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
+    // Initialize reward breakdown data collection
+    this.rewardBreakdown = {};
+    this.globalSubEpochNumber = 0; // Reset global sub-epoch counter for each deployment processing
+
     // 1. Get single global lastProcessedBlock for merkl
     const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
     const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(globalKey, deployment.startBlock);
@@ -208,6 +236,11 @@ export class MerklProcessorService {
     // 8. Post-processing: Mark campaigns inactive if we've processed past their end time
     const endBlockTimestamp = await this.getTimestampForBlock(endBlock, deployment);
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
+
+    // 9. Write reward breakdown JSON file
+    await this.writeRewardBreakdownFile(deployment);
+
+    console.log('done');
   }
 
   private async processBatchForAllCampaigns(
@@ -278,22 +311,29 @@ export class MerklProcessorService {
         events.transferEvents.filter((e) => pairStrategyIds.has(e.strategyId)),
       );
 
-      // Update strategy states with filtered events from this batch
-      this.updateStrategyStates(
-        pairCreatedEvents,
-        pairUpdatedEvents,
-        pairDeletedEvents,
-        pairTransferEvents,
-        context.strategyStates,
-      );
-
-      // Calculate and save rewards for epochs that overlap with this batch timeframe
+      // *** KEY CHANGE: Process epochs FIRST (before applying batch events) ***
       await this.processEpochsInTimeRange(
         context.campaign,
         batchStartTimestamp,
         batchEndTimestamp,
         context.strategyStates,
         priceCache,
+        {
+          createdEvents: pairCreatedEvents,
+          updatedEvents: pairUpdatedEvents,
+          deletedEvents: pairDeletedEvents,
+          transferEvents: pairTransferEvents,
+          blockTimestamps,
+        },
+      );
+
+      // *** THEN: Update strategy states for next batch continuity ***
+      this.updateStrategyStates(
+        pairCreatedEvents,
+        pairUpdatedEvents,
+        pairDeletedEvents,
+        pairTransferEvents,
+        context.strategyStates,
       );
     }
   }
@@ -588,12 +628,50 @@ export class MerklProcessorService {
     return mantissa.mul(new Decimal(2).pow(exponent));
   }
 
+  /**
+   * Deep clone a single StrategyState object to prevent reference sharing
+   */
+  private deepCloneStrategyState(state: StrategyState): StrategyState {
+    return {
+      strategyId: state.strategyId,
+      pairId: state.pairId,
+      token0Address: state.token0Address,
+      token1Address: state.token1Address,
+      token0Decimals: state.token0Decimals,
+      token1Decimals: state.token1Decimals,
+      liquidity0: new Decimal(state.liquidity0.toString()), // Deep clone Decimal
+      liquidity1: new Decimal(state.liquidity1.toString()),
+      order0_A: new Decimal(state.order0_A.toString()),
+      order0_B: new Decimal(state.order0_B.toString()),
+      order0_z: new Decimal(state.order0_z.toString()),
+      order1_A: new Decimal(state.order1_A.toString()),
+      order1_B: new Decimal(state.order1_B.toString()),
+      order1_z: new Decimal(state.order1_z.toString()),
+      currentOwner: state.currentOwner,
+      creationWallet: state.creationWallet,
+      lastProcessedBlock: state.lastProcessedBlock,
+      isDeleted: state.isDeleted,
+    };
+  }
+
+  /**
+   * Deep clone a Map of StrategyState objects to prevent reference sharing
+   */
+  private deepCloneStrategyStates(states: StrategyStatesMap): StrategyStatesMap {
+    const cloned = new Map<string, StrategyState>();
+    for (const [id, state] of states) {
+      cloned.set(id, this.deepCloneStrategyState(state));
+    }
+    return cloned;
+  }
+
   private async processEpochsInTimeRange(
     campaign: Campaign,
     startTimestamp: number,
     endTimestamp: number,
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
+    batchEvents: BatchEvents,
   ): Promise<void> {
     // Skip if start timestamp is after campaign end
     const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
@@ -614,7 +692,9 @@ export class MerklProcessorService {
     }
 
     for (const epoch of epochs) {
-      await this.processEpoch(campaign, epoch, strategyStates, priceCache);
+      // Deep clone strategy states for each epoch to prevent cross-epoch contamination
+      const epochStrategyStates = this.deepCloneStrategyStates(strategyStates);
+      await this.processEpoch(campaign, epoch, epochStrategyStates, priceCache, batchEvents);
     }
   }
 
@@ -682,6 +762,7 @@ export class MerklProcessorService {
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
+    batchEvents: BatchEvents,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
@@ -714,7 +795,7 @@ export class MerklProcessorService {
       });
 
       // Generate snapshots for this epoch and calculate rewards
-      const epochRewards = this.calculateEpochRewards(epoch, strategyStates, campaign, priceCache);
+      const epochRewards = this.calculateEpochRewards(epoch, strategyStates, campaign, priceCache, batchEvents);
 
       // Validate that new epoch rewards won't exceed campaign total
       const isEpochValid = await this.validateEpochRewardsWontExceedTotal(campaign, epoch, epochRewards);
@@ -768,16 +849,31 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     campaign: Campaign,
     priceCache: PriceCache,
+    batchEvents: BatchEvents,
   ): Map<string, { owner: string; totalReward: Decimal }> {
     const epochRewards = new Map<string, { owner: string; totalReward: Decimal }>();
 
     // Generate snapshots every 5 minutes within the epoch
-    const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache);
+    const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache, batchEvents);
     const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
+
+    // Track epoch data for JSON output
+    const epochStartISO = epoch.startTimestamp.toISOString();
+    this.currentEpochStart = epochStartISO;
+    this.currentEpochNumber = epoch.epochNumber;
+    this.currentCampaign = campaign;
+    this.priceCache = priceCache;
 
     for (let i = 0; i < snapshots.length; i++) {
       const snapshot = snapshots[i];
-      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot, campaign);
+      this.globalSubEpochNumber++; // Increment global sub-epoch counter
+      const snapshotRewards = this.calculateSnapshotRewards(
+        snapshot,
+        rewardPerSnapshot,
+        campaign,
+        this.globalSubEpochNumber, // Use global counter instead of local i+1
+        priceCache,
+      );
 
       // Check if snapshot had no eligible liquidity
       const hasEligibleLiquidity = snapshotRewards.size > 0;
@@ -805,14 +901,35 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     campaign: Campaign,
     priceCache: PriceCache,
+    batchEvents: BatchEvents,
   ): SnapshotData[] {
     const snapshots: SnapshotData[] = [];
 
+    // Step 1: Get all batch events in chronological order
+    const chronologicalEvents = this.sortBatchEventsChronologically(batchEvents);
+
+    // Step 2: Initialize snapshot generation variables
+    const currentStrategyStates = this.deepCloneStrategyStates(strategyStates); // Deep clone to prevent input mutation
+    let eventIndex = 0;
     let currentTime = Math.floor(epoch.startTimestamp.getTime() / 1000);
-    const endTime = Math.floor(epoch.endTimestamp.getTime() / 1000);
+    const epochStartTimestamp = currentTime;
+    const epochEndTimestamp = Math.floor(epoch.endTimestamp.getTime() / 1000);
     const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
 
-    while (currentTime < endTime) {
+    // Step 3: Apply events that occurred before epoch start (but within reasonable bounds to prevent cross-epoch contamination)
+    // Only apply events from within this campaign's timeframe, not arbitrary historical events
+    const campaignStartTimestamp = Math.floor(campaign.startDate.getTime() / 1000);
+    while (
+      eventIndex < chronologicalEvents.length &&
+      chronologicalEvents[eventIndex].timestamp < currentTime &&
+      chronologicalEvents[eventIndex].timestamp >= campaignStartTimestamp
+    ) {
+      this.applyEventToStrategyStates(chronologicalEvents[eventIndex], currentStrategyStates);
+      eventIndex++;
+    }
+
+    // Step 4: Generate snapshots with incremental state updates
+    while (currentTime < epochEndTimestamp) {
       // Skip snapshots after campaign end
       if (currentTime >= campaignEndTimestamp) {
         this.logger.debug(
@@ -820,22 +937,32 @@ export class MerklProcessorService {
         );
         break;
       }
-      // Get target price for this snapshot using price cache
-      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
 
-      // Skip snapshot if we can't get price data
+      // Apply any events that occurred at or before this snapshot timestamp AND within this epoch
+      while (
+        eventIndex < chronologicalEvents.length &&
+        chronologicalEvents[eventIndex].timestamp <= currentTime &&
+        chronologicalEvents[eventIndex].timestamp >= epochStartTimestamp
+      ) {
+        this.applyEventToStrategyStates(chronologicalEvents[eventIndex], currentStrategyStates);
+        eventIndex++;
+      }
+
+      // Get target price for this snapshot
+      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
       if (targetPrice === null) {
         this.logger.warn(`Skipping snapshot at timestamp ${currentTime} - no USD rates available`);
         currentTime += this.SNAPSHOT_INTERVAL;
         continue;
       }
 
+      // Generate snapshot with current state (deep clone to prevent reference sharing)
       snapshots.push({
         timestamp: currentTime,
         targetPrice,
         targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(targetPrice),
         invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(targetPrice),
-        strategies: new Map(strategyStates), // Clone the strategies map
+        strategies: this.deepCloneStrategyStates(currentStrategyStates), // Deep clone to prevent mutations affecting past snapshots
       });
 
       currentTime += this.SNAPSHOT_INTERVAL;
@@ -848,7 +975,25 @@ export class MerklProcessorService {
     snapshot: SnapshotData,
     rewardPool: Decimal,
     campaign: Campaign,
+    subEpochNumber: number,
+    priceCache: PriceCache,
   ): Map<string, Decimal> {
+    const TARGET_STRATEGY_ID = '2722258935367507707706996859454145691871';
+
+    // DEBUG: Check for specific problematic dates
+    const snapshotDate = new Date(snapshot.timestamp * 1000);
+    const dateStr = snapshotDate.toISOString().substring(0, 10); // YYYY-MM-DD format
+
+    if (
+      dateStr === '2025-06-26' ||
+      dateStr === '2025-06-27' ||
+      dateStr === '2025-06-28' ||
+      dateStr === '2025-06-29' ||
+      dateStr === '2025-06-30'
+    ) {
+      console.log(`🚨 DEBUG: Found problematic date ${dateStr} at timestamp ${snapshot.timestamp} - BREAKPOINT HERE`);
+    }
+
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
     const halfRewardPool = rewardPool.div(2);
@@ -915,7 +1060,10 @@ export class MerklProcessorService {
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
-        // this.logger.debug(`Strategy ${strategyId} bid reward: ${reward.toString()}`);
+        // Only log for target strategy
+        if (strategyId === TARGET_STRATEGY_ID) {
+          this.logger.debug(`Strategy ${strategyId} bid reward: ${reward.toString()}`);
+        }
       }
     } else {
       this.logger.warn('No eligible weighted bid liquidity - bid rewards not distributed');
@@ -928,11 +1076,26 @@ export class MerklProcessorService {
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
-        // this.logger.debug(`Strategy ${strategyId} ask reward: ${reward.toString()}`);
+        // Only log for target strategy
+        if (strategyId === TARGET_STRATEGY_ID) {
+          this.logger.debug(`Strategy ${strategyId} ask reward: ${reward.toString()}`);
+        }
       }
     } else {
       this.logger.warn('No eligible weighted ask liquidity - ask rewards not distributed');
     }
+
+    // Collect data for JSON output
+    this.collectSnapshotRewardData(
+      snapshot,
+      rewards,
+      halfRewardPool,
+      totalWeightedEligibleBids,
+      totalWeightedEligibleAsks,
+      strategyWeightedEligibilityBids,
+      strategyWeightedEligibilityAsks,
+      subEpochNumber,
+    );
 
     return rewards;
   }
@@ -1181,5 +1344,295 @@ export class MerklProcessorService {
     }
 
     return closest.usd;
+  }
+
+  private async writeRewardBreakdownFile(deployment: Deployment): Promise<void> {
+    try {
+      const jsonFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.json`;
+      const csvFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.csv`;
+
+      // Write JSON file using streaming approach
+      const jsonStream = createWriteStream(jsonFilename);
+      jsonStream.write('{\n');
+
+      const strategyKeys = Object.keys(this.rewardBreakdown);
+      let isFirstStrategy = true;
+
+      for (const strategyKey of strategyKeys) {
+        if (!isFirstStrategy) {
+          jsonStream.write(',\n');
+        }
+        isFirstStrategy = false;
+
+        // Write strategy key
+        jsonStream.write(`  "${strategyKey}": {\n`);
+        jsonStream.write(`    "epochs": {\n`);
+
+        const epochs = this.rewardBreakdown[strategyKey].epochs;
+        const epochKeys = Object.keys(epochs);
+        let isFirstEpoch = true;
+
+        for (const epochKey of epochKeys) {
+          if (!isFirstEpoch) {
+            jsonStream.write(',\n');
+          }
+          isFirstEpoch = false;
+
+          // Write epoch key and data
+          jsonStream.write(`      "${epochKey}": `);
+          jsonStream.write(JSON.stringify(epochs[epochKey], null, 6));
+        }
+
+        jsonStream.write('\n    }\n  }');
+      }
+
+      jsonStream.write('\n}');
+      jsonStream.end();
+
+      // Write CSV file
+      const csvStream = createWriteStream(csvFilename);
+
+      // Write CSV header
+      csvStream.write(
+        'strategy_id,epoch_start,epoch_number,sub_epoch_timestamp,sub_epoch_number,buy_order_reward,sell_order_reward,total_reward,liquidity0_bid,liquidity1_ask,token0_address,token1_address,token0_usd_rate,token1_usd_rate,target_price,eligible_bid,eligible_ask,weighted_eligible_bid,weighted_eligible_ask,token0_weighting,token1_weighting,bid_reward_zone_boundary,ask_reward_zone_boundary\n',
+      );
+
+      // Write CSV data rows
+      for (const strategyKey of strategyKeys) {
+        const strategyId = strategyKey.replace('LP_', '');
+        const epochs = this.rewardBreakdown[strategyKey].epochs;
+
+        for (const epochKey of Object.keys(epochs)) {
+          const epochData = epochs[epochKey];
+          const epochNumber = epochData.epoch_number;
+
+          for (const subEpochTimestamp of Object.keys(epochData.sub_epochs)) {
+            const subEpochData = epochData.sub_epochs[subEpochTimestamp];
+
+            // Escape CSV values and write row
+            const row = [
+              strategyId,
+              epochKey,
+              epochNumber,
+              subEpochTimestamp,
+              subEpochData.sub_epoch_number,
+              subEpochData.buy_order_reward,
+              subEpochData.sell_order_reward,
+              subEpochData.total_reward,
+              subEpochData.strategy_liquidity.liquidity0_bid,
+              subEpochData.strategy_liquidity.liquidity1_ask,
+              subEpochData.market_data.token0_address,
+              subEpochData.market_data.token1_address,
+              subEpochData.market_data.token0_usd_rate,
+              subEpochData.market_data.token1_usd_rate,
+              subEpochData.market_data.target_price,
+              subEpochData.eligibility.eligible_bid,
+              subEpochData.eligibility.eligible_ask,
+              subEpochData.eligibility.weighted_eligible_bid,
+              subEpochData.eligibility.weighted_eligible_ask,
+              subEpochData.eligibility.token0_weighting,
+              subEpochData.eligibility.token1_weighting,
+              subEpochData.eligibility.bid_reward_zone_boundary,
+              subEpochData.eligibility.ask_reward_zone_boundary,
+            ]
+              .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+              .join(',');
+
+            csvStream.write(row + '\n');
+          }
+        }
+      }
+
+      csvStream.end();
+
+      // Wait for both streams to finish
+      await Promise.all([
+        new Promise((resolve, reject) => {
+          jsonStream.on('finish', resolve);
+          jsonStream.on('error', reject);
+        }),
+        new Promise((resolve, reject) => {
+          csvStream.on('finish', resolve);
+          csvStream.on('error', reject);
+        }),
+      ]);
+
+      this.logger.log(`✅ Reward breakdown written to ${jsonFilename} and ${csvFilename}`);
+    } catch (error) {
+      this.logger.error('Failed to write reward breakdown files:', error);
+    }
+  }
+
+  private collectSnapshotRewardData(
+    snapshot: SnapshotData,
+    rewards: Map<string, Decimal>,
+    halfRewardPool: Decimal,
+    totalWeightedEligibleBids: Decimal,
+    totalWeightedEligibleAsks: Decimal,
+    strategyWeightedEligibilityBids: Map<string, Decimal>,
+    strategyWeightedEligibilityAsks: Map<string, Decimal>,
+    subEpochNumber: number,
+  ): void {
+    const TARGET_STRATEGY_ID = '2722258935367507707706996859454145691871';
+    const subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
+    const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
+
+    // Process only the target strategy in the snapshot for data collection
+    for (const [strategyId, strategy] of snapshot.strategies) {
+      // Only collect data for the target strategy
+      if (strategyId !== TARGET_STRATEGY_ID) {
+        continue;
+      }
+
+      const lpKey = `LP_${strategyId}`;
+
+      // Initialize structure if needed
+      if (!this.rewardBreakdown[lpKey]) {
+        this.rewardBreakdown[lpKey] = { epochs: {} };
+      }
+      if (!this.rewardBreakdown[lpKey].epochs[this.currentEpochStart]) {
+        this.rewardBreakdown[lpKey].epochs[this.currentEpochStart] = {
+          epoch_number: this.currentEpochNumber,
+          sub_epochs: {},
+          buy_order_reward: '0',
+          sell_order_reward: '0',
+          total_reward: '0',
+        };
+      }
+
+      // Calculate rewards for this strategy
+      let bidReward = new Decimal(0);
+      let askReward = new Decimal(0);
+
+      if (rewards.has(strategyId)) {
+        // Bid side reward
+        if (totalWeightedEligibleBids.gt(0) && strategyWeightedEligibilityBids.has(strategyId)) {
+          const weightedEligibleBid = strategyWeightedEligibilityBids.get(strategyId);
+          const rewardShare = weightedEligibleBid.div(totalWeightedEligibleBids);
+          bidReward = halfRewardPool.mul(rewardShare);
+        }
+
+        // Ask side reward
+        if (totalWeightedEligibleAsks.gt(0) && strategyWeightedEligibilityAsks.has(strategyId)) {
+          const weightedEligibleAsk = strategyWeightedEligibilityAsks.get(strategyId);
+          const rewardShare = weightedEligibleAsk.div(totalWeightedEligibleAsks);
+          askReward = halfRewardPool.mul(rewardShare);
+        }
+      }
+
+      // Calculate eligibility data
+      const eligibleBid = this.calculateEligibleLiquidity(
+        strategy.liquidity0,
+        strategy.order0_z,
+        strategy.order0_A,
+        strategy.order0_B,
+        snapshot.targetSqrtPriceScaled,
+        toleranceFactor,
+      );
+
+      const eligibleAsk = this.calculateEligibleLiquidity(
+        strategy.liquidity1,
+        strategy.order1_z,
+        strategy.order1_A,
+        strategy.order1_B,
+        snapshot.invTargetSqrtPriceScaled,
+        toleranceFactor,
+      );
+
+      // Get token weightings
+      const token0Weighting = this.getTokenWeighting(strategy.token0Address, this.currentCampaign?.exchangeId);
+      const token1Weighting = this.getTokenWeighting(strategy.token1Address, this.currentCampaign?.exchangeId);
+
+      // Calculate weighted eligible amounts
+      const weightedEligibleBid = eligibleBid.mul(token0Weighting);
+      const weightedEligibleAsk = eligibleAsk.mul(token1Weighting);
+
+      // Calculate reward zone boundaries for both bid and ask sides
+      const bidRewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
+      const askRewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
+
+      // Get USD rates from price cache
+      const token0UsdRate = this.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
+      const token1UsdRate = this.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
+
+      // Store comprehensive sub-epoch data
+      this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp] = {
+        sub_epoch_number: subEpochNumber,
+        buy_order_reward: bidReward.toString(),
+        sell_order_reward: askReward.toString(),
+        total_reward: bidReward.add(askReward).toString(),
+        strategy_liquidity: {
+          liquidity0_bid: strategy.liquidity0.toString(),
+          liquidity1_ask: strategy.liquidity1.toString(),
+        },
+        market_data: {
+          token0_usd_rate: token0UsdRate.toString(),
+          token1_usd_rate: token1UsdRate.toString(),
+          target_price: snapshot.targetPrice.toString(),
+          token0_address: strategy.token0Address,
+          token1_address: strategy.token1Address,
+        },
+        eligibility: {
+          eligible_bid: eligibleBid.toString(),
+          eligible_ask: eligibleAsk.toString(),
+          weighted_eligible_bid: weightedEligibleBid.toString(),
+          weighted_eligible_ask: weightedEligibleAsk.toString(),
+          token0_weighting: token0Weighting,
+          token1_weighting: token1Weighting,
+          bid_reward_zone_boundary: bidRewardZoneBoundary.toString(),
+          ask_reward_zone_boundary: askRewardZoneBoundary.toString(),
+        },
+      };
+
+      // Aggregate to epoch level only for strategies that received rewards
+      if (rewards.has(strategyId)) {
+        const epochData = this.rewardBreakdown[lpKey].epochs[this.currentEpochStart];
+        epochData.buy_order_reward = new Decimal(epochData.buy_order_reward).add(bidReward).toString();
+        epochData.sell_order_reward = new Decimal(epochData.sell_order_reward).add(askReward).toString();
+        epochData.total_reward = new Decimal(epochData.total_reward).add(bidReward).add(askReward).toString();
+      }
+    }
+  }
+
+  private sortBatchEventsChronologically(batchEvents: BatchEvents): TimestampedEvent[] {
+    const events: TimestampedEvent[] = [];
+
+    // Convert all event types to timestamped events
+    const addEvents = (eventList: any[], type: string) => {
+      eventList.forEach((event) => {
+        const timestamp = Math.floor(batchEvents.blockTimestamps[event.block.id].getTime() / 1000);
+        events.push({ timestamp, type: type as any, event });
+      });
+    };
+
+    addEvents(batchEvents.createdEvents, 'created');
+    addEvents(batchEvents.updatedEvents, 'updated');
+    addEvents(batchEvents.deletedEvents, 'deleted');
+    addEvents(batchEvents.transferEvents, 'transfer');
+
+    // Sort chronologically with transaction/log index tiebreakers
+    return events.sort((a, b) => {
+      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+      if (a.event.transactionIndex !== b.event.transactionIndex)
+        return a.event.transactionIndex - b.event.transactionIndex;
+      return a.event.logIndex - b.event.logIndex;
+    });
+  }
+
+  private applyEventToStrategyStates(event: TimestampedEvent, strategyStates: StrategyStatesMap): void {
+    switch (event.type) {
+      case 'created':
+        this.processCreatedEvent(event.event as StrategyCreatedEvent, strategyStates);
+        break;
+      case 'updated':
+        this.processUpdatedEvent(event.event as StrategyUpdatedEvent, strategyStates);
+        break;
+      case 'deleted':
+        this.processDeletedEvent(event.event as StrategyDeletedEvent, strategyStates);
+        break;
+      case 'transfer':
+        this.processTransferEvent(event.event as VoucherTransferEvent, strategyStates);
+        break;
+    }
   }
 }
