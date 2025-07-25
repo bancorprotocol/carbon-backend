@@ -108,7 +108,7 @@ export class ActivityV2Service {
     }
 
     if (params.ownerId) {
-      queryBuilder.andWhere('LOWER(activity.creationWallet) = :ownerId OR LOWER(activity.currentOwner) = :ownerId', {
+      queryBuilder.andWhere('(LOWER(activity.creationWallet) = :ownerId OR LOWER(activity.currentOwner) = :ownerId)', {
         ownerId: params.ownerId.toLowerCase(),
       });
     }
