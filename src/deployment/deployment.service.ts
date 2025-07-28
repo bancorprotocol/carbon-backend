@@ -708,18 +708,18 @@ export class DeploymentService {
           '0x20512cF15E60242aB5237E0A76c873a338281397': '0x582d872a1b094fc48f5de31d3b73f2d9be47def1', // bmTON
           '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // cbBTC
         },
-        // notifications: {
-        //   explorerUrl: this.configService.get('TAC_EXPLORER_URL'),
-        //   carbonWalletUrl: this.configService.get('TAC_CARBON_WALLET_URL'),
-        //   title: 'TAC',
-        //   telegram: {
-        //     botToken: this.configService.get('TAC_TELEGRAM_BOT_TOKEN'),
-        //     threads: {
-        //       carbonThreadId: this.configService.get('TAC_CARBON_THREAD_ID'),
-        //       fastlaneId: this.configService.get('TAC_FASTLANE_THREAD_ID'),
-        //     },
-        //   },
-        // },
+        notifications: {
+          explorerUrl: this.configService.get('TAC_EXPLORER_URL'),
+          carbonWalletUrl: this.configService.get('TAC_CARBON_WALLET_URL'),
+          title: 'TAC',
+          telegram: {
+            botToken: this.configService.get('TAC_TELEGRAM_BOT_TOKEN'),
+            threads: {
+              carbonThreadId: this.configService.get('TAC_CARBON_THREAD_ID'),
+              fastlaneId: this.configService.get('TAC_FASTLANE_THREAD_ID'),
+            },
+          },
+        },
       },
     ];
   }
