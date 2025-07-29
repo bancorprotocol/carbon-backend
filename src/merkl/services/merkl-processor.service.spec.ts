@@ -1,105 +1,266 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import { Repository, QueryBuilder, EntityManager } from 'typeorm';
+import { Logger } from '@nestjs/common';
+import { Decimal } from 'decimal.js';
 import { MerklProcessorService } from './merkl-processor.service';
+import { EpochReward } from '../entities/epoch-reward.entity';
+import { Campaign } from '../entities/campaign.entity';
 import { CampaignService } from './campaign.service';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
+import { BlockService } from '../../block/block.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import { StrategyCreatedEventService } from '../../events/strategy-created-event/strategy-created-event.service';
 import { StrategyUpdatedEventService } from '../../events/strategy-updated-event/strategy-updated-event.service';
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
-import { BlockService } from '../../block/block.service';
-import { DeploymentService } from '../../deployment/deployment.service';
-import { TokenService } from '../../token/token.service';
-import { PairService } from '../../pair/pair.service';
-import { Repository } from 'typeorm';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { EpochReward } from '../entities/epoch-reward.entity';
-import { Campaign } from '../entities/campaign.entity';
-import { ExchangeId } from '../../deployment/deployment.service';
-import Decimal from 'decimal.js';
+import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
+import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
+import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
+import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
+import { BlockchainType, ExchangeId, Deployment } from '../../deployment/deployment.service';
+import { Pair } from '../../pair/pair.entity';
+import { Token } from '../../token/token.entity';
+import { Block } from '../../block/block.entity';
 
-describe('MerklProcessorService - Semantic Base/Quote Issues', () => {
+describe('MerklProcessorService', () => {
   let service: MerklProcessorService;
+  let mockRepository: jest.Mocked<Repository<EpochReward>>;
+  let mockCampaignService: jest.Mocked<CampaignService>;
+  let mockLastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
+  let mockBlockService: jest.Mocked<BlockService>;
+  let mockHistoricQuoteService: jest.Mocked<HistoricQuoteService>;
+  let mockStrategyCreatedEventService: jest.Mocked<StrategyCreatedEventService>;
+  let mockStrategyUpdatedEventService: jest.Mocked<StrategyUpdatedEventService>;
+  let mockStrategyDeletedEventService: jest.Mocked<StrategyDeletedEventService>;
+  let mockVoucherTransferEventService: jest.Mocked<VoucherTransferEventService>;
+  let mockEntityManager: jest.Mocked<EntityManager>;
+  let mockQueryBuilder: any;
 
-  // Test constants - ETH/USDT pair
-  const ETH_ADDRESS = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2';
-  const USDT_ADDRESS = '0xdAC17F958D2ee523a2206206994597C13D831ec7';
-  const ETH_DECIMALS = 18;
-  const USDT_DECIMALS = 6;
-  const SCALING_CONSTANT = new Decimal(2).pow(48);
-
-  // Mock all dependencies like the existing tests
-  const mockCampaignService = {
-    findByPairId: jest.fn(),
-    markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
+  // Test data fixtures
+  const mockToken0: Token = {
+    id: 1,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    address: '0x1234567890123456789012345678901234567890',
+    symbol: 'TKN0',
+    name: 'Token 0',
+    decimals: 18,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const mockLastProcessedBlockService = {
-    getOrInit: jest.fn(),
-    save: jest.fn(),
+  const mockToken1: Token = {
+    id: 2,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    address: '0x2345678901234567890123456789012345678901',
+    symbol: 'TKN1',
+    name: 'Token 1',
+    decimals: 18,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const mockHistoricQuoteService = {
-    findByTokensAndTimestamp: jest.fn(),
-    getUsdRates: jest.fn().mockResolvedValue([
-      { address: ETH_ADDRESS.toLowerCase(), day: 1672531200, usd: 2550 },
-      { address: USDT_ADDRESS.toLowerCase(), day: 1672531200, usd: 1 },
-    ]),
+  const mockBlock: Block = {
+    id: 1000,
+    blockchainType: BlockchainType.Ethereum,
+    timestamp: new Date('2024-01-01T00:00:00Z'),
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const mockStrategyCreatedEventService = {
-    get: jest.fn(),
+  const mockPair: Pair = {
+    id: 1,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    block: mockBlock,
+    token0: mockToken0,
+    token1: mockToken1,
+    name: 'TKN0/TKN1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    tokensTradedEvents: [],
   };
 
-  const mockStrategyUpdatedEventService = {
-    get: jest.fn(),
+  const mockCampaign: Campaign = {
+    id: '1',
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    pairId: 1,
+    pair: mockPair,
+    rewardAmount: '1000000000000000000000', // 1000 tokens
+    rewardTokenAddress: '0xrewardtoken',
+    startDate: new Date('2024-01-01T00:00:00Z'),
+    endDate: new Date('2024-01-02T00:00:00Z'),
+    opportunityName: 'Test Campaign',
+    isActive: true,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
-  const mockStrategyDeletedEventService = {
-    get: jest.fn(),
-  };
-
-  const mockVoucherTransferEventService = {
-    get: jest.fn(),
-  };
-
-  const mockBlockService = {
-    getLastBlock: jest.fn(),
-    getBlocksDictionary: jest.fn().mockResolvedValue({}),
-  };
-
-  const mockDeploymentService = {
-    getDeployment: jest.fn(),
-  };
-
-  const mockTokenService = {
-    findByAddress: jest.fn(),
-  };
-
-  const mockPairService = {
-    findById: jest.fn(),
-  };
-
-  const mockCampaignRepository = {
-    find: jest.fn(),
-    findOne: jest.fn(),
-    save: jest.fn(),
-    createQueryBuilder: jest.fn(),
-  };
-
-  const mockEpochRewardRepository = {
-    save: jest.fn(),
-    findOne: jest.fn(),
-    createQueryBuilder: jest.fn(),
-    manager: {
-      transaction: jest.fn(),
+  const mockDeployment: Deployment = {
+    exchangeId: ExchangeId.OGEthereum,
+    blockchainType: BlockchainType.Ethereum,
+    rpcEndpoint: 'http://localhost:8545',
+    harvestEventsBatchSize: 10000,
+    harvestConcurrency: 5,
+    multicallAddress: '0xmulticall',
+    gasToken: {
+      name: 'Ethereum',
+      symbol: 'ETH',
+      address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
     },
+    startBlock: 1,
+    contracts: {},
+  };
+
+  const mockStrategyCreatedEvent: StrategyCreatedEvent = {
+    id: '1',
+    strategyId: '12345',
+    pair: mockPair,
+    block: mockBlock,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    timestamp: new Date('2024-01-01T00:05:00Z'),
+    owner: '0xowner',
+    token0: mockToken0,
+    token1: mockToken1,
+    order0: '{"y":"1000000000000000000","A":"100","B":"200","z":"1000000000000000000"}',
+    order1: '{"y":"2000000000000000000","A":"150","B":"250","z":"2000000000000000000"}',
+    transactionHash: '0xtx1',
+    transactionIndex: 0,
+    logIndex: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const mockStrategyUpdatedEvent: StrategyUpdatedEvent = {
+    id: 2,
+    strategyId: '12345',
+    pair: mockPair,
+    block: mockBlock,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    timestamp: new Date('2024-01-01T00:10:00Z'),
+    reason: 1,
+    token0: mockToken0,
+    token1: mockToken1,
+    order0: '{"y":"1500000000000000000","A":"120","B":"220","z":"1500000000000000000"}',
+    order1: '{"y":"2500000000000000000","A":"170","B":"270","z":"2500000000000000000"}',
+    transactionHash: '0xtx2',
+    transactionIndex: 1,
+    logIndex: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const mockStrategyDeletedEvent: StrategyDeletedEvent = {
+    id: 3,
+    strategyId: '12345',
+    pair: mockPair,
+    block: mockBlock,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    timestamp: new Date('2024-01-01T00:15:00Z'),
+    token0: mockToken0,
+    token1: mockToken1,
+    order0: '{"y":"0","A":"0","B":"0","z":"0"}',
+    order1: '{"y":"0","A":"0","B":"0","z":"0"}',
+    transactionHash: '0xtx3',
+    transactionIndex: 2,
+    logIndex: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  const mockVoucherTransferEvent: VoucherTransferEvent = {
+    id: 4,
+    strategyId: '12345',
+    from: '0xowner',
+    to: '0xnewowner',
+    block: mockBlock,
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    timestamp: new Date('2024-01-01T00:20:00Z'),
+    transactionHash: '0xtx4',
+    transactionIndex: 3,
+    logIndex: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
   };
 
   beforeEach(async () => {
+    // Create comprehensive mocks
+    mockQueryBuilder = {
+      createQueryBuilder: jest.fn(),
+      delete: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      select: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
+    } as any;
+
+    mockEntityManager = {
+      query: jest.fn().mockResolvedValue([]),
+      transaction: jest.fn().mockImplementation((callback) => callback(mockEntityManager)),
+      delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: '1' })),
+      save: jest.fn().mockResolvedValue([]),
+    } as any;
+
+    mockRepository = {
+      manager: mockEntityManager,
+      createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+      target: EpochReward,
+    } as any;
+
+    mockCampaignService = {
+      getActiveCampaigns: jest.fn().mockResolvedValue([mockCampaign]),
+      markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
+    } as any;
+
+    mockLastProcessedBlockService = {
+      getOrInit: jest.fn().mockResolvedValue(999),
+      update: jest.fn().mockResolvedValue(undefined),
+    } as any;
+
+    mockBlockService = {
+      getBlock: jest.fn().mockResolvedValue(mockBlock),
+      getBlocksDictionary: jest.fn().mockResolvedValue({ 1000: new Date('2024-01-01T00:00:00Z') }),
+    } as any;
+
+    mockHistoricQuoteService = {
+      getUsdRates: jest.fn().mockResolvedValue([
+        { address: mockToken0.address, day: 1704067200, usd: 100 },
+        { address: mockToken1.address, day: 1704067200, usd: 200 },
+      ]),
+    } as any;
+
+    mockStrategyCreatedEventService = {
+      get: jest.fn().mockResolvedValue([mockStrategyCreatedEvent]),
+    } as any;
+
+    mockStrategyUpdatedEventService = {
+      get: jest.fn().mockResolvedValue([mockStrategyUpdatedEvent]),
+    } as any;
+
+    mockStrategyDeletedEventService = {
+      get: jest.fn().mockResolvedValue([mockStrategyDeletedEvent]),
+    } as any;
+
+    mockVoucherTransferEventService = {
+      get: jest.fn().mockResolvedValue([mockVoucherTransferEvent]),
+    } as any;
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MerklProcessorService,
+        {
+          provide: getRepositoryToken(EpochReward),
+          useValue: mockRepository,
+        },
         {
           provide: CampaignService,
           useValue: mockCampaignService,
@@ -107,6 +268,10 @@ describe('MerklProcessorService - Semantic Base/Quote Issues', () => {
         {
           provide: LastProcessedBlockService,
           useValue: mockLastProcessedBlockService,
+        },
+        {
+          provide: BlockService,
+          useValue: mockBlockService,
         },
         {
           provide: HistoricQuoteService,
@@ -128,268 +293,1075 @@ describe('MerklProcessorService - Semantic Base/Quote Issues', () => {
           provide: VoucherTransferEventService,
           useValue: mockVoucherTransferEventService,
         },
-        {
-          provide: BlockService,
-          useValue: mockBlockService,
-        },
-        {
-          provide: DeploymentService,
-          useValue: mockDeploymentService,
-        },
-        {
-          provide: TokenService,
-          useValue: mockTokenService,
-        },
-        {
-          provide: PairService,
-          useValue: mockPairService,
-        },
-        {
-          provide: getRepositoryToken(Campaign),
-          useValue: mockCampaignRepository,
-        },
-        {
-          provide: getRepositoryToken(EpochReward),
-          useValue: mockEpochRewardRepository,
-        },
       ],
     }).compile();
 
     service = module.get<MerklProcessorService>(MerklProcessorService);
+
+    // Mock console.log to avoid cluttering test output
+    jest.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  describe('Semantic Base/Quote Token Handling - Fixed Implementation', () => {
-    it('should correctly use semantic tokens from strategy data for target price calculation', () => {
-      // Mock campaign with pair data (lexicographic ordering)
-      const mockCampaign = {
-        pair: {
-          token0: { address: ETH_ADDRESS, decimals: ETH_DECIMALS }, // ETH is lexicographically first
-          token1: { address: USDT_ADDRESS, decimals: USDT_DECIMALS }, // USDT is lexicographically second
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.restoreAllMocks();
+  });
+
+  describe('Constructor and Dependencies', () => {
+    it('should be defined', () => {
+      expect(service).toBeDefined();
+    });
+
+    it('should inject all required dependencies', () => {
+      expect(service).toBeInstanceOf(MerklProcessorService);
+    });
+  });
+
+  describe('update', () => {
+    beforeEach(() => {
+      // Mock file system operations to avoid actual file writes
+      jest.spyOn(service as any, 'writeRewardBreakdownFile').mockResolvedValue(undefined);
+    });
+
+    it('should process update successfully with active campaigns', async () => {
+      mockEntityManager.query
+        .mockResolvedValueOnce([]) // Initialize strategy states query
+        .mockResolvedValueOnce([]) // Latest ownership states query
+        .mockResolvedValueOnce([]); // Deleted strategies query
+
+      await service.update(1100, mockDeployment);
+
+      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
+      expect(mockLastProcessedBlockService.getOrInit).toHaveBeenCalled();
+      expect(mockLastProcessedBlockService.update).toHaveBeenCalled();
+      expect(mockCampaignService.markProcessedCampaignsInactive).toHaveBeenCalled();
+    });
+
+    it('should handle no active campaigns', async () => {
+      mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
+      expect(mockLastProcessedBlockService.update).toHaveBeenCalledWith(
+        `${mockDeployment.blockchainType}-${mockDeployment.exchangeId}-merkl-global`,
+        1100,
+      );
+    });
+
+    it('should process multiple batches correctly', async () => {
+      // Override BATCH_SIZE for testing
+      (service as any).BATCH_SIZE = 50;
+
+      mockEntityManager.query.mockResolvedValue([]).mockResolvedValue([]).mockResolvedValue([]);
+
+      await service.update(1150, mockDeployment);
+
+      // Should process multiple batches
+      expect(mockStrategyCreatedEventService.get).toHaveBeenCalledTimes(4); // 1000-1049, 1050-1099, 1100-1149, 1150-1150
+    });
+
+    it('should handle cleanup of existing rewards', async () => {
+      mockEntityManager.query.mockResolvedValue([]).mockResolvedValue([]).mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      expect(mockQueryBuilder.delete).toHaveBeenCalled();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('epochStartTimestamp >= :startTimestamp', expect.any(Object));
+    });
+  });
+
+  describe('initializeStrategyStates', () => {
+    it('should initialize strategy states from database queries', async () => {
+      const mockLatestStates = [
+        {
+          strategy_id: '12345',
+          pair_id: 1,
+          token0_address: mockToken0.address,
+          token1_address: mockToken1.address,
+          token0_decimals: 18,
+          token1_decimals: 18,
+          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
+          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
+          owner: '0xowner',
+          block_id: 1000,
         },
-      } as any;
+      ];
 
-      // Mock price cache
-      const mockPriceCache = {
-        rates: new Map([
-          [ETH_ADDRESS.toLowerCase(), 2550], // ETH = $2550
-          [USDT_ADDRESS.toLowerCase(), 1], // USDT = $1
-        ]),
-      };
+      mockEntityManager.query
+        .mockResolvedValueOnce(mockLatestStates) // Latest strategy states
+        .mockResolvedValueOnce([]) // Latest ownership states
+        .mockResolvedValueOnce([]); // Deleted strategies
 
-      // Mock semantic tokens from strategy data (what the fixed service should use)
-      const mockSemanticTokens = {
-        baseTokenAddress: USDT_ADDRESS, // Semantic base from strategy
-        quoteTokenAddress: ETH_ADDRESS, // Semantic quote from strategy
-        baseDecimals: USDT_DECIMALS,
-        quoteDecimals: ETH_DECIMALS,
-      };
+      const strategyStates = new Map();
+      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
 
-      // Service should now correctly use semantic tokens
-      const targetPrice = (service as any).getTargetPriceAtTime(
-        Date.now(),
-        mockCampaign,
-        mockPriceCache,
-        mockSemanticTokens,
-      );
+      expect(strategyStates.size).toBe(1);
+      expect(strategyStates.has('12345')).toBe(true);
 
-      // Validate results
-      expect(targetPrice).not.toBeNull();
-      expect(targetPrice.toNumber()).toBeCloseTo(1 / 2550, 6); // USDT base rate / ETH quote rate = 1/2550 = 0.000392...
-
-      // Validate that service respects semantic token ordering
-      expect(mockSemanticTokens.baseTokenAddress).toBe(USDT_ADDRESS);
-      expect(mockSemanticTokens.quoteTokenAddress).toBe(ETH_ADDRESS);
+      const state = strategyStates.get('12345');
+      expect(state.strategyId).toBe('12345');
+      expect(state.pairId).toBe(1);
+      expect(state.isDeleted).toBe(false);
     });
 
-    it('should calculate correct target sqrt price scaled using semantic decimals', () => {
-      const TARGET_PRICE = new Decimal('2600');
-
-      // Calculate with correct semantic decimals (USDT base = 6, ETH quote = 18)
-      const correctTargetSqrtPriceScaled = (service as any).calculateTargetSqrtPriceScaled(
-        TARGET_PRICE,
-        USDT_DECIMALS, // base decimals (6)
-        ETH_DECIMALS, // quote decimals (18)
-      );
-
-      // Expected: adjusted_price = 2600 * (10^18) / (10^6) = 2600 * 10^12
-      // sqrt(2600 * 10^12) * 2^48 ≈ 1.435e+22
-      const expectedValue = new Decimal('1.4352463988357095952e+22');
-
-      console.log('Correct target sqrt price (semantic decimals):', correctTargetSqrtPriceScaled.toString());
-      console.log('Expected value:', expectedValue.toString());
-
-      // Should be very close to expected value (within 1% tolerance)
-      const ratio = correctTargetSqrtPriceScaled.div(expectedValue);
-      expect(ratio.gt(0.99) && ratio.lt(1.01)).toBe(true);
-    });
-
-    it('should calculate correct eligible liquidity with proper boundary values', () => {
-      const TARGET_PRICE = new Decimal('2600');
-      const LIQUIDITY_AMOUNT = new Decimal('1000000000000000000'); // 1 ETH in wei
-      const TOLERANCE_PERCENTAGE = 0.05;
-      const toleranceFactor = new Decimal(1 - TOLERANCE_PERCENTAGE).sqrt();
-
-      // Calculate boundaries with correct semantic decimals
-      const correctTargetSqrtPriceScaled = (service as any).calculateTargetSqrtPriceScaled(
-        TARGET_PRICE,
-        USDT_DECIMALS, // semantic base decimals
-        ETH_DECIMALS, // semantic quote decimals
-      );
-
-      const rewardZoneBoundary = toleranceFactor.mul(correctTargetSqrtPriceScaled);
-      console.log('Reward zone boundary:', rewardZoneBoundary.toString());
-
-      // Test 1: Strategy where B > rewardZoneBoundary (should get full liquidity)
-      const highB = rewardZoneBoundary.mul(1.1); // B higher than boundary
-      const fullLiquidityResult = (service as any).calculateEligibleLiquidity(
-        LIQUIDITY_AMOUNT,
-        new Decimal('500000000000000000'), // z parameter (capacity)
-        new Decimal('1e23'), // A parameter
-        highB, // B parameter higher than boundary
-        correctTargetSqrtPriceScaled,
-        toleranceFactor,
-      );
-
-      console.log('Full liquidity result (B > boundary):', fullLiquidityResult.toString());
-      expect(fullLiquidityResult.eq(LIQUIDITY_AMOUNT)).toBe(true);
-
-      // Test 2: Strategy where A+B < rewardZoneBoundary (should get 0 liquidity)
-      const lowA = new Decimal('1e21');
-      const lowB = new Decimal('1e21');
-      // A+B = 2e21, which is much less than boundary ~1.4e22
-      const zeroLiquidityResult = (service as any).calculateEligibleLiquidity(
-        LIQUIDITY_AMOUNT,
-        new Decimal('500000000000000000'), // z parameter (capacity)
-        lowA,
-        lowB,
-        correctTargetSqrtPriceScaled,
-        toleranceFactor,
-      );
-
-      console.log('Zero liquidity result (A+B < boundary):', zeroLiquidityResult.toString());
-      expect(zeroLiquidityResult.eq(0)).toBe(true);
-
-      // Test 3: Strategy in the partial range (B < boundary < A+B)
-      const midB = rewardZoneBoundary.mul(0.9); // B slightly less than boundary
-      const midA = rewardZoneBoundary.mul(0.2); // A such that A+B > boundary
-      const partialLiquidityResult = (service as any).calculateEligibleLiquidity(
-        LIQUIDITY_AMOUNT,
-        new Decimal('500000000000000000'), // z parameter (capacity)
-        midA,
-        midB,
-        correctTargetSqrtPriceScaled,
-        toleranceFactor,
-      );
-
-      console.log('A+B for partial test:', midA.add(midB).toString());
-      console.log('Partial liquidity result (B < boundary < A+B):', partialLiquidityResult.toString());
-
-      // Should be between 0 and LIQUIDITY_AMOUNT
-      expect(partialLiquidityResult.gte(0)).toBe(true);
-      expect(partialLiquidityResult.lte(LIQUIDITY_AMOUNT)).toBe(true);
-    });
-
-    it('should calculate snapshot rewards with correct partial distribution', () => {
-      const TARGET_PRICE = new Decimal('2600');
-      const TOTAL_REWARDS = new Decimal('1000');
-
-      // Mock campaign for snapshot rewards
-      const mockCampaign = {
-        pair: {
-          token0: { address: ETH_ADDRESS, decimals: ETH_DECIMALS },
-          token1: { address: USDT_ADDRESS, decimals: USDT_DECIMALS },
+    it('should handle deleted strategies', async () => {
+      const mockLatestStates = [
+        {
+          strategy_id: '12345',
+          pair_id: 1,
+          token0_address: mockToken0.address,
+          token1_address: mockToken1.address,
+          token0_decimals: 18,
+          token1_decimals: 18,
+          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
+          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
+          owner: '0xowner',
+          block_id: 1000,
         },
-      } as any;
+      ];
 
-      // Create a simple strategy that should definitely get rewards
-      // Use very high B values to ensure B > boundary
-      const mockSnapshot = {
-        timestamp: Date.now(),
-        targetPrice: TARGET_PRICE,
-        targetSqrtPriceScaled: new Decimal('1e20'), // Lower value to make boundaries more achievable
-        invTargetSqrtPriceScaled: new Decimal('1e20'),
-        strategies: new Map([
-          [
-            'strategy1',
-            {
-              strategyId: 'strategy1',
-              pairId: 1,
-              token0Address: ETH_ADDRESS,
-              token1Address: USDT_ADDRESS,
-              token0Decimals: ETH_DECIMALS,
-              token1Decimals: USDT_DECIMALS,
-              liquidity0: new Decimal('1000000000000000000'), // 1 ETH
-              liquidity1: new Decimal('1000000000'), // 1000 USDT
-              order0_A: new Decimal('1e25'), // Very high A
-              order0_B: new Decimal('1e25'), // Very high B >> any reasonable boundary
-              order0_z: new Decimal('1000000000000000000'),
-              order1_A: new Decimal('1e25'),
-              order1_B: new Decimal('1e25'),
-              order1_z: new Decimal('1000000000'),
-              currentOwner: '0x123',
-              creationWallet: '0x123',
-              lastProcessedBlock: 1,
-              isDeleted: false,
-            },
-          ],
-        ]),
+      const mockDeletedStrategies = [{ strategy_id: '12345' }];
+
+      mockEntityManager.query
+        .mockResolvedValueOnce(mockLatestStates)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce(mockDeletedStrategies);
+
+      const strategyStates = new Map();
+      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
+
+      const state = strategyStates.get('12345');
+      expect(state.isDeleted).toBe(true);
+      expect(state.liquidity0.toString()).toBe('0');
+      expect(state.liquidity1.toString()).toBe('0');
+    });
+
+    it('should handle ownership transfers', async () => {
+      const mockLatestStates = [
+        {
+          strategy_id: '12345',
+          pair_id: 1,
+          token0_address: mockToken0.address,
+          token1_address: mockToken1.address,
+          token0_decimals: 18,
+          token1_decimals: 18,
+          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
+          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
+          owner: '0xoriginalowner',
+          block_id: 1000,
+        },
+      ];
+
+      const mockOwnershipStates = [
+        {
+          strategy_id: '12345',
+          current_owner: '0xnewowner',
+        },
+      ];
+
+      mockEntityManager.query
+        .mockResolvedValueOnce(mockLatestStates)
+        .mockResolvedValueOnce(mockOwnershipStates)
+        .mockResolvedValueOnce([]);
+
+      const strategyStates = new Map();
+      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
+
+      const state = strategyStates.get('12345');
+      expect(state.currentOwner).toBe('0xnewowner');
+      expect(state.creationWallet).toBe('0xoriginalowner');
+    });
+
+    it('should handle lexicographic token ordering', async () => {
+      const mockLatestStates = [
+        {
+          strategy_id: '12345',
+          pair_id: 1,
+          token0_address: mockToken1.address, // Larger address
+          token1_address: mockToken0.address, // Smaller address
+          token0_decimals: 18,
+          token1_decimals: 6,
+          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
+          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
+          owner: '0xowner',
+          block_id: 1000,
+        },
+      ];
+
+      mockEntityManager.query
+        .mockResolvedValueOnce(mockLatestStates)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const strategyStates = new Map();
+      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
+
+      const state = strategyStates.get('12345');
+      // Should reorder tokens lexicographically
+      expect(state.token0Address).toBe(mockToken0.address); // Smaller address becomes token0
+      expect(state.token1Address).toBe(mockToken1.address); // Larger address becomes token1
+      expect(state.token0Decimals).toBe(6); // Decimals follow the reordering (mockToken0 had 6 decimals)
+      expect(state.token1Decimals).toBe(18); // mockToken1 had 18 decimals
+    });
+  });
+
+  describe('Event Processing', () => {
+    let strategyStates: Map<string, any>;
+
+    beforeEach(() => {
+      strategyStates = new Map();
+    });
+
+    describe('processCreatedEvent', () => {
+      it('should create new strategy state from created event', () => {
+        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
+
+        expect(strategyStates.size).toBe(1);
+        expect(strategyStates.has('12345')).toBe(true);
+
+        const state = strategyStates.get('12345');
+        expect(state.strategyId).toBe('12345');
+        expect(state.currentOwner).toBe('0xowner');
+        expect(state.isDeleted).toBe(false);
+      });
+
+      it('should handle lexicographic token ordering in created event', () => {
+        const eventWithReversedTokens = {
+          ...mockStrategyCreatedEvent,
+          token0: mockToken1, // Larger address
+          token1: mockToken0, // Smaller address
+          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
+          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
+        };
+
+        (service as any).processCreatedEvent(eventWithReversedTokens, strategyStates);
+
+        const state = strategyStates.get('12345');
+        expect(state.token0Address).toBe(mockToken0.address.toLowerCase()); // Should be reordered
+        expect(state.token1Address).toBe(mockToken1.address.toLowerCase());
+      });
+    });
+
+    describe('processUpdatedEvent', () => {
+      beforeEach(() => {
+        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
+      });
+
+      it('should update existing strategy state', () => {
+        const initialLiquidity0 = strategyStates.get('12345').liquidity0;
+
+        (service as any).processUpdatedEvent(mockStrategyUpdatedEvent, strategyStates);
+
+        const state = strategyStates.get('12345');
+        expect(state.liquidity0).not.toEqual(initialLiquidity0);
+        expect(state.lastProcessedBlock).toBe(mockBlock.id);
+      });
+
+      it('should ignore update for non-existent strategy', () => {
+        const nonExistentEvent = { ...mockStrategyUpdatedEvent, strategyId: 'nonexistent' };
+
+        (service as any).processUpdatedEvent(nonExistentEvent, strategyStates);
+
+        expect(strategyStates.size).toBe(1); // Should still only have original strategy
+        expect(strategyStates.has('nonexistent')).toBe(false);
+      });
+    });
+
+    describe('processDeletedEvent', () => {
+      beforeEach(() => {
+        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
+      });
+
+      it('should mark strategy as deleted and zero out liquidity', () => {
+        (service as any).processDeletedEvent(mockStrategyDeletedEvent, strategyStates);
+
+        const state = strategyStates.get('12345');
+        expect(state.isDeleted).toBe(true);
+        expect(state.liquidity0.toString()).toBe('0');
+        expect(state.liquidity1.toString()).toBe('0');
+        expect(state.lastProcessedBlock).toBe(mockBlock.id);
+      });
+
+      it('should ignore delete for non-existent strategy', () => {
+        const nonExistentEvent = { ...mockStrategyDeletedEvent, strategyId: 'nonexistent' };
+
+        (service as any).processDeletedEvent(nonExistentEvent, strategyStates);
+
+        expect(strategyStates.size).toBe(1); // Should still only have original strategy
+      });
+    });
+
+    describe('processTransferEvent', () => {
+      beforeEach(() => {
+        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
+      });
+
+      it('should update strategy owner', () => {
+        (service as any).processTransferEvent(mockVoucherTransferEvent, strategyStates);
+
+        const state = strategyStates.get('12345');
+        expect(state.currentOwner).toBe('0xnewowner');
+        expect(state.lastProcessedBlock).toBe(mockBlock.id);
+      });
+
+      it('should ignore transfer for non-existent strategy', () => {
+        const nonExistentEvent = { ...mockVoucherTransferEvent, strategyId: 'nonexistent' };
+
+        (service as any).processTransferEvent(nonExistentEvent, strategyStates);
+
+        expect(strategyStates.size).toBe(1); // Should still only have original strategy
+      });
+    });
+
+    describe('updateStrategyStates', () => {
+      it('should process events in chronological order', () => {
+        const events = [
+          mockStrategyCreatedEvent,
+          mockStrategyUpdatedEvent,
+          mockStrategyDeletedEvent,
+          mockVoucherTransferEvent,
+        ];
+
+        (service as any).updateStrategyStates(
+          [mockStrategyCreatedEvent],
+          [mockStrategyUpdatedEvent],
+          [mockStrategyDeletedEvent],
+          [mockVoucherTransferEvent],
+          strategyStates,
+        );
+
+        expect(strategyStates.size).toBe(1);
+        const state = strategyStates.get('12345');
+        expect(state.isDeleted).toBe(true); // Should reflect final state after all events
+        expect(state.currentOwner).toBe('0xnewowner'); // Should reflect final owner
+      });
+
+      it('should handle empty event lists', () => {
+        (service as any).updateStrategyStates([], [], [], [], strategyStates);
+        expect(strategyStates.size).toBe(0);
+      });
+    });
+  });
+
+  describe('Rate Parameter Decompression', () => {
+    it('should decompress rate parameters correctly', () => {
+      const SCALING_CONSTANT = new Decimal(2).pow(48);
+      const mantissa = new Decimal(123456);
+      const exponent = new Decimal(5);
+      const compressed = mantissa.add(exponent.mul(SCALING_CONSTANT));
+
+      const result = (service as any).decompressRateParameter(compressed.toString());
+      const expected = mantissa.mul(new Decimal(2).pow(exponent));
+
+      expect(result.toString()).toBe(expected.toString());
+    });
+
+    it('should handle zero compressed value', () => {
+      const result = (service as any).decompressRateParameter('0');
+      expect(result.toString()).toBe('0');
+    });
+
+    it('should handle empty string', () => {
+      const result = (service as any).decompressRateParameter('');
+      expect(result.toString()).toBe('0');
+    });
+  });
+
+  describe('Strategy State Cloning', () => {
+    let originalState: any;
+
+    beforeEach(() => {
+      originalState = {
+        strategyId: '12345',
+        pairId: 1,
+        token0Address: '0xtoken0',
+        token1Address: '0xtoken1',
+        token0Decimals: 18,
+        token1Decimals: 18,
+        liquidity0: new Decimal('1000'),
+        liquidity1: new Decimal('2000'),
+        order0_A: new Decimal('100'),
+        order0_B: new Decimal('200'),
+        order0_z: new Decimal('1000'),
+        order1_A: new Decimal('150'),
+        order1_B: new Decimal('250'),
+        order1_z: new Decimal('2000'),
+        order0_A_compressed: '100',
+        order0_B_compressed: '200',
+        order0_z_compressed: '1000',
+        order1_A_compressed: '150',
+        order1_B_compressed: '250',
+        order1_z_compressed: '2000',
+        currentOwner: '0xowner',
+        creationWallet: '0xowner',
+        lastProcessedBlock: 1000,
+        isDeleted: false,
+      };
+    });
+
+    describe('deepCloneStrategyState', () => {
+      it('should create a deep clone of strategy state', () => {
+        const cloned = (service as any).deepCloneStrategyState(originalState);
+
+        expect(cloned).not.toBe(originalState);
+        expect(cloned.liquidity0).not.toBe(originalState.liquidity0); // Different Decimal instances
+        expect(cloned.liquidity0.toString()).toBe(originalState.liquidity0.toString()); // Same values
+        expect(cloned.strategyId).toBe(originalState.strategyId);
+        expect(cloned.isDeleted).toBe(originalState.isDeleted);
+      });
+
+      it('should allow independent modification of cloned state', () => {
+        const cloned = (service as any).deepCloneStrategyState(originalState);
+
+        cloned.liquidity0 = new Decimal('5000');
+        cloned.currentOwner = '0xnewowner';
+
+        expect(originalState.liquidity0.toString()).toBe('1000'); // Original unchanged
+        expect(originalState.currentOwner).toBe('0xowner'); // Original unchanged
+        expect(cloned.liquidity0.toString()).toBe('5000');
+        expect(cloned.currentOwner).toBe('0xnewowner');
+      });
+    });
+
+    describe('deepCloneStrategyStates', () => {
+      it('should clone a map of strategy states', () => {
+        const originalMap = new Map();
+        originalMap.set('12345', originalState);
+        originalMap.set('67890', { ...originalState, strategyId: '67890' });
+
+        const clonedMap = (service as any).deepCloneStrategyStates(originalMap);
+
+        expect(clonedMap).not.toBe(originalMap);
+        expect(clonedMap.size).toBe(2);
+        expect(clonedMap.get('12345')).not.toBe(originalState);
+        expect(clonedMap.get('12345').strategyId).toBe('12345');
+      });
+    });
+  });
+
+  describe('Epoch Calculations', () => {
+    describe('calculateEpochsInRange', () => {
+      it('should calculate epochs correctly within campaign duration', () => {
+        const EPOCH_DURATION = 4 * 60 * 60; // 4 hours
+        (service as any).EPOCH_DURATION = EPOCH_DURATION;
+
+        const startTimestamp = Math.floor(mockCampaign.startDate.getTime() / 1000);
+        const endTimestamp = Math.floor(mockCampaign.endDate.getTime() / 1000);
+
+        const epochs = (service as any).calculateEpochsInRange(mockCampaign, startTimestamp, endTimestamp);
+
+        expect(epochs.length).toBeGreaterThan(0);
+        expect(epochs[0].epochNumber).toBe(1);
+
+        // Verify total rewards sum to campaign amount
+        const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
+        expect(totalRewards.toFixed()).toBe(mockCampaign.rewardAmount);
+      });
+
+      it('should handle partial epoch at campaign end', () => {
+        const shortCampaign = {
+          ...mockCampaign,
+          endDate: new Date(mockCampaign.startDate.getTime() + 2 * 60 * 60 * 1000), // 2 hours
+        };
+
+        const startTimestamp = Math.floor(shortCampaign.startDate.getTime() / 1000);
+        const endTimestamp = Math.floor(shortCampaign.endDate.getTime() / 1000);
+
+        const epochs = (service as any).calculateEpochsInRange(shortCampaign, startTimestamp, endTimestamp);
+
+        expect(epochs.length).toBe(1);
+        expect(epochs[0].totalRewards.toFixed()).toBe(shortCampaign.rewardAmount);
+      });
+
+      it("should handle time range that doesn't align with campaign boundaries", () => {
+        const campaignStart = Math.floor(mockCampaign.startDate.getTime() / 1000);
+        const rangeStart = campaignStart + 3600; // 1 hour after campaign start
+        const rangeEnd = rangeStart + 7200; // 2 hours range
+
+        const epochs = (service as any).calculateEpochsInRange(mockCampaign, rangeStart, rangeEnd);
+
+        expect(epochs.length).toBeGreaterThan(0);
+        // Should only include epochs that intersect with the range
+      });
+    });
+  });
+
+  describe('Target Price Calculations', () => {
+    describe('calculateTargetSqrtPriceScaled', () => {
+      it('should calculate scaled square root price correctly', () => {
+        const targetPrice = new Decimal(2); // 2 token1 per token0
+        const baseDecimals = 18;
+        const quoteDecimals = 6;
+
+        const result = (service as any).calculateTargetSqrtPriceScaled(targetPrice, baseDecimals, quoteDecimals);
+
+        // Expected: price * 10^(18-6) = 2 * 10^12, sqrt = sqrt(2) * 10^6, scaled = sqrt(2) * 10^6 * 2^48
+        const expected = new Decimal(2).mul(new Decimal(10).pow(12)).sqrt().mul(new Decimal(2).pow(48));
+
+        expect(result.toString()).toBe(expected.toString());
+      });
+
+      it('should handle equal decimals', () => {
+        const targetPrice = new Decimal(1.5);
+        const decimals = 18;
+
+        const result = (service as any).calculateTargetSqrtPriceScaled(targetPrice, decimals, decimals);
+
+        const expected = targetPrice.sqrt().mul(new Decimal(2).pow(48));
+        expect(result.toString()).toBe(expected.toString());
+      });
+    });
+
+    describe('calculateInvTargetSqrtPriceScaled', () => {
+      it('should calculate inverse scaled square root price correctly', () => {
+        const targetPrice = new Decimal(0.5); // 0.5 token0 per token1
+        const baseDecimals = 18;
+        const quoteDecimals = 6;
+
+        const result = (service as any).calculateInvTargetSqrtPriceScaled(targetPrice, baseDecimals, quoteDecimals);
+
+        // Expected: price * 10^(6-18) = 0.5 * 10^(-12), sqrt, scaled
+        const expected = new Decimal(0.5).mul(new Decimal(10).pow(-12)).sqrt().mul(new Decimal(2).pow(48));
+
+        expect(result.toString()).toBe(expected.toString());
+      });
+    });
+  });
+
+  describe('Eligible Liquidity Calculation', () => {
+    describe('calculateEligibleLiquidity', () => {
+      it('should return full liquidity when reward zone boundary is below order range', () => {
+        const y = new Decimal('1000');
+        const z = new Decimal('1000');
+        const A = new Decimal('100');
+        const B = new Decimal('200');
+        const targetSqrtPriceScaled = new Decimal('150');
+        const toleranceFactor = new Decimal('0.98');
+
+        const rewardZoneBoundary = toleranceFactor.mul(targetSqrtPriceScaled); // 147, which is <= B (200)
+
+        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
+
+        expect(result.toString()).toBe(y.toString()); // Full liquidity eligible
+      });
+
+      it('should return zero when reward zone boundary is above order range', () => {
+        const y = new Decimal('1000');
+        const z = new Decimal('1000');
+        const A = new Decimal('100');
+        const B = new Decimal('200');
+        const targetSqrtPriceScaled = new Decimal('350');
+        const toleranceFactor = new Decimal('0.98');
+
+        const rewardZoneBoundary = toleranceFactor.mul(targetSqrtPriceScaled); // 343, which is >= orderPriceHigh (300)
+
+        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
+
+        expect(result.toString()).toBe('0'); // No liquidity eligible
+      });
+
+      it('should calculate partial eligibility correctly', () => {
+        const y = new Decimal('1000');
+        const z = new Decimal('1000');
+        const A = new Decimal('100');
+        const B = new Decimal('200');
+        const targetSqrtPriceScaled = new Decimal('230');
+        const toleranceFactor = new Decimal('0.98');
+
+        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
+
+        // Should be between 0 and y
+        expect(result.gt(0)).toBe(true);
+        expect(result.lt(y)).toBe(true);
+      });
+
+      it('should handle A equals zero case', () => {
+        const y = new Decimal('1000');
+        const z = new Decimal('1000');
+        const A = new Decimal('0');
+        const B = new Decimal('200');
+        const targetSqrtPriceScaled = new Decimal('250');
+        const toleranceFactor = new Decimal('0.98');
+
+        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
+
+        expect(result.toString()).toBe('0'); // Should return 0 to prevent division by zero
+      });
+
+      it('should ensure non-negative result', () => {
+        const y = new Decimal('100');
+        const z = new Decimal('1000');
+        const A = new Decimal('50');
+        const B = new Decimal('200');
+        const targetSqrtPriceScaled = new Decimal('300');
+        const toleranceFactor = new Decimal('0.98');
+
+        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
+
+        expect(result.gte(0)).toBe(true);
+      });
+    });
+  });
+
+  describe('Price Cache and Target Prices', () => {
+    describe('createPriceCache', () => {
+      it('should create price cache for campaign tokens', async () => {
+        const campaigns = [mockCampaign];
+        const batchStartTimestamp = 1704067200;
+
+        const result = await (service as any).createPriceCache(campaigns, batchStartTimestamp, mockDeployment);
+
+        expect(result.rates.size).toBe(2);
+        expect(result.rates.get(mockToken0.address.toLowerCase())).toBe(100);
+        expect(result.rates.get(mockToken1.address.toLowerCase())).toBe(200);
+        expect(result.timestamp).toBe(batchStartTimestamp);
+      });
+
+      it('should handle duplicate token addresses across campaigns', async () => {
+        const campaign2 = {
+          ...mockCampaign,
+          id: '2',
+          pair: { ...mockPair, id: 2 },
+        };
+        const campaigns = [mockCampaign, campaign2];
+
+        const result = await (service as any).createPriceCache(campaigns, 1704067200, mockDeployment);
+
+        // Should still only have 2 unique tokens
+        expect(result.rates.size).toBe(2);
+      });
+    });
+
+    describe('getTargetPricesAtTime', () => {
+      let mockPriceCache: any;
+
+      beforeEach(() => {
+        mockPriceCache = {
+          rates: new Map([
+            [mockToken0.address.toLowerCase(), 100],
+            [mockToken1.address.toLowerCase(), 200],
+          ]),
+          timestamp: 1704067200,
+        };
+      });
+
+      it('should calculate target prices correctly', () => {
+        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
+
+        expect(result).not.toBeNull();
+        expect(result.order0TargetPrice.toString()).toBe('2'); // 200/100
+        expect(result.order1TargetPrice.toString()).toBe('0.5'); // 100/200
+      });
+
+      it('should return null when token rates are missing', () => {
+        mockPriceCache.rates.delete(mockToken0.address.toLowerCase());
+
+        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
+
+        expect(result).toBeNull();
+      });
+
+      it('should return null when token rates are zero', () => {
+        mockPriceCache.rates.set(mockToken0.address.toLowerCase(), 0);
+
+        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
+
+        expect(result).toBeNull();
+      });
+
+      it('should handle case-insensitive address lookup', () => {
+        mockPriceCache.rates.clear();
+        mockPriceCache.rates.set(mockToken0.address.toUpperCase(), 100);
+        mockPriceCache.rates.set(mockToken1.address.toLowerCase(), 200);
+
+        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
+
+        expect(result).toBeNull(); // Should fail because uppercase key won't match lowercase lookup
+      });
+    });
+
+    describe('findClosestRate', () => {
+      it('should find closest rate by timestamp', () => {
+        const rates = [
+          { address: mockToken0.address, day: 1704067000, usd: 90 },
+          { address: mockToken0.address, day: 1704067200, usd: 100 },
+          { address: mockToken0.address, day: 1704067400, usd: 110 },
+        ];
+
+        const result = (service as any).findClosestRate(rates, mockToken0.address, 1704067150);
+
+        expect(result).toBe(100); // Closest to 1704067200
+      });
+
+      it('should return null for non-existent token', () => {
+        const rates = [{ address: mockToken0.address, day: 1704067200, usd: 100 }];
+
+        const result = (service as any).findClosestRate(rates, '0xnonexistent', 1704067200);
+
+        expect(result).toBeNull();
+      });
+
+      it('should handle empty rates array', () => {
+        const result = (service as any).findClosestRate([], mockToken0.address, 1704067200);
+
+        expect(result).toBeNull();
+      });
+
+      it('should be case-insensitive for address matching', () => {
+        const rates = [{ address: mockToken0.address.toUpperCase(), day: 1704067200, usd: 100 }];
+
+        const result = (service as any).findClosestRate(rates, mockToken0.address.toLowerCase(), 1704067200);
+
+        expect(result).toBe(100);
+      });
+    });
+  });
+
+  describe('Validation Methods', () => {
+    describe('validateTotalRewardsNotExceeded', () => {
+      it('should return true when total rewards do not exceed campaign amount', async () => {
+        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '500000000000000000000' }); // 500 tokens
+
+        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
+
+        expect(result).toBe(true);
+      });
+
+      it('should return false when total rewards exceed campaign amount', async () => {
+        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '2000000000000000000000' }); // 2000 tokens
+
+        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
+
+        expect(result).toBe(false);
+      });
+
+      it('should handle null total from database', async () => {
+        mockQueryBuilder.getRawOne.mockResolvedValue({ total: null });
+
+        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
+
+        expect(result).toBe(true); // null should be treated as 0
+      });
+
+      it('should handle database errors gracefully', async () => {
+        mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Database error'));
+
+        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
+
+        expect(result).toBe(false);
+      });
+    });
+
+    describe('validateEpochIntegrity', () => {
+      it('should return true for valid consecutive epochs', () => {
+        const epochs = [
+          {
+            epochNumber: 1,
+            startTimestamp: new Date('2024-01-01T00:00:00Z'),
+            endTimestamp: new Date('2024-01-01T04:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+          {
+            epochNumber: 2,
+            startTimestamp: new Date('2024-01-01T04:00:00Z'),
+            endTimestamp: new Date('2024-01-01T08:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+        ];
+
+        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
+
+        expect(result).toBe(true);
+      });
+
+      it('should return false for epochs with gaps', () => {
+        const epochs = [
+          {
+            epochNumber: 1,
+            startTimestamp: new Date('2024-01-01T00:00:00Z'),
+            endTimestamp: new Date('2024-01-01T04:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+          {
+            epochNumber: 2,
+            startTimestamp: new Date('2024-01-01T05:00:00Z'), // 1 hour gap
+            endTimestamp: new Date('2024-01-01T09:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+        ];
+
+        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
+
+        expect(result).toBe(false);
+      });
+
+      it('should return false for epochs with overlaps', () => {
+        const epochs = [
+          {
+            epochNumber: 1,
+            startTimestamp: new Date('2024-01-01T00:00:00Z'),
+            endTimestamp: new Date('2024-01-01T04:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+          {
+            epochNumber: 2,
+            startTimestamp: new Date('2024-01-01T03:00:00Z'), // 1 hour overlap
+            endTimestamp: new Date('2024-01-01T07:00:00Z'),
+            totalRewards: new Decimal('500'),
+          },
+        ];
+
+        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
+
+        expect(result).toBe(false);
+      });
+
+      it('should return false for epoch with non-positive duration', () => {
+        const epochs = [
+          {
+            epochNumber: 1,
+            startTimestamp: new Date('2024-01-01T04:00:00Z'),
+            endTimestamp: new Date('2024-01-01T04:00:00Z'), // Same time
+            totalRewards: new Decimal('500'),
+          },
+        ];
+
+        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
+
+        expect(result).toBe(false);
+      });
+
+      it('should return true for empty epochs array', () => {
+        const result = (service as any).validateEpochIntegrity(mockCampaign, []);
+
+        expect(result).toBe(true);
+      });
+
+      it('should handle validation errors gracefully', () => {
+        const invalidEpochs = [null] as any;
+
+        const result = (service as any).validateEpochIntegrity(mockCampaign, invalidEpochs);
+
+        expect(result).toBe(false);
+      });
+    });
+
+    describe('validateEpochRewardsWontExceedTotal', () => {
+      it('should return true when projected total does not exceed campaign amount', async () => {
+        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '400000000000000000000' }); // 400 tokens
+
+        const newRewards = new Map([
+          ['strategy1', { owner: '0xowner1', totalReward: new Decimal('100000000000000000000') }], // 100 tokens
+          ['strategy2', { owner: '0xowner2', totalReward: new Decimal('200000000000000000000') }], // 200 tokens
+        ]);
+
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date(),
+          endTimestamp: new Date(),
+          totalRewards: new Decimal('300000000000000000000'),
+        };
+
+        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
+
+        expect(result).toBe(true); // 400 + 300 = 700 < 1000
+      });
+
+      it('should return false when projected total exceeds campaign amount', async () => {
+        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '800000000000000000000' }); // 800 tokens
+
+        const newRewards = new Map([
+          ['strategy1', { owner: '0xowner1', totalReward: new Decimal('300000000000000000000') }], // 300 tokens
+        ]);
+
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date(),
+          endTimestamp: new Date(),
+          totalRewards: new Decimal('300000000000000000000'),
+        };
+
+        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
+
+        expect(result).toBe(false); // 800 + 300 = 1100 > 1000
+      });
+
+      it('should handle database errors gracefully', async () => {
+        mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Database error'));
+
+        const newRewards = new Map();
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date(),
+          endTimestamp: new Date(),
+          totalRewards: new Decimal('100'),
+        };
+
+        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
+
+        expect(result).toBe(false);
+      });
+    });
+  });
+
+  describe('Utility Methods', () => {
+    describe('getTimestampForBlock', () => {
+      it('should return timestamp for given block', async () => {
+        const result = await (service as any).getTimestampForBlock(1000, mockDeployment);
+
+        expect(result).toBe(Math.floor(mockBlock.timestamp.getTime() / 1000));
+        expect(mockBlockService.getBlock).toHaveBeenCalledWith(1000, mockDeployment);
+      });
+    });
+
+    describe('sortBatchEventsChronologically', () => {
+      it('should sort events chronologically with proper tiebreakers', () => {
+        const batchEvents = {
+          createdEvents: [mockStrategyCreatedEvent],
+          updatedEvents: [mockStrategyUpdatedEvent],
+          deletedEvents: [mockStrategyDeletedEvent],
+          transferEvents: [mockVoucherTransferEvent],
+          blockTimestamps: {
+            [mockBlock.id]: mockBlock.timestamp,
+          },
+        };
+
+        const result = (service as any).sortBatchEventsChronologically(batchEvents);
+
+        expect(result.length).toBe(4);
+        expect(result[0].type).toBe('created');
+        expect(result[1].type).toBe('updated');
+        expect(result[2].type).toBe('deleted');
+        expect(result[3].type).toBe('transfer');
+      });
+
+      it('should handle empty event lists', () => {
+        const batchEvents = {
+          createdEvents: [],
+          updatedEvents: [],
+          deletedEvents: [],
+          transferEvents: [],
+          blockTimestamps: {},
+        };
+
+        const result = (service as any).sortBatchEventsChronologically(batchEvents);
+
+        expect(result.length).toBe(0);
+      });
+    });
+
+    describe('applyEventToStrategyStates', () => {
+      let strategyStates: Map<string, any>;
+
+      beforeEach(() => {
+        strategyStates = new Map();
+      });
+
+      it('should apply created event', () => {
+        const timestampedEvent = {
+          timestamp: 1704067500,
+          type: 'created' as const,
+          event: mockStrategyCreatedEvent,
+        };
+
+        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
+
+        expect(strategyStates.has('12345')).toBe(true);
+      });
+
+      it('should apply updated event', () => {
+        strategyStates.set('12345', { strategyId: '12345', liquidity0: new Decimal('1000') });
+
+        const timestampedEvent = {
+          timestamp: 1704067600,
+          type: 'updated' as const,
+          event: mockStrategyUpdatedEvent,
+        };
+
+        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
+
+        // Should have updated the existing strategy
+        expect(strategyStates.get('12345').lastProcessedBlock).toBe(mockBlock.id);
+      });
+
+      it('should apply deleted event', () => {
+        strategyStates.set('12345', { strategyId: '12345', isDeleted: false });
+
+        const timestampedEvent = {
+          timestamp: 1704067700,
+          type: 'deleted' as const,
+          event: mockStrategyDeletedEvent,
+        };
+
+        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
+
+        expect(strategyStates.get('12345').isDeleted).toBe(true);
+      });
+
+      it('should apply transfer event', () => {
+        strategyStates.set('12345', { strategyId: '12345', currentOwner: '0xoldowner' });
+
+        const timestampedEvent = {
+          timestamp: 1704067800,
+          type: 'transfer' as const,
+          event: mockVoucherTransferEvent,
+        };
+
+        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
+
+        expect(strategyStates.get('12345').currentOwner).toBe('0xnewowner');
+      });
+    });
+  });
+
+  describe('Edge Cases and Error Handling', () => {
+    it('should handle campaigns ending before processing time', async () => {
+      const expiredCampaign = {
+        ...mockCampaign,
+        endDate: new Date('2023-12-31T23:59:59Z'), // Ended before processing
       };
 
-      // Mock price cache
-      const mockPriceCache = {
-        rates: new Map([
-          [ETH_ADDRESS.toLowerCase(), 2550],
-          [USDT_ADDRESS.toLowerCase(), 1],
-        ]),
-        timestamp: Date.now(),
+      mockCampaignService.getActiveCampaigns.mockResolvedValue([expiredCampaign]);
+      mockEntityManager.query.mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should still process but skip epoch generation
+      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalled();
+    });
+
+    it('should handle malformed JSON in order data', () => {
+      const malformedEvent = {
+        ...mockStrategyCreatedEvent,
+        order0: 'invalid json',
       };
 
-      console.log('Strategy B parameter:', mockSnapshot.strategies.get('strategy1').order0_B.toString());
-      console.log('Target sqrt price:', mockSnapshot.targetSqrtPriceScaled.toString());
+      const strategyStates = new Map();
 
-      // Call service method with correct parameters
-      const rewardResults = (service as any).calculateSnapshotRewards(
-        mockSnapshot,
-        TOTAL_REWARDS,
-        mockCampaign,
-        1, // subEpochNumber
-        mockPriceCache,
-      );
+      expect(() => {
+        (service as any).processCreatedEvent(malformedEvent, strategyStates);
+      }).toThrow();
+    });
 
-      console.log('Reward results type:', typeof rewardResults);
-      console.log('Reward results size:', rewardResults instanceof Map ? rewardResults.size : 'not a map');
+    it('should handle very large decimal numbers', () => {
+      const largeNumber = '999999999999999999999999999999999999999999';
+      const result = (service as any).decompressRateParameter(largeNumber);
 
-      if (rewardResults instanceof Map) {
-        for (const [strategyId, reward] of rewardResults) {
-          console.log(`Strategy ${strategyId} reward:`, reward.toString());
-        }
-      }
+      expect(result).toBeInstanceOf(Decimal);
+      expect(result.toString()).toBeDefined();
+    });
 
-      const totalDistributedRewards = Array.from(rewardResults.values()).reduce(
-        (sum: Decimal, reward: Decimal) => sum.add(reward),
-        new Decimal('0'),
-      ) as Decimal;
+    it('should handle empty strategy states in various operations', () => {
+      const emptyStates = new Map();
 
-      const distributionPercentage = totalDistributedRewards.div(TOTAL_REWARDS);
+      // Test cloning empty map
+      const cloned = (service as any).deepCloneStrategyStates(emptyStates);
+      expect(cloned.size).toBe(0);
 
-      console.log('Total distributed rewards:', totalDistributedRewards.toString());
-      console.log('Total available rewards:', TOTAL_REWARDS.toString());
-      console.log('Distribution percentage:', distributionPercentage.mul(100).toFixed(1) + '%');
-      console.log('Number of strategies with rewards:', rewardResults.size);
-
-      // For now, let's just test that the method doesn't crash and returns valid data
-      expect(rewardResults).toBeInstanceOf(Map);
-      expect(totalDistributedRewards.gte(0)).toBe(true);
-
-      // If we get any distribution, that's a success - the fix is working
-      if (distributionPercentage.gt(0)) {
-        console.log('✅ SUCCESS: Partial distribution achieved!');
-        expect(distributionPercentage.gt(0)).toBe(true);
-      } else {
-        console.log('⚠️  Still getting 0% distribution - this may be expected with current test parameters');
-        // For now, just ensure the method works without error
-        expect(distributionPercentage.gte(0)).toBe(true);
-      }
+      // Test event processing with empty states
+      (service as any).updateStrategyStates([], [], [], [], emptyStates);
+      expect(emptyStates.size).toBe(0);
     });
   });
 });

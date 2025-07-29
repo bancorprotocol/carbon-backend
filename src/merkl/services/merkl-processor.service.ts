@@ -2,7 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
-import { promises as fs } from 'fs';
 import { createWriteStream } from 'fs';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
@@ -249,8 +248,6 @@ export class MerklProcessorService {
 
     // 9. Write reward breakdown JSON file
     await this.writeRewardBreakdownFile(deployment);
-
-    console.log('done');
   }
 
   private async processBatchForAllCampaigns(
@@ -573,10 +570,6 @@ export class MerklProcessorService {
     const order0ForPair = isToken0Smaller ? order0 : order1;
     const order1ForPair = isToken0Smaller ? order1 : order0;
 
-    if (event.strategyId === TARGET_STRATEGY_ID) {
-      console.log('hi');
-    }
-
     const state: StrategyState = {
       strategyId: event.strategyId,
       pairId: event.pair.id,
@@ -621,10 +614,6 @@ export class MerklProcessorService {
 
     const order0ForPair = isToken0Smaller ? order0 : order1;
     const order1ForPair = isToken0Smaller ? order1 : order0;
-
-    if (event.strategyId === TARGET_STRATEGY_ID) {
-      console.log('hi');
-    }
 
     existingState.liquidity0 = new Decimal(order0ForPair.y || 0);
     existingState.liquidity1 = new Decimal(order1ForPair.y || 0);
@@ -924,7 +913,6 @@ export class MerklProcessorService {
         rewardPerSnapshot,
         campaign,
         this.globalSubEpochNumber, // Use global counter instead of local i+1
-        priceCache,
       );
 
       // Check if snapshot had no eligible liquidity
@@ -1041,7 +1029,6 @@ export class MerklProcessorService {
     rewardPool: Decimal,
     campaign: Campaign,
     subEpochNumber: number,
-    priceCache: PriceCache,
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
@@ -1060,15 +1047,6 @@ export class MerklProcessorService {
 
       const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
       const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
-
-      const isToken0Smaller = strategy.token0Address.toLowerCase() <= strategy.token1Address.toLowerCase();
-      if (!isToken0Smaller) {
-        console.log('hi');
-      }
-
-      if (strategy.strategyId === TARGET_STRATEGY_ID) {
-        console.log('hii');
-      }
 
       // Calculate eligible liquidity for token0 side (order0)
       const eligible0 = this.calculateEligibleLiquidity(
@@ -1118,11 +1096,6 @@ export class MerklProcessorService {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible0);
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
-
-        // Only log for target strategy
-        // if (strategyId === TARGET_STRATEGY_ID) {
-        //   this.logger.debug(`Strategy ${strategyId} token0 reward: ${reward.toString()}`);
-        // }
       }
     } else {
       this.logger.warn('No eligible weighted token0 liquidity - token0 rewards not distributed');
@@ -1145,16 +1118,16 @@ export class MerklProcessorService {
     }
 
     // Collect data for JSON output
-    this.collectSnapshotRewardData(
-      snapshot,
-      rewards,
-      halfRewardPool,
-      totalWeightedEligible0,
-      totalWeightedEligible1,
-      strategyWeightedEligibility0,
-      strategyWeightedEligibility1,
-      subEpochNumber,
-    );
+    // this.collectSnapshotRewardData(
+    //   snapshot,
+    //   rewards,
+    //   halfRewardPool,
+    //   totalWeightedEligible0,
+    //   totalWeightedEligible1,
+    //   strategyWeightedEligibility0,
+    //   strategyWeightedEligibility1,
+    //   subEpochNumber,
+    // );
 
     return rewards;
   }
@@ -1494,10 +1467,6 @@ export class MerklProcessorService {
           for (const subEpochTimestamp of Object.keys(epochData.sub_epochs)) {
             const subEpochData = epochData.sub_epochs[subEpochTimestamp];
 
-            if (strategyId === TARGET_STRATEGY_ID) {
-              console.log('hi');
-            }
-
             // Escape CSV values and write row
             const row = [
               strategyId,
@@ -1566,8 +1535,6 @@ export class MerklProcessorService {
       // Only collect data for the target strategy
       if (strategyId !== TARGET_STRATEGY_ID) {
         // continue;
-      } else {
-        console.log('hi');
       }
 
       const lpKey = `LP_${strategyId}`;
@@ -1626,12 +1593,12 @@ export class MerklProcessorService {
       );
 
       // Get token weightings
-      const token0Weighting = this.getTokenWeighting(strategy.token0Address, this.currentCampaign?.exchangeId);
-      const token1Weighting = this.getTokenWeighting(strategy.token1Address, this.currentCampaign?.exchangeId);
+      // const token0Weighting = this.getTokenWeighting(strategy.token0Address, this.currentCampaign?.exchangeId);
+      // const token1Weighting = this.getTokenWeighting(strategy.token1Address, this.currentCampaign?.exchangeId);
 
       // Calculate weighted eligible amounts
-      const weightedEligible0 = eligible0.mul(token0Weighting);
-      const weightedEligible1 = eligible1.mul(token1Weighting);
+      // const weightedEligible0 = eligible0.mul(token0Weighting);
+      // const weightedEligible1 = eligible1.mul(token1Weighting);
 
       // Calculate reward zone boundaries consistently based on lexicographic ordering
       // token0 (lexicographically smaller) always uses targetSqrtPriceScaled
