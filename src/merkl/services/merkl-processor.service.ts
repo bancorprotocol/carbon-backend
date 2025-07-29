@@ -20,6 +20,8 @@ import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strate
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
 import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
 
+const TARGET_STRATEGY_ID = '2722258935367507707706996859454145693048';
+
 interface StrategyState {
   strategyId: string;
   pairId: number;
@@ -37,12 +39,12 @@ interface StrategyState {
   order1_B: Decimal;
   order1_z: Decimal; // capacity for order1
   // Compressed A, B, z values
-  order0_A_compressed: string;
-  order0_B_compressed: string;
-  order0_z_compressed: string;
-  order1_A_compressed: string;
-  order1_B_compressed: string;
-  order1_z_compressed: string;
+  order0_A_compressed: Decimal;
+  order0_B_compressed: Decimal;
+  order0_z_compressed: Decimal;
+  order1_A_compressed: Decimal;
+  order1_B_compressed: Decimal;
+  order1_z_compressed: Decimal;
   currentOwner: string;
   creationWallet: string;
   lastProcessedBlock: number;
@@ -58,7 +60,8 @@ interface EpochInfo {
 
 interface SnapshotData {
   timestamp: number;
-  targetPrice: Decimal;
+  order0TargetPrice: Decimal; // token1Usd/token0Usd for order0
+  order1TargetPrice: Decimal; // token0Usd/token1Usd for order1
   targetSqrtPriceScaled: Decimal;
   invTargetSqrtPriceScaled: Decimal;
   targetSqrtPriceIntermediates: {
@@ -632,12 +635,12 @@ export class MerklProcessorService {
     existingState.order1_A = this.decompressRateParameter(order1ForPair.A || '0');
     existingState.order1_B = this.decompressRateParameter(order1ForPair.B || '0');
     existingState.order1_z = new Decimal(order1ForPair.z || order1ForPair.y || 0);
-    existingState.order0_A_compressed = order0ForPair.A || '0';
-    existingState.order0_B_compressed = order0ForPair.B || '0';
-    existingState.order0_z_compressed = order0ForPair.z || order0ForPair.y || '0';
-    existingState.order1_A_compressed = order1ForPair.A || '0';
-    existingState.order1_B_compressed = order1ForPair.B || '0';
-    existingState.order1_z_compressed = order1ForPair.z || order1ForPair.y || '0';
+    existingState.order0_A_compressed = new Decimal(order0ForPair.A || '0');
+    existingState.order0_B_compressed = new Decimal(order0ForPair.B || '0');
+    existingState.order0_z_compressed = new Decimal(order0ForPair.z || order0ForPair.y || '0');
+    existingState.order1_A_compressed = new Decimal(order1ForPair.A || '0');
+    existingState.order1_B_compressed = new Decimal(order1ForPair.B || '0');
+    existingState.order1_z_compressed = new Decimal(order1ForPair.z || order1ForPair.y || '0');
     existingState.lastProcessedBlock = event.block.id;
   }
 
@@ -648,12 +651,12 @@ export class MerklProcessorService {
     existingState.isDeleted = true;
     existingState.liquidity0 = new Decimal(0);
     existingState.liquidity1 = new Decimal(0);
-    existingState.order0_A_compressed = '0';
-    existingState.order0_B_compressed = '0';
-    existingState.order0_z_compressed = '0';
-    existingState.order1_A_compressed = '0';
-    existingState.order1_B_compressed = '0';
-    existingState.order1_z_compressed = '0';
+    existingState.order0_A_compressed = new Decimal(0);
+    existingState.order0_B_compressed = new Decimal(0);
+    existingState.order0_z_compressed = new Decimal(0);
+    existingState.order1_A_compressed = new Decimal(0);
+    existingState.order1_B_compressed = new Decimal(0);
+    existingState.order1_z_compressed = new Decimal(0);
     existingState.lastProcessedBlock = event.block.id;
   }
 
@@ -998,9 +1001,9 @@ export class MerklProcessorService {
         eventIndex++;
       }
 
-      // Get target price using campaign pair tokens
-      const targetPrice = this.getTargetPriceAtTime(currentTime, campaign, priceCache);
-      if (targetPrice === null) {
+      // Get target prices using campaign pair tokens
+      const targetPrices = this.getTargetPricesAtTime(currentTime, campaign, priceCache);
+      if (targetPrices === null) {
         this.logger.warn(`Skipping snapshot at timestamp ${currentTime} - no USD rates available`);
         currentTime += this.SNAPSHOT_INTERVAL;
         continue;
@@ -1013,14 +1016,25 @@ export class MerklProcessorService {
       // Generate snapshot with current state (deep clone to prevent reference sharing)
       snapshots.push({
         timestamp: currentTime,
-        targetPrice,
-        targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(targetPrice, token0Decimals, token1Decimals).result,
-        invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(targetPrice, token0Decimals, token1Decimals)
-          .result,
-        targetSqrtPriceIntermediates: this.calculateTargetSqrtPriceScaled(targetPrice, token0Decimals, token1Decimals)
-          .intermediates,
+        order0TargetPrice: targetPrices.order0TargetPrice,
+        order1TargetPrice: targetPrices.order1TargetPrice,
+        targetSqrtPriceScaled: this.calculateTargetSqrtPriceScaled(
+          targetPrices.order0TargetPrice,
+          token0Decimals,
+          token1Decimals,
+        ).result,
+        invTargetSqrtPriceScaled: this.calculateInvTargetSqrtPriceScaled(
+          targetPrices.order1TargetPrice,
+          token0Decimals,
+          token1Decimals,
+        ).result,
+        targetSqrtPriceIntermediates: this.calculateTargetSqrtPriceScaled(
+          targetPrices.order0TargetPrice,
+          token0Decimals,
+          token1Decimals,
+        ).intermediates,
         invTargetSqrtPriceIntermediates: this.calculateInvTargetSqrtPriceScaled(
-          targetPrice,
+          targetPrices.order1TargetPrice,
           token0Decimals,
           token1Decimals,
         ).intermediates,
@@ -1040,8 +1054,6 @@ export class MerklProcessorService {
     subEpochNumber: number,
     priceCache: PriceCache,
   ): Map<string, Decimal> {
-    const TARGET_STRATEGY_ID = '2722258935367507707706996859454145692818';
-
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
     const halfRewardPool = rewardPool.div(2);
@@ -1065,13 +1077,17 @@ export class MerklProcessorService {
         console.log('hi');
       }
 
+      if (strategy.strategyId === TARGET_STRATEGY_ID) {
+        console.log('hi');
+      }
+
       // Calculate eligible liquidity for token0 side (order0)
       const eligible0 = this.calculateEligibleLiquidity(
         strategy.liquidity0,
         strategy.order0_z,
         strategy.order0_A,
         strategy.order0_B,
-        snapshot.targetSqrtPriceScaled,
+        snapshot.targetSqrtPriceScaled, // Use targetSqrtPriceScaled for order0
         toleranceFactor,
       );
 
@@ -1081,7 +1097,7 @@ export class MerklProcessorService {
         strategy.order1_z,
         strategy.order1_A,
         strategy.order1_B,
-        snapshot.invTargetSqrtPriceScaled,
+        snapshot.invTargetSqrtPriceScaled, // Use invTargetSqrtPriceScaled for order1
         toleranceFactor,
       );
 
@@ -1226,7 +1242,7 @@ export class MerklProcessorService {
     // Calculate adjusted price and return scaled square root
     const baseDecimalsFactor = new Decimal(10).pow(baseDecimals);
     const quoteDecimalsFactor = new Decimal(10).pow(quoteDecimals);
-    const adjustedPrice = targetPrice.mul(quoteDecimalsFactor).div(baseDecimalsFactor);
+    const adjustedPrice = targetPrice.mul(baseDecimalsFactor).div(quoteDecimalsFactor);
     const sqrtAdjustedPrice = adjustedPrice.sqrt();
     const result = sqrtAdjustedPrice.mul(this.SCALING_CONSTANT);
 
@@ -1260,8 +1276,8 @@ export class MerklProcessorService {
     const quoteDecimalsFactor = new Decimal(10).pow(quoteDecimals);
     const adjustedPrice = targetPrice.mul(quoteDecimalsFactor).div(baseDecimalsFactor);
     const sqrtAdjustedPrice = adjustedPrice.sqrt();
-    const invSqrtAdjustedPrice = new Decimal(1).div(sqrtAdjustedPrice);
-    const result = invSqrtAdjustedPrice.mul(this.SCALING_CONSTANT);
+    // const invSqrtAdjustedPrice = new Decimal(1).div(sqrtAdjustedPrice);
+    const result = sqrtAdjustedPrice.mul(this.SCALING_CONSTANT);
 
     return {
       result,
@@ -1270,7 +1286,7 @@ export class MerklProcessorService {
         baseDecimalsFactor,
         quoteDecimalsFactor,
         sqrtAdjustedPrice,
-        invSqrtAdjustedPrice,
+        invSqrtAdjustedPrice: sqrtAdjustedPrice,
       },
     };
   }
@@ -1444,22 +1460,29 @@ export class MerklProcessorService {
     };
   }
 
-  private getTargetPriceAtTime(timestamp: number, campaign: Campaign, priceCache: PriceCache): Decimal | null {
+  private getTargetPricesAtTime(
+    timestamp: number,
+    campaign: Campaign,
+    priceCache: PriceCache,
+  ): { order0TargetPrice: Decimal; order1TargetPrice: Decimal } | null {
     // Get token addresses and USD rates
     const token0Address = campaign.pair.token0.address.toLowerCase();
     const token1Address = campaign.pair.token1.address.toLowerCase();
     const token0Rate = priceCache.rates.get(token0Address);
     const token1Rate = priceCache.rates.get(token1Address);
 
-    if (!token0Rate || !token1Rate || token0Rate === 0) {
+    if (!token0Rate || !token1Rate || token0Rate === 0 || token1Rate === 0) {
       this.logger.warn(
         `Missing USD rates for tokens token0=${token0Address}/token1=${token1Address} at timestamp ${timestamp} - skipping snapshot`,
       );
       return null; // Skip snapshot when rates are missing
     }
 
-    // Return price as token1 per token0 (consistent with lexicographic ordering)
-    return new Decimal(token0Rate).div(token1Rate);
+    // Return both target prices
+    return {
+      order0TargetPrice: new Decimal(token1Rate).div(token0Rate), // token1Usd/token0Usd for order0
+      order1TargetPrice: new Decimal(token0Rate).div(token1Rate), // token0Usd/token1Usd for order1
+    };
   }
 
   private findClosestRate(rates: any[], tokenAddress: string, targetTimestamp: number): number | null {
@@ -1644,16 +1667,15 @@ export class MerklProcessorService {
     strategyWeightedEligibility1: Map<string, Decimal>,
     subEpochNumber: number,
   ): void {
-    const TARGET_STRATEGY_ID = '2722258935367507707706996859454145692818';
     const subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
 
     // Process only the target strategy in the snapshot for data collection
     for (const [strategyId, strategy] of snapshot.strategies) {
       // Only collect data for the target strategy
-      if (strategyId !== TARGET_STRATEGY_ID) {
-        continue;
-      }
+      // if (strategyId !== TARGET_STRATEGY_ID) {
+      //   continue;
+      // }
 
       const lpKey = `LP_${strategyId}`;
 
@@ -1697,7 +1719,7 @@ export class MerklProcessorService {
         strategy.order0_z,
         strategy.order0_A,
         strategy.order0_B,
-        snapshot.targetSqrtPriceScaled,
+        snapshot.targetSqrtPriceScaled, // Use targetSqrtPriceScaled for order0
         toleranceFactor,
       );
 
@@ -1706,7 +1728,7 @@ export class MerklProcessorService {
         strategy.order1_z,
         strategy.order1_A,
         strategy.order1_B,
-        snapshot.invTargetSqrtPriceScaled,
+        snapshot.invTargetSqrtPriceScaled, // Use invTargetSqrtPriceScaled for order1
         toleranceFactor,
       );
 
@@ -1737,64 +1759,64 @@ export class MerklProcessorService {
         strategy_liquidity: {
           liquidity0: strategy.liquidity0.toString(),
           liquidity1: strategy.liquidity1.toString(),
-          order0_y: strategy.liquidity0.toString(),
-          order1_y: strategy.liquidity1.toString(),
-          order0_A_compressed: strategy.order0_A_compressed,
-          order0_A_uncompressed: strategy.order0_A.toString(),
-          order0_B_compressed: strategy.order0_B_compressed,
-          order0_B_uncompressed: strategy.order0_B.toString(),
-          order0_z_compressed: strategy.order0_z_compressed,
-          order0_z_uncompressed: strategy.order0_z.toString(),
-          order1_A_compressed: strategy.order1_A_compressed,
-          order1_A_uncompressed: strategy.order1_A.toString(),
-          order1_B_compressed: strategy.order1_B_compressed,
-          order1_B_uncompressed: strategy.order1_B.toString(),
-          order1_z_compressed: strategy.order1_z_compressed,
-          order1_z_uncompressed: strategy.order1_z.toString(),
+          // order0_y: strategy.liquidity0.toString(),
+          // order1_y: strategy.liquidity1.toString(),
+          // order0_A_compressed: strategy.order0_A_compressed,
+          // order0_A_uncompressed: strategy.order0_A.toString(),
+          // order0_B_compressed: strategy.order0_B_compressed,
+          // order0_B_uncompressed: strategy.order0_B.toString(),
+          // order0_z_compressed: strategy.order0_z_compressed,
+          // order0_z_uncompressed: strategy.order0_z.toString(),
+          // order1_A_compressed: strategy.order1_A_compressed,
+          // order1_A_uncompressed: strategy.order1_A.toString(),
+          // order1_B_compressed: strategy.order1_B_compressed,
+          // order1_B_uncompressed: strategy.order1_B.toString(),
+          // order1_z_compressed: strategy.order1_z_compressed,
+          // order1_z_uncompressed: strategy.order1_z.toString(),
         },
         market_data: {
           token0_usd_rate: token0UsdRate.toString(),
           token1_usd_rate: token1UsdRate.toString(),
-          target_price: snapshot.targetPrice.toString(),
+          target_price: snapshot.order0TargetPrice.toString(), // Using order0 target price (token1Usd/token0Usd)
           token0_address: strategy.token0Address,
           token1_address: strategy.token1Address,
         },
         target_sqrt_price_intermediates: {
-          adjusted_price: snapshot.targetSqrtPriceIntermediates.adjustedPrice.toString(),
-          base_decimals_factor: snapshot.targetSqrtPriceIntermediates.baseDecimalsFactor.toString(),
-          quote_decimals_factor: snapshot.targetSqrtPriceIntermediates.quoteDecimalsFactor.toString(),
-          sqrt_adjusted_price: snapshot.targetSqrtPriceIntermediates.sqrtAdjustedPrice.toString(),
+          // adjusted_price: snapshot.targetSqrtPriceIntermediates.adjustedPrice.toString(),
+          // base_decimals_factor: snapshot.targetSqrtPriceIntermediates.baseDecimalsFactor.toString(),
+          // quote_decimals_factor: snapshot.targetSqrtPriceIntermediates.quoteDecimalsFactor.toString(),
+          // sqrt_adjusted_price: snapshot.targetSqrtPriceIntermediates.sqrtAdjustedPrice.toString(),
           result: snapshot.targetSqrtPriceScaled.toString(),
         },
         inv_target_sqrt_price_intermediates: {
-          adjusted_price: snapshot.invTargetSqrtPriceIntermediates.adjustedPrice.toString(),
-          base_decimals_factor: snapshot.invTargetSqrtPriceIntermediates.baseDecimalsFactor.toString(),
-          quote_decimals_factor: snapshot.invTargetSqrtPriceIntermediates.quoteDecimalsFactor.toString(),
-          sqrt_adjusted_price: snapshot.invTargetSqrtPriceIntermediates.sqrtAdjustedPrice.toString(),
-          inv_sqrt_adjusted_price: snapshot.invTargetSqrtPriceIntermediates.invSqrtAdjustedPrice.toString(),
+          // adjusted_price: snapshot.invTargetSqrtPriceIntermediates.adjustedPrice.toString(),
+          // base_decimals_factor: snapshot.invTargetSqrtPriceIntermediates.baseDecimalsFactor.toString(),
+          // quote_decimals_factor: snapshot.invTargetSqrtPriceIntermediates.quoteDecimalsFactor.toString(),
+          // sqrt_adjusted_price: snapshot.invTargetSqrtPriceIntermediates.sqrtAdjustedPrice.toString(),
+          // inv_sqrt_adjusted_price: snapshot.invTargetSqrtPriceIntermediates.invSqrtAdjustedPrice.toString(),
           result: snapshot.invTargetSqrtPriceScaled.toString(),
         },
         eligible_liquidity_order0_intermediates: {
-          reward_zone_boundary: eligible0.intermediates.rewardZoneBoundary.toString(),
-          order_price_high: eligible0.intermediates.orderPriceHigh.toString(),
-          ineligible_fraction: eligible0.intermediates.ineligibleFraction?.toString() || 'N/A',
-          ineligible_liquidity: eligible0.intermediates.ineligibleLiquidity?.toString() || 'N/A',
+          // reward_zone_boundary: eligible0.intermediates.rewardZoneBoundary.toString(),
+          // order_price_high: eligible0.intermediates.orderPriceHigh.toString(),
+          // ineligible_fraction: eligible0.intermediates.ineligibleFraction?.toString() || 'N/A',
+          // ineligible_liquidity: eligible0.intermediates.ineligibleLiquidity?.toString() || 'N/A',
           result: eligible0.result.toString(),
         },
         eligible_liquidity_order1_intermediates: {
-          reward_zone_boundary: eligible1.intermediates.rewardZoneBoundary.toString(),
-          order_price_high: eligible1.intermediates.orderPriceHigh.toString(),
-          ineligible_fraction: eligible1.intermediates.ineligibleFraction?.toString() || 'N/A',
-          ineligible_liquidity: eligible1.intermediates.ineligibleLiquidity?.toString() || 'N/A',
+          // reward_zone_boundary: eligible1.intermediates.rewardZoneBoundary.toString(),
+          // order_price_high: eligible1.intermediates.orderPriceHigh.toString(),
+          // ineligible_fraction: eligible1.intermediates.ineligibleFraction?.toString() || 'N/A',
+          // ineligible_liquidity: eligible1.intermediates.ineligibleLiquidity?.toString() || 'N/A',
           result: eligible1.result.toString(),
         },
         eligibility: {
-          eligible0: eligible0.result.toString(),
-          eligible1: eligible1.result.toString(),
-          weighted_eligible0: weightedEligible0.toString(),
-          weighted_eligible1: weightedEligible1.toString(),
-          token0_weighting: token0Weighting,
-          token1_weighting: token1Weighting,
+          // eligible0: eligible0.result.toString(),
+          // eligible1: eligible1.result.toString(),
+          // weighted_eligible0: weightedEligible0.toString(),
+          // weighted_eligible1: weightedEligible1.toString(),
+          // token0_weighting: token0Weighting,
+          // token1_weighting: token1Weighting,
           token0_reward_zone_boundary: token0RewardZoneBoundary.toString(),
           token1_reward_zone_boundary: token1RewardZoneBoundary.toString(),
         },
