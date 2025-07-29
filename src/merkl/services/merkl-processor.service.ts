@@ -247,7 +247,7 @@ export class MerklProcessorService {
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
 
     // 9. Write reward breakdown JSON file
-    await this.writeRewardBreakdownFile(deployment);
+    // await this.writeRewardBreakdownFile(deployment);
   }
 
   private async processBatchForAllCampaigns(
@@ -1118,16 +1118,16 @@ export class MerklProcessorService {
     }
 
     // Collect data for JSON output
-    // this.collectSnapshotRewardData(
-    //   snapshot,
-    //   rewards,
-    //   halfRewardPool,
-    //   totalWeightedEligible0,
-    //   totalWeightedEligible1,
-    //   strategyWeightedEligibility0,
-    //   strategyWeightedEligibility1,
-    //   subEpochNumber,
-    // );
+    this.collectSnapshotRewardData(
+      snapshot,
+      rewards,
+      halfRewardPool,
+      totalWeightedEligible0,
+      totalWeightedEligible1,
+      strategyWeightedEligibility0,
+      strategyWeightedEligibility1,
+      subEpochNumber,
+    );
 
     return rewards;
   }
