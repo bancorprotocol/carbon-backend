@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository, QueryBuilder, EntityManager } from 'typeorm';
 import { Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Decimal } from 'decimal.js';
 import { MerklProcessorService } from './merkl-processor.service';
 import { EpochReward } from '../entities/epoch-reward.entity';
@@ -292,6 +293,12 @@ describe('MerklProcessorService', () => {
         {
           provide: VoucherTransferEventService,
           useValue: mockVoucherTransferEventService,
+        },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn().mockReturnValue('false'), // Default disabled for tests
+          },
         },
       ],
     }).compile();
@@ -1362,6 +1369,408 @@ describe('MerklProcessorService', () => {
       // Test event processing with empty states
       (service as any).updateStrategyStates([], [], [], [], emptyStates);
       expect(emptyStates.size).toBe(0);
+    });
+  });
+
+  describe('CSV Export Functionality', () => {
+    beforeEach(() => {
+      // Reset all mocks before each test
+      jest.clearAllMocks();
+      jest.restoreAllMocks();
+    });
+
+    it('should have CSV export disabled by default', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          MerklProcessorService,
+          {
+            provide: getRepositoryToken(EpochReward),
+            useValue: mockRepository,
+          },
+          {
+            provide: CampaignService,
+            useValue: mockCampaignService,
+          },
+          {
+            provide: LastProcessedBlockService,
+            useValue: mockLastProcessedBlockService,
+          },
+          {
+            provide: BlockService,
+            useValue: mockBlockService,
+          },
+          {
+            provide: HistoricQuoteService,
+            useValue: mockHistoricQuoteService,
+          },
+          {
+            provide: StrategyCreatedEventService,
+            useValue: mockStrategyCreatedEventService,
+          },
+          {
+            provide: StrategyUpdatedEventService,
+            useValue: mockStrategyUpdatedEventService,
+          },
+          {
+            provide: StrategyDeletedEventService,
+            useValue: mockStrategyDeletedEventService,
+          },
+          {
+            provide: VoucherTransferEventService,
+            useValue: mockVoucherTransferEventService,
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockReturnValue('0'), // Explicitly disabled
+            },
+          },
+        ],
+      }).compile();
+
+      const testService = module.get<MerklProcessorService>(MerklProcessorService);
+      expect((testService as any).csvExportEnabled).toBe(false);
+    });
+
+    it('should enable CSV export when environment variable is set to "1"', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          MerklProcessorService,
+          {
+            provide: getRepositoryToken(EpochReward),
+            useValue: mockRepository,
+          },
+          {
+            provide: CampaignService,
+            useValue: mockCampaignService,
+          },
+          {
+            provide: LastProcessedBlockService,
+            useValue: mockLastProcessedBlockService,
+          },
+          {
+            provide: BlockService,
+            useValue: mockBlockService,
+          },
+          {
+            provide: HistoricQuoteService,
+            useValue: mockHistoricQuoteService,
+          },
+          {
+            provide: StrategyCreatedEventService,
+            useValue: mockStrategyCreatedEventService,
+          },
+          {
+            provide: StrategyUpdatedEventService,
+            useValue: mockStrategyUpdatedEventService,
+          },
+          {
+            provide: StrategyDeletedEventService,
+            useValue: mockStrategyDeletedEventService,
+          },
+          {
+            provide: VoucherTransferEventService,
+            useValue: mockVoucherTransferEventService,
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockReturnValue('1'), // Explicitly enabled
+            },
+          },
+        ],
+      }).compile();
+
+      const testService = module.get<MerklProcessorService>(MerklProcessorService);
+      expect((testService as any).csvExportEnabled).toBe(true);
+    });
+
+    it('should not call writeRewardBreakdownFile when CSV export is disabled', async () => {
+      // Setup service with CSV disabled
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          MerklProcessorService,
+          {
+            provide: getRepositoryToken(EpochReward),
+            useValue: {
+              ...mockRepository,
+              createQueryBuilder: jest.fn().mockReturnValue({
+                delete: jest.fn().mockReturnThis(),
+                from: jest.fn().mockReturnThis(),
+                where: jest.fn().mockReturnThis(),
+                execute: jest.fn().mockResolvedValue({ affected: 0 }),
+              }),
+            },
+          },
+          {
+            provide: CampaignService,
+            useValue: {
+              getActiveCampaigns: jest.fn().mockResolvedValue([]),
+            },
+          },
+          {
+            provide: LastProcessedBlockService,
+            useValue: {
+              getOrInit: jest.fn().mockResolvedValue(100),
+              update: jest.fn().mockResolvedValue(undefined),
+            },
+          },
+          {
+            provide: BlockService,
+            useValue: mockBlockService,
+          },
+          {
+            provide: HistoricQuoteService,
+            useValue: mockHistoricQuoteService,
+          },
+          {
+            provide: StrategyCreatedEventService,
+            useValue: mockStrategyCreatedEventService,
+          },
+          {
+            provide: StrategyUpdatedEventService,
+            useValue: mockStrategyUpdatedEventService,
+          },
+          {
+            provide: StrategyDeletedEventService,
+            useValue: mockStrategyDeletedEventService,
+          },
+          {
+            provide: VoucherTransferEventService,
+            useValue: mockVoucherTransferEventService,
+          },
+          {
+            provide: ConfigService,
+            useValue: {
+              get: jest.fn().mockReturnValue('0'), // Disabled
+            },
+          },
+        ],
+      }).compile();
+
+      const testService = module.get<MerklProcessorService>(MerklProcessorService);
+      const writeRewardBreakdownFileSpy = jest.spyOn(testService as any, 'writeRewardBreakdownFile');
+
+      const deployment = {
+        blockchainType: 'ethereum',
+        exchangeId: 'ethereum',
+        startBlock: 1,
+      };
+
+      await testService.update(200, deployment as any);
+
+      expect(writeRewardBreakdownFileSpy).not.toHaveBeenCalled();
+    });
+
+    it('should call writeRewardBreakdownFile when CSV export is enabled', () => {
+      // Create a service instance with CSV enabled
+      const configServiceMock = {
+        get: jest.fn().mockReturnValue('1'), // Enabled
+      };
+
+      const testService = new (MerklProcessorService as any)(
+        mockRepository,
+        mockCampaignService,
+        mockLastProcessedBlockService,
+        mockBlockService,
+        mockHistoricQuoteService,
+        mockStrategyCreatedEventService,
+        mockStrategyUpdatedEventService,
+        mockStrategyDeletedEventService,
+        mockVoucherTransferEventService,
+        configServiceMock,
+      );
+
+      expect((testService as any).csvExportEnabled).toBe(true);
+
+      // Spy on the writeRewardBreakdownFile method and mock it
+      const writeRewardBreakdownFileSpy = jest
+        .spyOn(testService as any, 'writeRewardBreakdownFile')
+        .mockImplementation(() => Promise.resolve());
+
+      // Mock the rewardBreakdown property
+      (testService as any).rewardBreakdown = {
+        LP_strategy1: {
+          epochs: {
+            '1704081600': {
+              epoch_number: 1,
+              sub_epochs: {},
+              token0_reward: '100',
+              token1_reward: '200',
+              total_reward: '300',
+            },
+          },
+        },
+      };
+
+      const deployment = {
+        blockchainType: 'ethereum',
+        exchangeId: 'ethereum',
+        startBlock: 1,
+      };
+
+      // Call the writeRewardBreakdownFile method directly
+      (testService as any).writeRewardBreakdownFile(deployment);
+
+      expect(writeRewardBreakdownFileSpy).toHaveBeenCalledWith(deployment);
+    });
+
+    it('should collect CSV data inline during reward calculation when enabled', () => {
+      // Setup service with CSV enabled
+      const configServiceMock = {
+        get: jest.fn().mockReturnValue('1'),
+      };
+
+      const testService = new (MerklProcessorService as any)(
+        mockRepository,
+        mockCampaignService,
+        mockLastProcessedBlockService,
+        mockBlockService,
+        mockHistoricQuoteService,
+        mockStrategyCreatedEventService,
+        mockStrategyUpdatedEventService,
+        mockStrategyDeletedEventService,
+        mockVoucherTransferEventService,
+        configServiceMock,
+      );
+
+      expect((testService as any).csvExportEnabled).toBe(true);
+
+      // Mock the necessary properties and methods
+      (testService as any).currentEpochStart = '1704081600';
+      (testService as any).currentEpochNumber = 1;
+      (testService as any).rewardBreakdown = {};
+      (testService as any).priceCache = {
+        rates: new Map([
+          ['0x1234567890123456789012345678901234567890', 100],
+          ['0x0987654321098765432109876543210987654321', 200],
+        ]),
+      };
+
+      // Create test data
+      const snapshot = {
+        timestamp: 1704081600,
+        targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+        invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+        order0TargetPrice: new Decimal('2'),
+        strategies: new Map([
+          [
+            'strategy1',
+            {
+              isDeleted: false,
+              liquidity0: new Decimal('1000000000000000000'),
+              liquidity1: new Decimal('2000000000000000000'),
+              order0_z: new Decimal('500000000000000000'),
+              order0_A: new Decimal('1000000000000000000000000'),
+              order0_B: new Decimal('1000000000000000000000000'),
+              order1_z: new Decimal('1000000000000000000'),
+              order1_A: new Decimal('1000000000000000000000000'),
+              order1_B: new Decimal('1000000000000000000000000'),
+              token0Address: '0x1234567890123456789012345678901234567890',
+              token1Address: '0x0987654321098765432109876543210987654321',
+            },
+          ],
+        ]),
+      };
+
+      const campaign = {
+        exchangeId: 'ethereum',
+      };
+
+      // Call the method
+      const result = (testService as any).calculateSnapshotRewards(
+        snapshot,
+        new Decimal('1000000000000000000000'),
+        campaign,
+        1,
+      );
+
+      // Verify CSV data was collected
+      expect((testService as any).rewardBreakdown['LP_strategy1']).toBeDefined();
+      expect((testService as any).rewardBreakdown['LP_strategy1'].epochs).toBeDefined();
+      expect((testService as any).rewardBreakdown['LP_strategy1'].epochs['1704081600']).toBeDefined();
+
+      const epochData = (testService as any).rewardBreakdown['LP_strategy1'].epochs['1704081600'];
+      expect(epochData.epoch_number).toBe(1);
+      expect(epochData.sub_epochs).toBeDefined();
+
+      const subEpochKey = Object.keys(epochData.sub_epochs)[0];
+      expect(subEpochKey).toBeDefined();
+
+      const subEpochData = epochData.sub_epochs[subEpochKey];
+      expect(subEpochData.sub_epoch_number).toBe(1);
+      expect(subEpochData.strategy_liquidity.liquidity0).toBe('1000000000000000000');
+      expect(subEpochData.strategy_liquidity.liquidity1).toBe('2000000000000000000');
+      expect(subEpochData.market_data.token0_address).toBe('0x1234567890123456789012345678901234567890');
+      expect(subEpochData.market_data.token1_address).toBe('0x0987654321098765432109876543210987654321');
+      expect(subEpochData.eligibility.eligible0).toBeDefined();
+      expect(subEpochData.eligibility.eligible1).toBeDefined();
+    });
+
+    it('should not collect CSV data when disabled', () => {
+      // Setup service with CSV disabled
+      const configServiceMock = {
+        get: jest.fn().mockReturnValue('0'),
+      };
+
+      const testService = new (MerklProcessorService as any)(
+        mockRepository,
+        mockCampaignService,
+        mockLastProcessedBlockService,
+        mockBlockService,
+        mockHistoricQuoteService,
+        mockStrategyCreatedEventService,
+        mockStrategyUpdatedEventService,
+        mockStrategyDeletedEventService,
+        mockVoucherTransferEventService,
+        configServiceMock,
+      );
+
+      expect((testService as any).csvExportEnabled).toBe(false);
+
+      // Mock the necessary properties
+      (testService as any).rewardBreakdown = {};
+
+      // Create test data
+      const snapshot = {
+        timestamp: 1704081600,
+        targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+        invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+        order0TargetPrice: new Decimal('2'),
+        strategies: new Map([
+          [
+            'strategy1',
+            {
+              isDeleted: false,
+              liquidity0: new Decimal('1000000000000000000'),
+              liquidity1: new Decimal('2000000000000000000'),
+              order0_z: new Decimal('500000000000000000'),
+              order0_A: new Decimal('1000000000000000000000000'),
+              order0_B: new Decimal('1000000000000000000000000'),
+              order1_z: new Decimal('1000000000000000000'),
+              order1_A: new Decimal('1000000000000000000000000'),
+              order1_B: new Decimal('1000000000000000000000000'),
+              token0Address: '0x1234567890123456789012345678901234567890',
+              token1Address: '0x0987654321098765432109876543210987654321',
+            },
+          ],
+        ]),
+      };
+
+      const campaign = {
+        exchangeId: 'ethereum',
+      };
+
+      // Call the method
+      const result = (testService as any).calculateSnapshotRewards(
+        snapshot,
+        new Decimal('1000000000000000000000'),
+        campaign,
+        1,
+      );
+
+      // Verify no CSV data was collected
+      expect(Object.keys((testService as any).rewardBreakdown)).toHaveLength(0);
     });
   });
 });

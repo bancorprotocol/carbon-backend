@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
 import { createWriteStream } from 'fs';
+import { ConfigService } from '@nestjs/config';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
 import { CampaignService } from './campaign.service';
@@ -18,8 +19,6 @@ import { StrategyCreatedEvent } from '../../events/strategy-created-event/strate
 import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
 import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
 import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
-
-const TARGET_STRATEGY_ID = '2722258935367507707706996859454145692246';
 
 interface StrategyState {
   strategyId: string;
@@ -107,6 +106,7 @@ export class MerklProcessorService {
   private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
   private readonly TOLERANCE_PERCENTAGE = 0.02; // 2%
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
+  private readonly csvExportEnabled: boolean;
 
   // Data collection for JSON output
   private rewardBreakdown: any = {};
@@ -149,7 +149,10 @@ export class MerklProcessorService {
     private strategyUpdatedEventService: StrategyUpdatedEventService,
     private strategyDeletedEventService: StrategyDeletedEventService,
     private voucherTransferEventService: VoucherTransferEventService,
-  ) {}
+    private configService: ConfigService,
+  ) {
+    this.csvExportEnabled = this.configService.get<string>('MERKL_ENABLE_CSV_EXPORT') === '1';
+  }
 
   private getTokenWeighting(tokenAddress: string, exchangeId: ExchangeId): number {
     const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[exchangeId];
@@ -247,7 +250,9 @@ export class MerklProcessorService {
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
 
     // 9. Write reward breakdown JSON file
-    // await this.writeRewardBreakdownFile(deployment);
+    if (this.csvExportEnabled) {
+      await this.writeRewardBreakdownFile(deployment);
+    }
   }
 
   private async processBatchForAllCampaigns(
@@ -1039,7 +1044,13 @@ export class MerklProcessorService {
     const strategyWeightedEligibility0 = new Map<string, Decimal>();
     const strategyWeightedEligibility1 = new Map<string, Decimal>();
 
-    // Calculate weighted eligible liquidity for each strategy
+    // CSV prep (only if enabled)
+    let subEpochTimestamp: string | null = null;
+    if (this.csvExportEnabled) {
+      subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
+    }
+
+    // PHASE 1: Single pass calculation + CSV data collection
     for (const [strategyId, strategy] of snapshot.strategies) {
       if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
         continue;
@@ -1048,86 +1059,156 @@ export class MerklProcessorService {
       const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
       const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
 
-      // Calculate eligible liquidity for token0 side (order0)
+      // Calculate eligible liquidity ONCE per side
       const eligible0 = this.calculateEligibleLiquidity(
         strategy.liquidity0,
         strategy.order0_z,
         strategy.order0_A,
         strategy.order0_B,
-        snapshot.targetSqrtPriceScaled, // Use targetSqrtPriceScaled for order0
+        snapshot.targetSqrtPriceScaled,
         toleranceFactor,
       );
 
-      // Calculate eligible liquidity for token1 side (order1)
       const eligible1 = this.calculateEligibleLiquidity(
         strategy.liquidity1,
         strategy.order1_z,
         strategy.order1_A,
         strategy.order1_B,
-        snapshot.invTargetSqrtPriceScaled, // Use invTargetSqrtPriceScaled for order1
+        snapshot.invTargetSqrtPriceScaled,
         toleranceFactor,
       );
 
-      // Apply weighting consistently based on lexicographic ordering
-      // token0 (lexicographically smaller) -> order0 pool
+      // Apply weighting for reward calculation
       if (eligible0.gt(0) && token0Weighting > 0) {
         const weightedEligible0 = eligible0.mul(token0Weighting);
         strategyWeightedEligibility0.set(strategyId, weightedEligible0);
         totalWeightedEligible0 = totalWeightedEligible0.add(weightedEligible0);
       }
 
-      // token1 (lexicographically larger) -> order1 pool
       if (eligible1.gt(0) && token1Weighting > 0) {
         const weightedEligible1 = eligible1.mul(token1Weighting);
         strategyWeightedEligibility1.set(strategyId, weightedEligible1);
         totalWeightedEligible1 = totalWeightedEligible1.add(weightedEligible1);
       }
+
+      // CSV DATA COLLECTION (inline, using already-calculated values)
+      if (this.csvExportEnabled) {
+        const lpKey = `LP_${strategyId}`;
+
+        // Initialize structure if needed
+        if (!this.rewardBreakdown[lpKey]) {
+          this.rewardBreakdown[lpKey] = { epochs: {} };
+        }
+        if (!this.rewardBreakdown[lpKey].epochs[this.currentEpochStart]) {
+          this.rewardBreakdown[lpKey].epochs[this.currentEpochStart] = {
+            epoch_number: this.currentEpochNumber,
+            sub_epochs: {},
+            token0_reward: '0',
+            token1_reward: '0',
+            total_reward: '0',
+          };
+        }
+
+        // Calculate reward zone boundaries
+        const token0RewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
+        const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
+
+        // Get USD rates from price cache
+        const token0UsdRate = this.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
+        const token1UsdRate = this.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
+
+        // Store sub-epoch data (rewards will be filled in Phase 2)
+        this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!] = {
+          sub_epoch_number: subEpochNumber,
+          token0_reward: '0', // Will be updated in Phase 2
+          token1_reward: '0', // Will be updated in Phase 2
+          total_reward: '0', // Will be updated in Phase 2
+          strategy_liquidity: {
+            liquidity0: strategy.liquidity0.toString(),
+            liquidity1: strategy.liquidity1.toString(),
+          },
+          market_data: {
+            token0_usd_rate: token0UsdRate.toString(),
+            token1_usd_rate: token1UsdRate.toString(),
+            target_price: snapshot.order0TargetPrice.toString(),
+            token0_address: strategy.token0Address,
+            token1_address: strategy.token1Address,
+          },
+          eligibility: {
+            eligible0: eligible0.toString(), // Using calculated value
+            eligible1: eligible1.toString(), // Using calculated value
+            token0_reward_zone_boundary: token0RewardZoneBoundary.toString(),
+            token1_reward_zone_boundary: token1RewardZoneBoundary.toString(),
+          },
+        };
+      }
     }
 
-    // Handle edge case: no eligible liquidity on one or both sides
+    // Handle edge cases
     if (totalWeightedEligible0.eq(0) && totalWeightedEligible1.eq(0)) {
       this.logger.warn('No eligible weighted liquidity found for any side - no rewards distributed');
       return rewards;
     }
 
-    // Distribute token0 rewards based on weighted eligible liquidity
+    // PHASE 2: Distribute token0 rewards + update CSV
     if (totalWeightedEligible0.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility0) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible0);
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
+
+        // Update CSV with actual token0 reward
+        if (this.csvExportEnabled) {
+          const lpKey = `LP_${strategyId}`;
+          const subEpochData =
+            this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!];
+          subEpochData.token0_reward = reward.toString();
+
+          // Update running totals
+          const currentTotal = new Decimal(subEpochData.total_reward);
+          subEpochData.total_reward = currentTotal.add(reward).toString();
+        }
       }
     } else {
       this.logger.warn('No eligible weighted token0 liquidity - token0 rewards not distributed');
     }
 
-    // Distribute token1 rewards based on weighted eligible liquidity
+    // PHASE 3: Distribute token1 rewards + update CSV
     if (totalWeightedEligible1.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility1) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible1);
         const reward = halfRewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
-        // Only log for target strategy
-        // if (strategyId === TARGET_STRATEGY_ID) {
-        //   this.logger.debug(`Strategy ${strategyId} token1 reward: ${reward.toString()}`);
-        // }
+        // Update CSV with actual token1 reward
+        if (this.csvExportEnabled) {
+          const lpKey = `LP_${strategyId}`;
+          const subEpochData =
+            this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!];
+          subEpochData.token1_reward = reward.toString();
+
+          // Update running totals
+          const currentTotal = new Decimal(subEpochData.total_reward);
+          subEpochData.total_reward = currentTotal.add(reward).toString();
+        }
       }
     } else {
       this.logger.warn('No eligible weighted token1 liquidity - token1 rewards not distributed');
     }
 
-    // Collect data for JSON output
-    this.collectSnapshotRewardData(
-      snapshot,
-      rewards,
-      halfRewardPool,
-      totalWeightedEligible0,
-      totalWeightedEligible1,
-      strategyWeightedEligibility0,
-      strategyWeightedEligibility1,
-      subEpochNumber,
-    );
+    // PHASE 4: Update epoch-level aggregates (CSV only)
+    if (this.csvExportEnabled) {
+      for (const [strategyId] of rewards) {
+        const lpKey = `LP_${strategyId}`;
+        const epochData = this.rewardBreakdown[lpKey].epochs[this.currentEpochStart];
+        const subEpochData = epochData.sub_epochs[subEpochTimestamp!];
+
+        // Aggregate to epoch level
+        epochData.token0_reward = new Decimal(epochData.token0_reward).add(subEpochData.token0_reward).toString();
+        epochData.token1_reward = new Decimal(epochData.token1_reward).add(subEpochData.token1_reward).toString();
+        epochData.total_reward = new Decimal(epochData.total_reward).add(subEpochData.total_reward).toString();
+      }
+    }
 
     return rewards;
   }
@@ -1514,134 +1595,6 @@ export class MerklProcessorService {
       this.logger.log(`✅ Reward breakdown written to ${jsonFilename} and ${csvFilename}`);
     } catch (error) {
       this.logger.error('Failed to write reward breakdown files:', error);
-    }
-  }
-
-  private collectSnapshotRewardData(
-    snapshot: SnapshotData,
-    rewards: Map<string, Decimal>,
-    halfRewardPool: Decimal,
-    totalWeightedEligible0: Decimal,
-    totalWeightedEligible1: Decimal,
-    strategyWeightedEligibility0: Map<string, Decimal>,
-    strategyWeightedEligibility1: Map<string, Decimal>,
-    subEpochNumber: number,
-  ): void {
-    const subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
-    const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
-
-    // Process only the target strategy in the snapshot for data collection
-    for (const [strategyId, strategy] of snapshot.strategies) {
-      // Only collect data for the target strategy
-      if (strategyId !== TARGET_STRATEGY_ID) {
-        // continue;
-      }
-
-      const lpKey = `LP_${strategyId}`;
-
-      // Initialize structure if needed
-      if (!this.rewardBreakdown[lpKey]) {
-        this.rewardBreakdown[lpKey] = { epochs: {} };
-      }
-      if (!this.rewardBreakdown[lpKey].epochs[this.currentEpochStart]) {
-        this.rewardBreakdown[lpKey].epochs[this.currentEpochStart] = {
-          epoch_number: this.currentEpochNumber,
-          sub_epochs: {},
-          token0_reward: '0',
-          token1_reward: '0',
-          total_reward: '0',
-        };
-      }
-
-      // Calculate rewards for this strategy
-      let token0Reward = new Decimal(0);
-      let token1Reward = new Decimal(0);
-
-      if (rewards.has(strategyId)) {
-        // Token0 side reward
-        if (totalWeightedEligible0.gt(0) && strategyWeightedEligibility0.has(strategyId)) {
-          const weightedEligible0 = strategyWeightedEligibility0.get(strategyId);
-          const rewardShare = weightedEligible0.div(totalWeightedEligible0);
-          token0Reward = halfRewardPool.mul(rewardShare);
-        }
-
-        // Token1 side reward
-        if (totalWeightedEligible1.gt(0) && strategyWeightedEligibility1.has(strategyId)) {
-          const weightedEligible1 = strategyWeightedEligibility1.get(strategyId);
-          const rewardShare = weightedEligible1.div(totalWeightedEligible1);
-          token1Reward = halfRewardPool.mul(rewardShare);
-        }
-      }
-
-      // Calculate eligibility data
-      const eligible0 = this.calculateEligibleLiquidity(
-        strategy.liquidity0,
-        strategy.order0_z,
-        strategy.order0_A,
-        strategy.order0_B,
-        snapshot.targetSqrtPriceScaled, // Use targetSqrtPriceScaled for order0
-        toleranceFactor,
-      );
-
-      const eligible1 = this.calculateEligibleLiquidity(
-        strategy.liquidity1,
-        strategy.order1_z,
-        strategy.order1_A,
-        strategy.order1_B,
-        snapshot.invTargetSqrtPriceScaled, // Use invTargetSqrtPriceScaled for order1
-        toleranceFactor,
-      );
-
-      // Get token weightings
-      // const token0Weighting = this.getTokenWeighting(strategy.token0Address, this.currentCampaign?.exchangeId);
-      // const token1Weighting = this.getTokenWeighting(strategy.token1Address, this.currentCampaign?.exchangeId);
-
-      // Calculate weighted eligible amounts
-      // const weightedEligible0 = eligible0.mul(token0Weighting);
-      // const weightedEligible1 = eligible1.mul(token1Weighting);
-
-      // Calculate reward zone boundaries consistently based on lexicographic ordering
-      // token0 (lexicographically smaller) always uses targetSqrtPriceScaled
-      // token1 (lexicographically larger) always uses invTargetSqrtPriceScaled
-      const token0RewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
-      const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
-
-      // Get USD rates from price cache
-      const token0UsdRate = this.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
-      const token1UsdRate = this.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
-
-      // Store comprehensive sub-epoch data with consistent lexicographic labeling
-      this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp] = {
-        sub_epoch_number: subEpochNumber,
-        token0_reward: token0Reward.toString(),
-        token1_reward: token1Reward.toString(),
-        total_reward: token0Reward.add(token1Reward).toString(),
-        strategy_liquidity: {
-          liquidity0: strategy.liquidity0.toString(),
-          liquidity1: strategy.liquidity1.toString(),
-        },
-        market_data: {
-          token0_usd_rate: token0UsdRate.toString(),
-          token1_usd_rate: token1UsdRate.toString(),
-          target_price: snapshot.order0TargetPrice.toString(), // Using order0 target price (token1Usd/token0Usd)
-          token0_address: strategy.token0Address,
-          token1_address: strategy.token1Address,
-        },
-        eligibility: {
-          eligible0: eligible0.toString(),
-          eligible1: eligible1.toString(),
-          token0_reward_zone_boundary: token0RewardZoneBoundary.toString(),
-          token1_reward_zone_boundary: token1RewardZoneBoundary.toString(),
-        },
-      };
-
-      // Aggregate to epoch level only for strategies that received rewards
-      if (rewards.has(strategyId)) {
-        const epochData = this.rewardBreakdown[lpKey].epochs[this.currentEpochStart];
-        epochData.token0_reward = new Decimal(epochData.token0_reward).add(token0Reward).toString();
-        epochData.token1_reward = new Decimal(epochData.token1_reward).add(token1Reward).toString();
-        epochData.total_reward = new Decimal(epochData.total_reward).add(token0Reward).add(token1Reward).toString();
-      }
     }
   }
 
