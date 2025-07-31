@@ -908,9 +908,6 @@ export class MerklProcessorService {
     csvContext.priceCache = priceCache;
 
     for (let i = 0; i < snapshots.length; i++) {
-      if (csvContext.globalSubEpochNumber === 490) {
-        console.log('snapshot', snapshots[i]);
-      }
       const snapshot = snapshots[i];
       csvContext.globalSubEpochNumber++; // Increment global sub-epoch counter
       const snapshotRewards = this.calculateSnapshotRewards(
@@ -976,9 +973,6 @@ export class MerklProcessorService {
     // Fallback: if no events before epoch start, use the first available event hash
     // This can happen for the first epoch of a campaign
     if (chronologicalEvents.length > 0) {
-      this.logger.debug(
-        `No events found before epoch ${epoch.epochNumber} start, using first available event hash as fallback`,
-      );
       return chronologicalEvents[0].event.transactionHash;
     }
 
@@ -1126,10 +1120,6 @@ export class MerklProcessorService {
       subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
     }
 
-    if (subEpochNumber === 490) {
-      console.log('snapshot', snapshot);
-    }
-
     // PHASE 1: Single pass calculation + CSV data collection
     for (const [strategyId, strategy] of snapshot.strategies) {
       if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
@@ -1198,8 +1188,9 @@ export class MerklProcessorService {
         const token1UsdRate = csvContext.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
 
         // Store sub-epoch data (rewards will be filled in Phase 2)
-        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp] = {
+        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber] = {
           sub_epoch_number: subEpochNumber,
+          sub_epoch_timestamp: subEpochTimestamp,
           token0_reward: '0', // Will be updated in Phase 2
           token1_reward: '0', // Will be updated in Phase 2
           total_reward: '0', // Will be updated in Phase 2
@@ -1239,7 +1230,6 @@ export class MerklProcessorService {
 
     // Handle edge cases
     if (totalWeightedEligible0.eq(0) && totalWeightedEligible1.eq(0)) {
-      this.logger.warn('No eligible weighted liquidity found for any side - no rewards distributed');
       return rewards;
     }
 
@@ -1254,7 +1244,7 @@ export class MerklProcessorService {
         if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber];
           subEpochData.token0_reward = reward.toString();
 
           // Update running totals
@@ -1262,8 +1252,6 @@ export class MerklProcessorService {
           subEpochData.total_reward = currentTotal.add(reward).toString();
         }
       }
-    } else {
-      this.logger.warn('No eligible weighted token0 liquidity - token0 rewards not distributed');
     }
 
     // PHASE 3: Distribute token1 rewards + update CSV
@@ -1277,7 +1265,7 @@ export class MerklProcessorService {
         if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber];
           subEpochData.token1_reward = reward.toString();
 
           // Update running totals
@@ -1285,8 +1273,6 @@ export class MerklProcessorService {
           subEpochData.total_reward = currentTotal.add(reward).toString();
         }
       }
-    } else {
-      this.logger.warn('No eligible weighted token1 liquidity - token1 rewards not distributed');
     }
 
     // PHASE 4: Update epoch-level aggregates (CSV only)
@@ -1294,7 +1280,7 @@ export class MerklProcessorService {
       for (const [strategyId] of rewards) {
         const lpKey = `LP_${strategyId}`;
         const epochData = csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart];
-        const subEpochData = epochData.sub_epochs[subEpochTimestamp];
+        const subEpochData = epochData.sub_epochs[subEpochNumber];
 
         // Aggregate to epoch level
         epochData.token0_reward = new Decimal(epochData.token0_reward).add(subEpochData.token0_reward).toString();
@@ -1638,15 +1624,15 @@ export class MerklProcessorService {
           const epochData = epochs[epochKey];
           const epochNumber = epochData.epoch_number;
 
-          for (const subEpochTimestamp of Object.keys(epochData.sub_epochs)) {
-            const subEpochData = epochData.sub_epochs[subEpochTimestamp];
+          for (const subEpochNumber of Object.keys(epochData.sub_epochs)) {
+            const subEpochData = epochData.sub_epochs[subEpochNumber];
 
             // Escape CSV values and write row
             const row = [
               strategyId,
               epochKey,
               epochNumber,
-              subEpochTimestamp,
+              subEpochData.sub_epoch_timestamp,
               subEpochData.sub_epoch_number,
               subEpochData.token0_reward,
               subEpochData.token1_reward,
