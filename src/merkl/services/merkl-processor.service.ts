@@ -4,6 +4,8 @@ import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
 import { createWriteStream } from 'fs';
 import { ConfigService } from '@nestjs/config';
+import { partitionSingleEpoch } from './partitioner';
+import { createHash } from 'crypto';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
 import { CampaignService } from './campaign.service';
@@ -102,7 +104,8 @@ export class MerklProcessorService {
   private readonly logger = new Logger(MerklProcessorService.name);
   private readonly BATCH_SIZE = 100000; // Number of blocks per batch
   private readonly SAVE_BATCH_SIZE = 1000; // Number of rewards to save at once
-  private readonly SNAPSHOT_INTERVAL = 5 * 60; // 5 minutes in seconds
+  private readonly MIN_SNAPSHOT_INTERVAL = 4 * 60; // 240 seconds
+  private readonly MAX_SNAPSHOT_INTERVAL = 6 * 60; // 360 seconds
   private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
   private readonly TOLERANCE_PERCENTAGE = 0.02; // 2%
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
@@ -907,6 +910,78 @@ export class MerklProcessorService {
     return epochRewards;
   }
 
+  /**
+   * Generate epoch seed using last transaction hash from already-sorted events with mandatory salt
+   */
+  private generateEpochSeed(campaign: Campaign, epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
+    const salt = this.configService.get<string>('MERKL_SNAPSHOT_SALT');
+
+    if (!salt) {
+      throw new Error('MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation');
+    }
+
+    const lastTxHash = this.getLastTransactionHashFromSortedEvents(epoch, chronologicalEvents);
+
+    const seedComponents = [salt, campaign.id, epoch.epochNumber.toString(), lastTxHash];
+
+    return '0x' + createHash('sha256').update(seedComponents.join('|')).digest('hex');
+  }
+
+  /**
+   * Get the most recent transaction hash from already-sorted events before epoch start
+   * Falls back to campaign ID if no events exist before epoch start
+   */
+  private getLastTransactionHashFromSortedEvents(epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
+    const epochStartTimestamp = Math.floor(epoch.startTimestamp.getTime() / 1000);
+
+    // Iterate backwards through already-sorted events to find last one before epoch start
+    for (let i = chronologicalEvents.length - 1; i >= 0; i--) {
+      if (chronologicalEvents[i].timestamp < epochStartTimestamp) {
+        return chronologicalEvents[i].event.transactionHash;
+      }
+    }
+
+    // Fallback: if no events before epoch start, use the first available event hash
+    // This can happen for the first epoch of a campaign
+    if (chronologicalEvents.length > 0) {
+      this.logger.debug(
+        `No events found before epoch ${epoch.epochNumber} start, using first available event hash as fallback`,
+      );
+      return chronologicalEvents[0].event.transactionHash;
+    }
+
+    // Ultimate fallback: if no events at all, throw error (this should be very rare)
+    throw new Error(`No events found for epoch ${epoch.epochNumber} - cannot generate seed`);
+  }
+
+  /**
+   * Get snapshot intervals using environment-appropriate method
+   */
+  private getSnapshotIntervals(
+    campaign: Campaign,
+    epoch: EpochInfo,
+    chronologicalEvents: TimestampedEvent[],
+  ): number[] {
+    const epochDurationSeconds = Math.floor((epoch.endTimestamp.getTime() - epoch.startTimestamp.getTime()) / 1000);
+
+    // Check for MERKL_SNAPSHOT_SEED environment variable
+    const merklSnapshotSeed = this.configService.get<string>('MERKL_SNAPSHOT_SEED');
+
+    if (merklSnapshotSeed) {
+      return partitionSingleEpoch(
+        epochDurationSeconds,
+        this.MIN_SNAPSHOT_INTERVAL,
+        this.MAX_SNAPSHOT_INTERVAL,
+        merklSnapshotSeed,
+      );
+    } else {
+      // Production mode: use transaction-based seed
+      const seed = this.generateEpochSeed(campaign, epoch, chronologicalEvents);
+
+      return partitionSingleEpoch(epochDurationSeconds, this.MIN_SNAPSHOT_INTERVAL, this.MAX_SNAPSHOT_INTERVAL, seed);
+    }
+  }
+
   private generateSnapshotsForEpoch(
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
@@ -919,7 +994,10 @@ export class MerklProcessorService {
     // Step 1: Get all batch events in chronological order
     const chronologicalEvents = this.sortBatchEventsChronologically(batchEvents);
 
-    // Step 2: Initialize snapshot generation variables
+    // Step 2: Get snapshot intervals using partitioner
+    const snapshotIntervals = this.getSnapshotIntervals(campaign, epoch, chronologicalEvents);
+
+    // Step 3: Initialize snapshot generation variables
     const currentStrategyStates = this.deepCloneStrategyStates(strategyStates); // Deep clone to prevent input mutation
     let eventIndex = 0;
     let currentTime = Math.floor(epoch.startTimestamp.getTime() / 1000);
@@ -927,7 +1005,7 @@ export class MerklProcessorService {
     const epochEndTimestamp = Math.floor(epoch.endTimestamp.getTime() / 1000);
     const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
 
-    // Step 3: Apply events that occurred before epoch start (but within reasonable bounds to prevent cross-epoch contamination)
+    // Step 4: Apply events that occurred before epoch start
     // Only apply events from within this campaign's timeframe, not arbitrary historical events
     const campaignStartTimestamp = Math.floor(campaign.startDate.getTime() / 1000);
     while (
@@ -939,17 +1017,15 @@ export class MerklProcessorService {
       eventIndex++;
     }
 
-    // Step 4: Generate snapshots with incremental state updates
-    while (currentTime < epochEndTimestamp) {
+    // Step 5: Generate snapshots using partitioner intervals
+    let intervalIndex = 0;
+    while (currentTime < epochEndTimestamp && intervalIndex < snapshotIntervals.length) {
       // Skip snapshots after campaign end
       if (currentTime >= campaignEndTimestamp) {
-        this.logger.debug(
-          `Stopping snapshots at ${currentTime} - campaign ${campaign.id} ended at ${campaignEndTimestamp}`,
-        );
         break;
       }
 
-      // Apply any events that occurred at or before this snapshot timestamp AND within this epoch
+      // Apply any events that occurred at or before this snapshot timestamp
       while (
         eventIndex < chronologicalEvents.length &&
         chronologicalEvents[eventIndex].timestamp <= currentTime &&
@@ -962,8 +1038,8 @@ export class MerklProcessorService {
       // Get target prices using campaign pair tokens
       const targetPrices = this.getTargetPricesAtTime(currentTime, campaign, priceCache);
       if (targetPrices === null) {
-        this.logger.warn(`Skipping snapshot at timestamp ${currentTime} - no USD rates available`);
-        currentTime += this.SNAPSHOT_INTERVAL;
+        currentTime += snapshotIntervals[intervalIndex];
+        intervalIndex++;
         continue;
       }
 
@@ -971,7 +1047,7 @@ export class MerklProcessorService {
       const token0Decimals = campaign.pair.token0.decimals;
       const token1Decimals = campaign.pair.token1.decimals;
 
-      // Generate snapshot with current state (deep clone to prevent reference sharing)
+      // Generate snapshot with current state
       snapshots.push({
         timestamp: currentTime,
         order0TargetPrice: targetPrices.order0TargetPrice,
@@ -986,10 +1062,12 @@ export class MerklProcessorService {
           token0Decimals,
           token1Decimals,
         ),
-        strategies: this.deepCloneStrategyStates(currentStrategyStates), // Deep clone to prevent mutations affecting past snapshots
+        strategies: this.deepCloneStrategyStates(currentStrategyStates),
       });
 
-      currentTime += this.SNAPSHOT_INTERVAL;
+      // Advance to next snapshot using partitioner interval
+      currentTime += snapshotIntervals[intervalIndex];
+      intervalIndex++;
     }
 
     return snapshots;

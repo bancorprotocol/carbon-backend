@@ -1915,4 +1915,401 @@ describe('MerklProcessorService', () => {
       expect(Object.keys((testService as any).rewardBreakdown)).toHaveLength(0);
     });
   });
+
+  describe('Snapshot Interval Generation', () => {
+    let mockConfigService: jest.Mocked<ConfigService>;
+
+    const mockCampaign = {
+      id: 'test-campaign-123',
+      blockchainType: BlockchainType.Ethereum,
+      exchangeId: ExchangeId.OGEthereum,
+    };
+
+    const mockEpoch = {
+      epochNumber: 5,
+      startTimestamp: new Date('2024-01-01T00:00:00Z'),
+      endTimestamp: new Date('2024-01-01T04:00:00Z'), // 4 hours later
+    };
+
+    const mockChronologicalEvents = [
+      { timestamp: 1000, event: { transactionHash: '0xabc123' } },
+      { timestamp: 2000, event: { transactionHash: '0xdef456' } },
+      { timestamp: 3000, event: { transactionHash: '0x789xyz' } },
+    ];
+
+    beforeEach(() => {
+      mockConfigService = {
+        get: jest.fn(),
+      } as any;
+
+      // Default mocks for required environment variables
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'MERKL_SNAPSHOT_SALT') {
+          return 'test-salt-12345'; // Default salt for tests
+        }
+        return undefined; // Default for other keys
+      });
+
+      // Replace the configService in the service instance
+      (service as any).configService = mockConfigService;
+    });
+
+    describe('getSnapshotIntervals', () => {
+      it('should use fixed seed when MERKL_SNAPSHOT_SEED is set', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(mockConfigService.get).toHaveBeenCalledWith('MERKL_SNAPSHOT_SEED');
+        expect(intervals).toBeDefined();
+        expect(Array.isArray(intervals)).toBe(true);
+        expect(intervals.length).toBeGreaterThan(0);
+        expect(intervals.every((i: number) => i >= 240 && i <= 360)).toBe(true);
+      });
+
+      it('should use transaction-based seed when MERKL_SNAPSHOT_SEED is not set', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(mockConfigService.get).toHaveBeenCalledWith('MERKL_SNAPSHOT_SEED');
+        expect(intervals).toBeDefined();
+        expect(Array.isArray(intervals)).toBe(true);
+        expect(intervals.length).toBeGreaterThan(0);
+        expect(intervals.every((i: number) => i >= 240 && i <= 360)).toBe(true);
+      });
+
+      it('should generate consistent intervals for same inputs', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+        const intervals2 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(intervals1).toEqual(intervals2);
+      });
+
+      it('should generate different intervals for different epochs', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const epoch1 = { ...mockEpoch, epochNumber: 1 };
+        const epoch2 = { ...mockEpoch, epochNumber: 2 };
+
+        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, epoch1, mockChronologicalEvents);
+        const intervals2 = (service as any).getSnapshotIntervals(mockCampaign, epoch2, mockChronologicalEvents);
+
+        expect(intervals1).not.toEqual(intervals2);
+      });
+
+      it('should generate intervals that sum to epoch duration', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+        const totalIntervalTime = intervals.reduce((sum: number, interval: number) => sum + interval, 0);
+        const expectedDuration = Math.floor(
+          (mockEpoch.endTimestamp.getTime() - mockEpoch.startTimestamp.getTime()) / 1000,
+        );
+
+        expect(Math.abs(totalIntervalTime - expectedDuration)).toBeLessThanOrEqual(1); // Allow 1 second tolerance
+      });
+    });
+
+    describe('generateEpochSeed', () => {
+      it('should generate consistent seed for same inputs', () => {
+        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(seed1).toBe(seed2);
+        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/); // Should be hex string
+      });
+
+      it('should generate different seeds for different campaigns', () => {
+        const campaign1 = { ...mockCampaign, id: 'campaign-1' };
+        const campaign2 = { ...mockCampaign, id: 'campaign-2' };
+
+        const seed1 = (service as any).generateEpochSeed(campaign1, mockEpoch, mockChronologicalEvents);
+        const seed2 = (service as any).generateEpochSeed(campaign2, mockEpoch, mockChronologicalEvents);
+
+        expect(seed1).not.toBe(seed2);
+      });
+
+      it('should generate different seeds for different epochs', () => {
+        const epoch1 = { ...mockEpoch, epochNumber: 1 };
+        const epoch2 = { ...mockEpoch, epochNumber: 2 };
+
+        const seed1 = (service as any).generateEpochSeed(mockCampaign, epoch1, mockChronologicalEvents);
+        const seed2 = (service as any).generateEpochSeed(mockCampaign, epoch2, mockChronologicalEvents);
+
+        expect(seed1).not.toBe(seed2);
+      });
+    });
+
+    describe('getLastTransactionHashFromSortedEvents', () => {
+      it('should find last transaction hash before epoch start', () => {
+        const epochWithMidStart = {
+          ...mockEpoch,
+          startTimestamp: new Date(2500 * 1000), // Convert to milliseconds - between 2000 and 3000 seconds
+        };
+
+        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
+          epochWithMidStart,
+          mockChronologicalEvents,
+        );
+
+        expect(txHash).toBe('0xdef456'); // Last hash before timestamp 2500
+      });
+
+      it('should find first available hash when epoch starts after all events', () => {
+        const epochWithLateStart = {
+          ...mockEpoch,
+          startTimestamp: new Date(5000 * 1000), // Convert to milliseconds - after all events
+        };
+
+        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
+          epochWithLateStart,
+          mockChronologicalEvents,
+        );
+
+        expect(txHash).toBe('0x789xyz'); // Latest hash available
+      });
+
+      it('should use first available event hash when no events before epoch start', () => {
+        const epochWithEarlyStart = {
+          ...mockEpoch,
+          startTimestamp: new Date(500 * 1000), // Convert to milliseconds - before any events
+        };
+
+        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
+          epochWithEarlyStart,
+          mockChronologicalEvents,
+        );
+
+        expect(txHash).toBe('0xabc123'); // First available hash since none before epoch start
+      });
+
+      it('should throw error when no events exist at all', () => {
+        expect(() => (service as any).getLastTransactionHashFromSortedEvents(mockEpoch, [])).toThrow(
+          'No events found for epoch 5 - cannot generate seed',
+        );
+      });
+    });
+
+    describe('Integration with partitioner', () => {
+      it('should call partitionSingleEpoch with correct parameters', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        // Mock partitionSingleEpoch by importing it and spying on it
+        const partitioner = require('./partitioner');
+        const partitionSpy = jest.spyOn(partitioner, 'partitionSingleEpoch');
+        partitionSpy.mockReturnValue([240, 300, 360, 280, 320]);
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(partitionSpy).toHaveBeenCalledWith(
+          14400, // 4 hours in seconds
+          240, // MIN_SNAPSHOT_INTERVAL
+          360, // MAX_SNAPSHOT_INTERVAL
+          '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+        );
+        expect(intervals).toEqual([240, 300, 360, 280, 320]);
+
+        partitionSpy.mockRestore();
+      });
+    });
+
+    describe('Environment variable behavior', () => {
+      it('should prioritize MERKL_SNAPSHOT_SEED over transaction-based seed', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+        const intervals2 = (service as any).getSnapshotIntervals(
+          { ...mockCampaign, id: 'different-campaign' },
+          { ...mockEpoch, epochNumber: 999 },
+          [], // Different events
+        );
+
+        // Should be identical because using fixed seed
+        expect(intervals1).toEqual(intervals2);
+      });
+
+      it('should use transaction-based seed when env var is empty string', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return '';
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(intervals).toBeDefined();
+        expect(intervals.length).toBeGreaterThan(0);
+      });
+
+      it('should use transaction-based seed when env var is null', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return null;
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'test-salt-12345';
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(intervals).toBeDefined();
+        expect(intervals.length).toBeGreaterThan(0);
+      });
+
+      it('should throw error when MERKL_SNAPSHOT_SALT is missing', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return undefined; // Missing salt - should cause error
+          }
+          return undefined;
+        });
+
+        expect(() => (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents)).toThrow(
+          'MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation',
+        );
+      });
+
+      it('should throw error when MERKL_SNAPSHOT_SALT is empty string', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return undefined; // No fixed seed, so will use transaction-based
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return ''; // Empty salt - should cause error
+          }
+          return undefined;
+        });
+
+        expect(() => (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents)).toThrow(
+          'MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation',
+        );
+      });
+
+      it('should not require salt when MERKL_SNAPSHOT_SEED is provided', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SEED') {
+            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
+          }
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return undefined; // Missing salt, but should not matter when fixed seed is provided
+          }
+          return undefined;
+        });
+
+        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(intervals).toBeDefined();
+        expect(intervals.length).toBeGreaterThan(0);
+      });
+    });
+
+    describe('Salt-based seed generation', () => {
+      it('should generate different seeds with different salts', () => {
+        // First seed with salt1
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'salt1';
+          }
+          return undefined;
+        });
+        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        // Second seed with salt2
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'salt2';
+          }
+          return undefined;
+        });
+        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(seed1).not.toBe(seed2);
+        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/);
+        expect(seed2).toMatch(/^0x[a-f0-9]{64}$/);
+      });
+
+      it('should generate consistent seeds with same salt', () => {
+        mockConfigService.get.mockImplementation((key: string) => {
+          if (key === 'MERKL_SNAPSHOT_SALT') {
+            return 'consistent-salt';
+          }
+          return undefined;
+        });
+
+        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
+
+        expect(seed1).toBe(seed2);
+        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/);
+      });
+    });
+  });
 });
