@@ -154,30 +154,6 @@ export class MerklProcessorService {
     this.csvExportEnabled = this.configService.get<string>('MERKL_ENABLE_CSV_EXPORT') === '1';
   }
 
-  private getTokenWeighting(tokenAddress: string, exchangeId: ExchangeId): number {
-    const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[exchangeId];
-    if (!config) {
-      this.logger.warn(`No weighting configuration found for exchangeId: ${exchangeId}`);
-      return 0;
-    }
-
-    const normalizedAddress = tokenAddress.toLowerCase();
-
-    // Check specific weightings first
-    if (config.tokenWeightings[normalizedAddress] !== undefined) {
-      const weighting = config.tokenWeightings[normalizedAddress];
-      return weighting;
-    }
-
-    // Check if it's a whitelisted asset (0.5x weighting)
-    if (config.whitelistedAssets.includes(normalizedAddress)) {
-      return 0.5;
-    }
-
-    // Use default weighting (typically 0 for no incentives)
-    return config.defaultWeighting;
-  }
-
   async update(endBlock: number, deployment: Deployment): Promise<void> {
     // Initialize reward breakdown data collection
     this.rewardBreakdown = {};
@@ -196,17 +172,7 @@ export class MerklProcessorService {
 
     this.logger.log(`Processing merkl globally from block ${lastProcessedBlock} to ${endBlock}`);
 
-    // 2. Global cleanup - delete any merkl epoch rewards data after lastProcessedBlock (scoped to deployment)
-    const lastProcessedTimestamp = await this.getTimestampForBlock(lastProcessedBlock, deployment);
-    await this.epochRewardRepository
-      .createQueryBuilder()
-      .delete()
-      .where('epochStartTimestamp >= :startTimestamp', { startTimestamp: new Date(lastProcessedTimestamp * 1000) })
-      .andWhere('blockchainType = :blockchainType', { blockchainType: deployment.blockchainType })
-      .andWhere('exchangeId = :exchangeId', { exchangeId: deployment.exchangeId })
-      .execute();
-
-    // 3. Initialize strategy states for all campaigns up to lastProcessedBlock
+    // 2. Initialize strategy states for all campaigns up to lastProcessedBlock
     const campaignContexts: CampaignContext[] = [];
     for (const campaign of campaigns) {
       const strategyStates: StrategyStatesMap = new Map();
@@ -218,13 +184,13 @@ export class MerklProcessorService {
       });
     }
 
-    // 4. Process blocks in batches globally
+    // 3. Process blocks in batches globally
     for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       this.logger.log(`Processing global merkl batch ${batchStart} to ${batchEnd}`);
 
-      // 5. Fetch ALL events for this batch once (not per campaign)
+      // 4. Fetch ALL events for this batch once (not per campaign)
       const [createdEvents, updatedEvents, deletedEvents, transferEvents] = await Promise.all([
         this.strategyCreatedEventService.get(batchStart, batchEnd, deployment),
         this.strategyUpdatedEventService.get(batchStart, batchEnd, deployment),
@@ -232,7 +198,7 @@ export class MerklProcessorService {
         this.voucherTransferEventService.get(batchStart, batchEnd, deployment),
       ]);
 
-      // 6. Process all campaigns using this batch of events
+      // 5. Process all campaigns using this batch of events
       await this.processBatchForAllCampaigns(
         campaignContexts,
         { createdEvents, updatedEvents, deletedEvents, transferEvents },
@@ -241,15 +207,15 @@ export class MerklProcessorService {
         deployment,
       );
 
-      // 7. Update the global lastProcessedBlock after each batch
+      // 6. Update the global lastProcessedBlock after each batch
       await this.lastProcessedBlockService.update(globalKey, batchEnd);
     }
 
-    // 8. Post-processing: Mark campaigns inactive if we've processed past their end time
+    // 7. Post-processing: Mark campaigns inactive if we've processed past their end time
     const endBlockTimestamp = await this.getTimestampForBlock(endBlock, deployment);
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
 
-    // 9. Write reward breakdown JSON file
+    // 8. Write reward breakdown JSON file
     if (this.csvExportEnabled) {
       await this.writeRewardBreakdownFile(deployment);
     }
@@ -1638,5 +1604,29 @@ export class MerklProcessorService {
         this.processTransferEvent(event.event as VoucherTransferEvent, strategyStates);
         break;
     }
+  }
+
+  private getTokenWeighting(tokenAddress: string, exchangeId: ExchangeId): number {
+    const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[exchangeId];
+    if (!config) {
+      this.logger.warn(`No weighting configuration found for exchangeId: ${exchangeId}`);
+      return 0;
+    }
+
+    const normalizedAddress = tokenAddress.toLowerCase();
+
+    // Check specific weightings first
+    if (config.tokenWeightings[normalizedAddress] !== undefined) {
+      const weighting = config.tokenWeightings[normalizedAddress];
+      return weighting;
+    }
+
+    // Check if it's a whitelisted asset (0.5x weighting)
+    if (config.whitelistedAssets.includes(normalizedAddress)) {
+      return 0.5;
+    }
+
+    // Use default weighting (typically 0 for no incentives)
+    return config.defaultWeighting;
   }
 }

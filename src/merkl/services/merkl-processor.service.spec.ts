@@ -367,15 +367,6 @@ describe('MerklProcessorService', () => {
       // Should process multiple batches
       expect(mockStrategyCreatedEventService.get).toHaveBeenCalledTimes(4); // 1000-1049, 1050-1099, 1100-1149, 1150-1150
     });
-
-    it('should handle cleanup of existing rewards', async () => {
-      mockEntityManager.query.mockResolvedValue([]).mockResolvedValue([]).mockResolvedValue([]);
-
-      await service.update(1100, mockDeployment);
-
-      expect(mockQueryBuilder.delete).toHaveBeenCalled();
-      expect(mockQueryBuilder.where).toHaveBeenCalledWith('epochStartTimestamp >= :startTimestamp', expect.any(Object));
-    });
   });
 
   describe('initializeStrategyStates', () => {
@@ -1022,6 +1013,157 @@ describe('MerklProcessorService', () => {
 
         expect(result).toBe(100);
       });
+    });
+  });
+
+  describe('Per-Epoch Cleanup Behavior', () => {
+    it('should delete existing rewards for specific epoch before regenerating', async () => {
+      // Setup: Mock the transaction method to capture what gets deleted
+      const mockTransactionEntityManager = {
+        delete: jest.fn().mockResolvedValue({ affected: 2 }),
+        create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: 'new-id' })),
+        save: jest.fn().mockResolvedValue([]),
+      };
+
+      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
+        return await callback(mockTransactionEntityManager);
+      });
+
+      // Mock the private methods that processEpoch depends on
+      const mockEpoch = {
+        epochNumber: 5,
+        startTimestamp: new Date('2024-01-01T00:00:00Z'),
+        endTimestamp: new Date('2024-01-01T04:00:00Z'),
+        totalRewards: new Decimal('1000'),
+      };
+
+      const mockStrategyStates = new Map([
+        [
+          'strategy1',
+          {
+            strategyId: 'strategy1',
+            currentOwner: '0xowner1',
+            liquidity0: new Decimal('100'),
+            liquidity1: new Decimal('200'),
+            isDeleted: false,
+          },
+        ],
+      ]);
+
+      const mockPriceCache = {
+        rates: new Map([
+          [mockToken0.address.toLowerCase(), 100],
+          [mockToken1.address.toLowerCase(), 200],
+        ]),
+        timestamp: 1704067200,
+      };
+
+      const mockBatchEvents = {
+        createdEvents: [],
+        updatedEvents: [],
+        deletedEvents: [],
+        transferEvents: [],
+        blockTimestamps: {},
+      };
+
+      // Mock the calculateEpochRewards method to return some rewards
+      jest
+        .spyOn(service as any, 'calculateEpochRewards')
+        .mockReturnValue(new Map([['strategy1', { owner: '0xowner1', totalReward: new Decimal('500') }]]));
+
+      // Mock validation methods
+      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(true);
+      jest.spyOn(service as any, 'validateTotalRewardsNotExceeded').mockResolvedValue(true);
+
+      // Call the processEpoch method
+      await (service as any).processEpoch(mockCampaign, mockEpoch, mockStrategyStates, mockPriceCache, mockBatchEvents);
+
+      // Verify that delete was called for the specific epoch and campaign
+      expect(mockTransactionEntityManager.delete).toHaveBeenCalledWith(EpochReward, {
+        campaignId: mockCampaign.id,
+        epochNumber: mockEpoch.epochNumber,
+        blockchainType: mockCampaign.blockchainType,
+        exchangeId: mockCampaign.exchangeId,
+      });
+
+      // Verify that new rewards were created and saved
+      expect(mockTransactionEntityManager.create).toHaveBeenCalled();
+      expect(mockTransactionEntityManager.save).toHaveBeenCalled();
+    });
+
+    it('should handle cleanup within transaction to ensure atomicity', async () => {
+      let transactionOrder: string[] = [];
+
+      const mockTransactionEntityManager = {
+        delete: jest.fn().mockImplementation(() => {
+          transactionOrder.push('delete');
+          return Promise.resolve({ affected: 1 });
+        }),
+        create: jest.fn().mockImplementation((entity, data) => {
+          transactionOrder.push('create');
+          return { ...data, id: 'new-id' };
+        }),
+        save: jest.fn().mockImplementation(() => {
+          transactionOrder.push('save');
+          return Promise.resolve([]);
+        }),
+      };
+
+      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
+        return await callback(mockTransactionEntityManager);
+      });
+
+      const mockEpoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2024-01-01T00:00:00Z'),
+        endTimestamp: new Date('2024-01-01T04:00:00Z'),
+        totalRewards: new Decimal('100'),
+      };
+
+      // Mock calculateEpochRewards to return some rewards so create/save will be called
+      jest
+        .spyOn(service as any, 'calculateEpochRewards')
+        .mockReturnValue(new Map([['strategy1', { owner: '0xowner1', totalReward: new Decimal('100') }]]));
+      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(true);
+      jest.spyOn(service as any, 'validateTotalRewardsNotExceeded').mockResolvedValue(true);
+
+      await (service as any).processEpoch(mockCampaign, mockEpoch, new Map(), {}, {});
+
+      // Verify that delete happens before create/save within the transaction
+      expect(transactionOrder[0]).toBe('delete');
+      expect(transactionOrder.indexOf('create')).toBeGreaterThan(transactionOrder.indexOf('delete'));
+      expect(transactionOrder.indexOf('save')).toBeGreaterThan(transactionOrder.indexOf('delete'));
+    });
+
+    it('should not save rewards if epoch validation fails', async () => {
+      const mockTransactionEntityManager = {
+        delete: jest.fn().mockResolvedValue({ affected: 0 }),
+        create: jest.fn(),
+        save: jest.fn(),
+      };
+
+      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
+        return await callback(mockTransactionEntityManager);
+      });
+
+      const mockEpoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2024-01-01T00:00:00Z'),
+        endTimestamp: new Date('2024-01-01T04:00:00Z'),
+        totalRewards: new Decimal('100'),
+      };
+
+      jest.spyOn(service as any, 'calculateEpochRewards').mockReturnValue(new Map());
+      // Mock validation to fail
+      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(false);
+
+      await (service as any).processEpoch(mockCampaign, mockEpoch, new Map(), {}, {});
+
+      // Should still call delete (cleanup)
+      expect(mockTransactionEntityManager.delete).toHaveBeenCalled();
+      // But should not call create or save due to validation failure
+      expect(mockTransactionEntityManager.create).not.toHaveBeenCalled();
+      expect(mockTransactionEntityManager.save).not.toHaveBeenCalled();
     });
   });
 
