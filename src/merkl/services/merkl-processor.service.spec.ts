@@ -1815,8 +1815,13 @@ describe('MerklProcessorService', () => {
         ]),
       };
 
+      // The campaign object used in CSV tests needs proper pair info for weight-based allocation
       const campaign = {
         exchangeId: 'ethereum',
+        pair: {
+          token0: { address: '0x1234567890123456789012345678901234567890' },
+          token1: { address: '0x0987654321098765432109876543210987654321' },
+        },
       };
 
       // Call the method
@@ -1901,6 +1906,10 @@ describe('MerklProcessorService', () => {
 
       const campaign = {
         exchangeId: 'ethereum',
+        pair: {
+          token0: { address: '0x1234567890123456789012345678901234567890' },
+          token1: { address: '0x0987654321098765432109876543210987654321' },
+        },
       };
 
       // Call the method
@@ -2309,6 +2318,494 @@ describe('MerklProcessorService', () => {
 
         expect(seed1).toBe(seed2);
         expect(seed1).toMatch(/^0x[a-f0-9]{64}$/);
+      });
+    });
+  });
+
+  describe('Weight-Based Reward Allocation', () => {
+    let testService: MerklProcessorService;
+    let mockCampaignWithWeights: Campaign;
+
+    beforeEach(() => {
+      // Create service instance for testing
+      testService = new (MerklProcessorService as any)(
+        mockRepository,
+        mockCampaignService,
+        mockLastProcessedBlockService,
+        mockBlockService,
+        mockHistoricQuoteService,
+        mockStrategyCreatedEventService,
+        mockStrategyUpdatedEventService,
+        mockStrategyDeletedEventService,
+        mockVoucherTransferEventService,
+        { get: jest.fn().mockReturnValue('0') }, // CSV disabled
+      );
+
+      // Setup test campaign
+      mockCampaignWithWeights = {
+        ...mockCampaign,
+        exchangeId: ExchangeId.OGCoti, // Use OGCoti which has specific weightings
+        pair: {
+          ...mockPair,
+          token0: {
+            ...mockToken0,
+            address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight
+          },
+          token1: {
+            ...mockToken1,
+            address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // 0.5 weight (whitelisted)
+          },
+        },
+      };
+    });
+
+    describe('calculateSnapshotRewards with weight-based allocation', () => {
+      it('should allocate rewards based on token weights (2.0 vs 0.5)', () => {
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'), // 1 token
+                liquidity1: new Decimal('1000000000000000000'), // 1 token
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'), // Full liquidity eligible
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'), // Full liquidity eligible
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000'); // 1000 tokens
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+
+        // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
+        // Token0 should get: 1000 * 2.0 / 2.5 = 800 tokens
+        // Token1 should get: 1000 * 0.5 / 2.5 = 200 tokens
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // The strategy should get rewards from both tokens
+        // Since it has equal eligible liquidity on both sides, it gets all rewards
+        const expectedTotalReward = new Decimal('1000000000000000000000'); // 1000 tokens
+        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
+      });
+
+      it('should allocate 100% to token0 when token1 has zero weight', () => {
+        const campaignWithZeroWeight = {
+          ...mockCampaignWithWeights,
+          pair: {
+            ...mockCampaignWithWeights.pair,
+            token0: {
+              ...mockToken0,
+              address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight
+            },
+            token1: {
+              ...mockToken1,
+              address: '0x0000000000000000000000000000000000000000', // 0 weight (not in config)
+            },
+          },
+        };
+
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+                token1Address: '0x0000000000000000000000000000000000000000',
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithZeroWeight, 1);
+
+        // Token0 weight: 2.0, Token1 weight: 0, Total weight: 2.0
+        // Token0 should get: 1000 * 2.0 / 2.0 = 1000 tokens (100%)
+        // Token1 should get: 1000 * 0 / 2.0 = 0 tokens (0%)
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // Strategy should only get token0 rewards (full 1000 tokens)
+        const expectedReward = new Decimal('1000000000000000000000');
+        expect(strategyReward.toString()).toBe(expectedReward.toString());
+      });
+
+      it('should return no rewards when both tokens have zero weight', () => {
+        const campaignWithZeroWeights = {
+          ...mockCampaignWithWeights,
+          pair: {
+            ...mockCampaignWithWeights.pair,
+            token0: {
+              ...mockToken0,
+              address: '0x0000000000000000000000000000000000000000', // 0 weight
+            },
+            token1: {
+              ...mockToken1,
+              address: '0x0000000000000000000000000000000000000001', // 0 weight
+            },
+          },
+        };
+
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: '0x0000000000000000000000000000000000000000',
+                token1Address: '0x0000000000000000000000000000000000000001',
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithZeroWeights, 1);
+
+        // Both tokens have 0 weight, so no rewards should be distributed
+        expect(result.size).toBe(0);
+      });
+
+      it('should handle equal weights like the old 50/50 split', () => {
+        const campaignWithEqualWeights = {
+          ...mockCampaign,
+          exchangeId: ExchangeId.OGEthereum, // Default weighting: 1 for all tokens
+        };
+
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: mockToken0.address,
+                token1Address: mockToken1.address,
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithEqualWeights, 1);
+
+        // Token0 weight: 1.0, Token1 weight: 1.0, Total weight: 2.0
+        // Token0 should get: 1000 * 1.0 / 2.0 = 500 tokens (50%)
+        // Token1 should get: 1000 * 1.0 / 2.0 = 500 tokens (50%)
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // Strategy gets rewards from both sides (total should be 1000)
+        const expectedTotalReward = new Decimal('1000000000000000000000');
+        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
+      });
+
+      it('should handle whitelisted asset weighting correctly', () => {
+        const campaignWithWhitelistedAsset = {
+          ...mockCampaignWithWeights,
+          pair: {
+            ...mockCampaignWithWeights.pair,
+            token0: {
+              ...mockToken0,
+              address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight (specific)
+            },
+            token1: {
+              ...mockToken1,
+              address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // 0.5 weight (whitelisted)
+            },
+          },
+        };
+
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('2000000000000000000'), // 2 tokens
+                liquidity1: new Decimal('1000000000000000000'), // 1 token
+                order0_z: new Decimal('2000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          campaignWithWhitelistedAsset,
+          1,
+        );
+
+        // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
+        // Token0 pool: 1000 * 2.0 / 2.5 = 800 tokens
+        // Token1 pool: 1000 * 0.5 / 2.5 = 200 tokens
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // Strategy should get full amount from both pools since it's the only strategy
+        const expectedTotalReward = new Decimal('1000000000000000000000');
+        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
+      });
+
+      it('should handle case where eligible liquidity is zero on one side', () => {
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('0'), // No liquidity on token1 side
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('0'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+
+        // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
+        // Token0 pool: 1000 * 2.0 / 2.5 = 800 tokens (strategy gets all)
+        // Token1 pool: 1000 * 0.5 / 2.5 = 200 tokens (no eligible liquidity, so 0)
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // Strategy should only get token0 rewards (800 tokens)
+        const expectedReward = new Decimal('800000000000000000000');
+        expect(strategyReward.toString()).toBe(expectedReward.toString());
+      });
+
+      it('should work end-to-end with case-insensitive token addresses in config', () => {
+        // This test verifies that reward allocation works correctly even when:
+        // - Configuration has mixed case addresses
+        // - Strategy uses different case variations of the same addresses
+
+        const snapshot = {
+          timestamp: 1704081600,
+          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
+          order0TargetPrice: new Decimal('2'),
+          strategies: new Map([
+            [
+              'strategy1',
+              {
+                isDeleted: false,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_z: new Decimal('1000000000000000000'),
+                order0_A: new Decimal('0'),
+                order0_B: new Decimal('2000000000000000000000000'),
+                order1_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal('0'),
+                order1_B: new Decimal('2000000000000000000000000'),
+                // Use lowercase addresses while config has mixed case
+                token0Address: '0xf1feebc4376c68b7003450ae66343ae59ab37d3c', // lowercase variant
+                token1Address: '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1', // lowercase variant
+              },
+            ],
+          ]),
+        };
+
+        const rewardPool = new Decimal('1000000000000000000000');
+
+        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+
+        // Should still work correctly with case-insensitive matching
+        // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
+        // Token0 should get: 1000 * 2.0 / 2.5 = 800 tokens
+        // Token1 should get: 1000 * 0.5 / 2.5 = 200 tokens
+
+        expect(result.size).toBe(1);
+        const strategyReward = result.get('strategy1');
+        expect(strategyReward).toBeDefined();
+
+        // Strategy should get full amount from both pools (800 + 200 = 1000)
+        const expectedTotalReward = new Decimal('1000000000000000000000');
+        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
+      });
+    });
+
+    describe('getTokenWeighting method', () => {
+      it('should return correct specific weighting from config', () => {
+        const weight = (testService as any).getTokenWeighting(
+          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // Mixed case like config
+          ExchangeId.OGCoti,
+        );
+        expect(weight).toBe(2.0);
+      });
+
+      it('should return 0.5 for whitelisted assets', () => {
+        const weight = (testService as any).getTokenWeighting(
+          '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // Mixed case like config
+          ExchangeId.OGCoti,
+        );
+        expect(weight).toBe(0.5);
+      });
+
+      it('should return default weighting for unlisted tokens', () => {
+        const weight = (testService as any).getTokenWeighting(
+          '0x0000000000000000000000000000000000000000',
+          ExchangeId.OGCoti,
+        );
+        expect(weight).toBe(0); // Default for OGCoti
+      });
+
+      it('should return default weighting for OGEthereum', () => {
+        const weight = (testService as any).getTokenWeighting(
+          '0x0000000000000000000000000000000000000000',
+          ExchangeId.OGEthereum,
+        );
+        expect(weight).toBe(1); // Default for OGEthereum
+      });
+
+      it('should be case-insensitive for token addresses', () => {
+        // Test with different case variations of the same address
+        const weightLower = (testService as any).getTokenWeighting(
+          '0xf1feebc4376c68b7003450ae66343ae59ab37d3c', // all lowercase
+          ExchangeId.OGCoti,
+        );
+        const weightUpper = (testService as any).getTokenWeighting(
+          '0xF1FEEBC4376C68B7003450AE66343AE59AB37D3C', // all uppercase
+          ExchangeId.OGCoti,
+        );
+        const weightMixed = (testService as any).getTokenWeighting(
+          '0xf1Feebc4376c68B7003450ae66343Ae59AB37d3C', // mixed case (same as config)
+          ExchangeId.OGCoti,
+        );
+        const weightDifferentMixed = (testService as any).getTokenWeighting(
+          '0xF1fEEBC4376C68b7003450AE66343aE59aB37D3c', // different mixed case
+          ExchangeId.OGCoti,
+        );
+
+        // All should return the same weight regardless of case
+        expect(weightLower).toBe(2.0);
+        expect(weightUpper).toBe(2.0);
+        expect(weightMixed).toBe(2.0);
+        expect(weightDifferentMixed).toBe(2.0);
+      });
+
+      it('should be case-insensitive for whitelisted assets', () => {
+        // Test whitelisted asset with different case variations
+        const weightLower = (testService as any).getTokenWeighting(
+          '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1', // all lowercase
+          ExchangeId.OGCoti,
+        );
+        const weightUpper = (testService as any).getTokenWeighting(
+          '0x7637C7838EC4EC6B85080F28A678F8E234BB83D1', // all uppercase
+          ExchangeId.OGCoti,
+        );
+        const weightMixed = (testService as any).getTokenWeighting(
+          '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // mixed case (same as config)
+          ExchangeId.OGCoti,
+        );
+        const weightDifferentMixed = (testService as any).getTokenWeighting(
+          '0x7637c7838EC4ec6B85080f28a678F8e234BB83d1', // different mixed case
+          ExchangeId.OGCoti,
+        );
+
+        // All should return 0.5 (whitelisted asset weight) regardless of case
+        expect(weightLower).toBe(0.5);
+        expect(weightUpper).toBe(0.5);
+        expect(weightMixed).toBe(0.5);
+        expect(weightDifferentMixed).toBe(0.5);
+      });
+
+      it('should return 0 for unknown exchange ID', () => {
+        const weight = (testService as any).getTokenWeighting(
+          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+          'unknown-exchange' as any,
+        );
+        expect(weight).toBe(0);
       });
     });
   });

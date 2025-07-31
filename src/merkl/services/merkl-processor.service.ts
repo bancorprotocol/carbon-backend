@@ -120,7 +120,6 @@ export class MerklProcessorService {
   private globalSubEpochNumber = 0; // Global counter for sub-epoch numbering across all epochs
 
   // Token weighting configuration per deployment
-  // !!! MUST BE LOWERCASE ADDRESSES !!!
   private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
     // Ethereum mainnet
     [ExchangeId.OGEthereum]: {
@@ -129,16 +128,23 @@ export class MerklProcessorService {
       defaultWeighting: 1, // Other assets get no incentives
     },
     [ExchangeId.OGCoti]: {
-      tokenWeightings: {
-        '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': 2.0,
-      },
-      whitelistedAssets: ['0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1'],
+      tokenWeightings: {},
+      whitelistedAssets: [],
       defaultWeighting: 0,
     },
     [ExchangeId.OGTac]: {
-      tokenWeightings: {},
+      tokenWeightings: {
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 0.75, // tac
+        '0xB63B9f0eb4A6E6f191529D71d4D88cc8900Df2C9': 0.75, // wtac
+        '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f': 2, //usdt
+        '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140': 0.5, // ton
+        '0x61D66bC21fED820938021B06e9b2291f3FB91945': 1.25, // weth
+        '0xAf368c91793CB22739386DFCbBb2F1A9e4bCBeBf': 1.25, // wstETH
+        '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 1.25, // cbBTC
+        '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 1.25, // lbBTC
+      },
       whitelistedAssets: [],
-      defaultWeighting: 1,
+      defaultWeighting: 0.5,
     },
   };
 
@@ -1081,7 +1087,6 @@ export class MerklProcessorService {
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
-    const halfRewardPool = rewardPool.div(2);
 
     let totalWeightedEligible0 = new Decimal(0);
     let totalWeightedEligible1 = new Decimal(0);
@@ -1188,6 +1193,24 @@ export class MerklProcessorService {
       }
     }
 
+    // Calculate weight-based reward pool allocation (Python simulator approach)
+    const token0Weighting = this.getTokenWeighting(campaign.pair.token0.address, campaign.exchangeId);
+    const token1Weighting = this.getTokenWeighting(campaign.pair.token1.address, campaign.exchangeId);
+    const totalWeight = token0Weighting + token1Weighting;
+
+    let token0RewardPool = new Decimal(0);
+    let token1RewardPool = new Decimal(0);
+
+    if (totalWeight > 0) {
+      token0RewardPool = rewardPool.mul(token0Weighting).div(totalWeight);
+      token1RewardPool = rewardPool.mul(token1Weighting).div(totalWeight);
+    }
+
+    // Debug logging to verify weight-based allocation
+    this.logger.debug(
+      `Reward pool allocation - Token0: ${token0RewardPool.toString()} (weight: ${token0Weighting}), Token1: ${token1RewardPool.toString()} (weight: ${token1Weighting})`,
+    );
+
     // Handle edge cases
     if (totalWeightedEligible0.eq(0) && totalWeightedEligible1.eq(0)) {
       this.logger.warn('No eligible weighted liquidity found for any side - no rewards distributed');
@@ -1198,7 +1221,7 @@ export class MerklProcessorService {
     if (totalWeightedEligible0.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility0) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible0);
-        const reward = halfRewardPool.mul(rewardShare);
+        const reward = token0RewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
         // Update CSV with actual token0 reward
@@ -1221,7 +1244,7 @@ export class MerklProcessorService {
     if (totalWeightedEligible1.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility1) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible1);
-        const reward = halfRewardPool.mul(rewardShare);
+        const reward = token1RewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
         // Update CSV with actual token1 reward
@@ -1693,15 +1716,18 @@ export class MerklProcessorService {
 
     const normalizedAddress = tokenAddress.toLowerCase();
 
-    // Check specific weightings first
-    if (config.tokenWeightings[normalizedAddress] !== undefined) {
-      const weighting = config.tokenWeightings[normalizedAddress];
-      return weighting;
+    // Check specific weightings first (case-insensitive)
+    for (const [configAddress, weighting] of Object.entries(config.tokenWeightings)) {
+      if (configAddress.toLowerCase() === normalizedAddress) {
+        return weighting;
+      }
     }
 
-    // Check if it's a whitelisted asset (0.5x weighting)
-    if (config.whitelistedAssets.includes(normalizedAddress)) {
-      return 0.5;
+    // Check if it's a whitelisted asset (case-insensitive)
+    for (const whitelistedAddress of config.whitelistedAssets) {
+      if (whitelistedAddress.toLowerCase() === normalizedAddress) {
+        return 0.5;
+      }
     }
 
     // Use default weighting (typically 0 for no incentives)
