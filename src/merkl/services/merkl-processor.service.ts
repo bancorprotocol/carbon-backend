@@ -99,6 +99,15 @@ interface TokenWeightingConfig {
   defaultWeighting: number;
 }
 
+interface CSVContext {
+  rewardBreakdown: any;
+  currentEpochStart: string;
+  currentEpochNumber: number;
+  currentCampaign: Campaign | null;
+  priceCache: PriceCache | null;
+  globalSubEpochNumber: number;
+}
+
 @Injectable()
 export class MerklProcessorService {
   private readonly logger = new Logger(MerklProcessorService.name);
@@ -111,13 +120,7 @@ export class MerklProcessorService {
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
   private readonly csvExportEnabled: boolean;
 
-  // Data collection for JSON output
-  private rewardBreakdown: any = {};
-  private currentEpochStart = '';
-  private currentEpochNumber = 0;
-  private currentCampaign: Campaign | null = null;
-  private priceCache: PriceCache | null = null;
-  private globalSubEpochNumber = 0; // Global counter for sub-epoch numbering across all epochs
+  // Note: Sensitive state moved to local variables in update() to prevent concurrent deployment interference
 
   // Token weighting configuration per deployment
   private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
@@ -164,9 +167,15 @@ export class MerklProcessorService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
-    // Initialize reward breakdown data collection
-    this.rewardBreakdown = {};
-    this.globalSubEpochNumber = 0; // Reset global sub-epoch counter for each deployment processing
+    // Initialize CSV context locally to prevent concurrent deployment interference
+    const csvContext: CSVContext = {
+      rewardBreakdown: {},
+      currentEpochStart: '',
+      currentEpochNumber: 0,
+      currentCampaign: null,
+      priceCache: null,
+      globalSubEpochNumber: 0, // Reset global sub-epoch counter for each deployment processing
+    };
 
     // 1. Get single global lastProcessedBlock for merkl
     const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
@@ -214,6 +223,7 @@ export class MerklProcessorService {
         batchStart,
         batchEnd,
         deployment,
+        csvContext,
       );
 
       // 6. Update the global lastProcessedBlock after each batch
@@ -226,7 +236,7 @@ export class MerklProcessorService {
 
     // 8. Write reward breakdown JSON file
     if (this.csvExportEnabled) {
-      await this.writeRewardBreakdownFile(deployment);
+      await this.writeRewardBreakdownFile(deployment, csvContext);
     }
   }
 
@@ -241,6 +251,7 @@ export class MerklProcessorService {
     batchStart: number,
     batchEnd: number,
     deployment: Deployment,
+    csvContext: CSVContext,
   ): Promise<void> {
     const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
     const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
@@ -312,6 +323,7 @@ export class MerklProcessorService {
           transferEvents: pairTransferEvents,
           blockTimestamps,
         },
+        csvContext,
       );
 
       // Update strategy states after epoch processing
@@ -693,6 +705,7 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
+    csvContext: CSVContext,
   ): Promise<void> {
     // Skip if start timestamp is after campaign end
     const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
@@ -715,7 +728,7 @@ export class MerklProcessorService {
     for (const epoch of epochs) {
       // Clone strategy states for this epoch
       const epochStrategyStates = this.deepCloneStrategyStates(strategyStates);
-      await this.processEpoch(campaign, epoch, epochStrategyStates, priceCache, batchEvents);
+      await this.processEpoch(campaign, epoch, epochStrategyStates, priceCache, batchEvents, csvContext);
     }
   }
 
@@ -784,6 +797,7 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
+    csvContext: CSVContext,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
@@ -816,7 +830,14 @@ export class MerklProcessorService {
       });
 
       // Generate snapshots for this epoch and calculate rewards
-      const epochRewards = this.calculateEpochRewards(epoch, strategyStates, campaign, priceCache, batchEvents);
+      const epochRewards = this.calculateEpochRewards(
+        epoch,
+        strategyStates,
+        campaign,
+        priceCache,
+        batchEvents,
+        csvContext,
+      );
 
       // Validate that new epoch rewards won't exceed campaign total
       const isEpochValid = await this.validateEpochRewardsWontExceedTotal(campaign, epoch, epochRewards);
@@ -871,6 +892,7 @@ export class MerklProcessorService {
     campaign: Campaign,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
+    csvContext: CSVContext,
   ): Map<string, { owner: string; totalReward: Decimal }> {
     const epochRewards = new Map<string, { owner: string; totalReward: Decimal }>();
 
@@ -880,19 +902,23 @@ export class MerklProcessorService {
 
     // Track epoch data for JSON output
     const epochStartISO = epoch.startTimestamp.toISOString();
-    this.currentEpochStart = epochStartISO;
-    this.currentEpochNumber = epoch.epochNumber;
-    this.currentCampaign = campaign;
-    this.priceCache = priceCache;
+    csvContext.currentEpochStart = epochStartISO;
+    csvContext.currentEpochNumber = epoch.epochNumber;
+    csvContext.currentCampaign = campaign;
+    csvContext.priceCache = priceCache;
 
     for (let i = 0; i < snapshots.length; i++) {
+      if (csvContext.globalSubEpochNumber === 490) {
+        console.log('snapshot', snapshots[i]);
+      }
       const snapshot = snapshots[i];
-      this.globalSubEpochNumber++; // Increment global sub-epoch counter
+      csvContext.globalSubEpochNumber++; // Increment global sub-epoch counter
       const snapshotRewards = this.calculateSnapshotRewards(
         snapshot,
         rewardPerSnapshot,
         campaign,
-        this.globalSubEpochNumber, // Use global counter instead of local i+1
+        csvContext.globalSubEpochNumber, // Use global counter instead of local i+1
+        csvContext,
       );
 
       // Check if snapshot had no eligible liquidity
@@ -1084,6 +1110,7 @@ export class MerklProcessorService {
     rewardPool: Decimal,
     campaign: Campaign,
     subEpochNumber: number,
+    csvContext: CSVContext,
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
@@ -1097,6 +1124,10 @@ export class MerklProcessorService {
     let subEpochTimestamp: string | null = null;
     if (this.csvExportEnabled) {
       subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
+    }
+
+    if (subEpochNumber === 490) {
+      console.log('snapshot', snapshot);
     }
 
     // PHASE 1: Single pass calculation + CSV data collection
@@ -1141,16 +1172,16 @@ export class MerklProcessorService {
       }
 
       // CSV DATA COLLECTION (inline, using already-calculated values)
-      if (this.csvExportEnabled) {
+      if (this.csvExportEnabled && subEpochTimestamp) {
         const lpKey = `LP_${strategyId}`;
 
         // Initialize structure if needed
-        if (!this.rewardBreakdown[lpKey]) {
-          this.rewardBreakdown[lpKey] = { epochs: {} };
+        if (!csvContext.rewardBreakdown[lpKey]) {
+          csvContext.rewardBreakdown[lpKey] = { epochs: {} };
         }
-        if (!this.rewardBreakdown[lpKey].epochs[this.currentEpochStart]) {
-          this.rewardBreakdown[lpKey].epochs[this.currentEpochStart] = {
-            epoch_number: this.currentEpochNumber,
+        if (!csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart]) {
+          csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart] = {
+            epoch_number: csvContext.currentEpochNumber,
             sub_epochs: {},
             token0_reward: '0',
             token1_reward: '0',
@@ -1163,11 +1194,11 @@ export class MerklProcessorService {
         const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
 
         // Get USD rates from price cache
-        const token0UsdRate = this.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
-        const token1UsdRate = this.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
+        const token0UsdRate = csvContext.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
+        const token1UsdRate = csvContext.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
 
         // Store sub-epoch data (rewards will be filled in Phase 2)
-        this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!] = {
+        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp] = {
           sub_epoch_number: subEpochNumber,
           token0_reward: '0', // Will be updated in Phase 2
           token1_reward: '0', // Will be updated in Phase 2
@@ -1206,11 +1237,6 @@ export class MerklProcessorService {
       token1RewardPool = rewardPool.mul(token1Weighting).div(totalWeight);
     }
 
-    // Debug logging to verify weight-based allocation
-    this.logger.debug(
-      `Reward pool allocation - Token0: ${token0RewardPool.toString()} (weight: ${token0Weighting}), Token1: ${token1RewardPool.toString()} (weight: ${token1Weighting})`,
-    );
-
     // Handle edge cases
     if (totalWeightedEligible0.eq(0) && totalWeightedEligible1.eq(0)) {
       this.logger.warn('No eligible weighted liquidity found for any side - no rewards distributed');
@@ -1225,10 +1251,10 @@ export class MerklProcessorService {
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
         // Update CSV with actual token0 reward
-        if (this.csvExportEnabled) {
+        if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
           subEpochData.token0_reward = reward.toString();
 
           // Update running totals
@@ -1248,10 +1274,10 @@ export class MerklProcessorService {
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
 
         // Update CSV with actual token1 reward
-        if (this.csvExportEnabled) {
+        if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            this.rewardBreakdown[lpKey].epochs[this.currentEpochStart].sub_epochs[subEpochTimestamp!];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
           subEpochData.token1_reward = reward.toString();
 
           // Update running totals
@@ -1264,11 +1290,11 @@ export class MerklProcessorService {
     }
 
     // PHASE 4: Update epoch-level aggregates (CSV only)
-    if (this.csvExportEnabled) {
+    if (this.csvExportEnabled && subEpochTimestamp) {
       for (const [strategyId] of rewards) {
         const lpKey = `LP_${strategyId}`;
-        const epochData = this.rewardBreakdown[lpKey].epochs[this.currentEpochStart];
-        const subEpochData = epochData.sub_epochs[subEpochTimestamp!];
+        const epochData = csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart];
+        const subEpochData = epochData.sub_epochs[subEpochTimestamp];
 
         // Aggregate to epoch level
         epochData.token0_reward = new Decimal(epochData.token0_reward).add(subEpochData.token0_reward).toString();
@@ -1552,7 +1578,7 @@ export class MerklProcessorService {
     return closest.usd;
   }
 
-  private async writeRewardBreakdownFile(deployment: Deployment): Promise<void> {
+  private async writeRewardBreakdownFile(deployment: Deployment, csvContext: CSVContext): Promise<void> {
     try {
       const jsonFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.json`;
       const csvFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.csv`;
@@ -1561,7 +1587,7 @@ export class MerklProcessorService {
       const jsonStream = createWriteStream(jsonFilename);
       jsonStream.write('{\n');
 
-      const strategyKeys = Object.keys(this.rewardBreakdown);
+      const strategyKeys = Object.keys(csvContext.rewardBreakdown);
       let isFirstStrategy = true;
 
       for (const strategyKey of strategyKeys) {
@@ -1574,7 +1600,7 @@ export class MerklProcessorService {
         jsonStream.write(`  "${strategyKey}": {\n`);
         jsonStream.write(`    "epochs": {\n`);
 
-        const epochs = this.rewardBreakdown[strategyKey].epochs;
+        const epochs = csvContext.rewardBreakdown[strategyKey].epochs;
         const epochKeys = Object.keys(epochs);
         let isFirstEpoch = true;
 
@@ -1606,7 +1632,7 @@ export class MerklProcessorService {
       // Write CSV data rows
       for (const strategyKey of strategyKeys) {
         const strategyId = strategyKey.replace('LP_', '');
-        const epochs = this.rewardBreakdown[strategyKey].epochs;
+        const epochs = csvContext.rewardBreakdown[strategyKey].epochs;
 
         for (const epochKey of Object.keys(epochs)) {
           const epochData = epochs[epochKey];

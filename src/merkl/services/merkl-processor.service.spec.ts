@@ -306,6 +306,7 @@ describe('MerklProcessorService', () => {
     service = module.get<MerklProcessorService>(MerklProcessorService);
 
     // Mock console.log to avoid cluttering test output
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
     jest.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -1092,7 +1093,7 @@ describe('MerklProcessorService', () => {
     });
 
     it('should handle cleanup within transaction to ensure atomicity', async () => {
-      let transactionOrder: string[] = [];
+      const transactionOrder: string[] = [];
 
       const mockTransactionEntityManager = {
         delete: jest.fn().mockImplementation(() => {
@@ -1824,20 +1825,31 @@ describe('MerklProcessorService', () => {
         },
       };
 
+      // Create csvContext for the test
+      const csvContext = {
+        rewardBreakdown: {},
+        currentEpochStart: '1704081600',
+        currentEpochNumber: 1,
+        currentCampaign: campaign,
+        priceCache: null,
+        globalSubEpochNumber: 1,
+      };
+
       // Call the method
       const result = (testService as any).calculateSnapshotRewards(
         snapshot,
         new Decimal('1000000000000000000000'),
         campaign,
         1,
+        csvContext,
       );
 
       // Verify CSV data was collected
-      expect((testService as any).rewardBreakdown['LP_strategy1']).toBeDefined();
-      expect((testService as any).rewardBreakdown['LP_strategy1'].epochs).toBeDefined();
-      expect((testService as any).rewardBreakdown['LP_strategy1'].epochs['1704081600']).toBeDefined();
+      expect(csvContext.rewardBreakdown['LP_strategy1']).toBeDefined();
+      expect(csvContext.rewardBreakdown['LP_strategy1'].epochs).toBeDefined();
+      expect(csvContext.rewardBreakdown['LP_strategy1'].epochs['1704081600']).toBeDefined();
 
-      const epochData = (testService as any).rewardBreakdown['LP_strategy1'].epochs['1704081600'];
+      const epochData = csvContext.rewardBreakdown['LP_strategy1'].epochs['1704081600'];
       expect(epochData.epoch_number).toBe(1);
       expect(epochData.sub_epochs).toBeDefined();
 
@@ -1912,16 +1924,27 @@ describe('MerklProcessorService', () => {
         },
       };
 
+      // Create csvContext for the test
+      const csvContext = {
+        rewardBreakdown: {},
+        currentEpochStart: '1704081600',
+        currentEpochNumber: 1,
+        currentCampaign: campaign,
+        priceCache: null,
+        globalSubEpochNumber: 1,
+      };
+
       // Call the method
       const result = (testService as any).calculateSnapshotRewards(
         snapshot,
         new Decimal('1000000000000000000000'),
         campaign,
         1,
+        csvContext,
       );
 
-      // Verify no CSV data was collected
-      expect(Object.keys((testService as any).rewardBreakdown)).toHaveLength(0);
+      // Verify no CSV data was collected (since CSV is disabled in this test)
+      expect(Object.keys(csvContext.rewardBreakdown)).toHaveLength(0);
     });
   });
 
@@ -2155,6 +2178,7 @@ describe('MerklProcessorService', () => {
         });
 
         // Mock partitionSingleEpoch by importing it and spying on it
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const partitioner = require('./partitioner');
         const partitionSpy = jest.spyOn(partitioner, 'partitionSingleEpoch');
         partitionSpy.mockReturnValue([240, 300, 360, 280, 320]);
@@ -2344,16 +2368,16 @@ describe('MerklProcessorService', () => {
       // Setup test campaign
       mockCampaignWithWeights = {
         ...mockCampaign,
-        exchangeId: ExchangeId.OGCoti, // Use OGCoti which has specific weightings
+        exchangeId: ExchangeId.OGTac, // Use OGTac which has specific weightings
         pair: {
           ...mockPair,
           token0: {
             ...mockToken0,
-            address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight
+            address: '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // USDT - 2.0 weight
           },
           token1: {
             ...mockToken1,
-            address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // 0.5 weight (whitelisted)
+            address: '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // TON - 0.5 weight
           },
         },
       };
@@ -2387,8 +2411,22 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000'); // 1000 tokens
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: mockCampaignWithWeights,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          mockCampaignWithWeights,
+          1,
+          csvContext,
+        );
 
         // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
         // Token0 should get: 1000 * 2.0 / 2.5 = 800 tokens
@@ -2446,8 +2484,22 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: campaignWithZeroWeight,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithZeroWeight, 1);
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          campaignWithZeroWeight,
+          1,
+          csvContext,
+        );
 
         // Token0 weight: 2.0, Token1 weight: 0, Total weight: 2.0
         // Token0 should get: 1000 * 2.0 / 2.0 = 1000 tokens (100%)
@@ -2465,15 +2517,16 @@ describe('MerklProcessorService', () => {
       it('should return no rewards when both tokens have zero weight', () => {
         const campaignWithZeroWeights = {
           ...mockCampaignWithWeights,
+          exchangeId: ExchangeId.OGCoti, // Use OGCoti which has defaultWeighting: 0
           pair: {
             ...mockCampaignWithWeights.pair,
             token0: {
               ...mockToken0,
-              address: '0x0000000000000000000000000000000000000000', // 0 weight
+              address: '0x0000000000000000000000000000000000000000', // 0 weight (default for OGCoti)
             },
             token1: {
               ...mockToken1,
-              address: '0x0000000000000000000000000000000000000001', // 0 weight
+              address: '0x0000000000000000000000000000000000000001', // 0 weight (default for OGCoti)
             },
           },
         };
@@ -2505,7 +2558,21 @@ describe('MerklProcessorService', () => {
 
         const rewardPool = new Decimal('1000000000000000000000');
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithZeroWeights, 1);
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: campaignWithZeroWeights,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          campaignWithZeroWeights,
+          1,
+          csvContext,
+        );
 
         // Both tokens have 0 weight, so no rewards should be distributed
         expect(result.size).toBe(0);
@@ -2544,7 +2611,21 @@ describe('MerklProcessorService', () => {
 
         const rewardPool = new Decimal('1000000000000000000000');
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, campaignWithEqualWeights, 1);
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: campaignWithEqualWeights,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          campaignWithEqualWeights,
+          1,
+          csvContext,
+        );
 
         // Token0 weight: 1.0, Token1 weight: 1.0, Total weight: 2.0
         // Token0 should get: 1000 * 1.0 / 2.0 = 500 tokens (50%)
@@ -2601,12 +2682,21 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: campaignWithWhitelistedAsset,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           campaignWithWhitelistedAsset,
           1,
+          csvContext,
         );
 
         // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
@@ -2649,8 +2739,22 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: mockCampaignWithWeights,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          mockCampaignWithWeights,
+          1,
+          csvContext,
+        );
 
         // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
         // Token0 pool: 1000 * 2.0 / 2.5 = 800 tokens (strategy gets all)
@@ -2697,8 +2801,22 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
+        const csvContext = {
+          rewardBreakdown: {},
+          currentEpochStart: '',
+          currentEpochNumber: 1,
+          currentCampaign: mockCampaignWithWeights,
+          priceCache: null,
+          globalSubEpochNumber: 1,
+        };
 
-        const result = (testService as any).calculateSnapshotRewards(snapshot, rewardPool, mockCampaignWithWeights, 1);
+        const result = (testService as any).calculateSnapshotRewards(
+          snapshot,
+          rewardPool,
+          mockCampaignWithWeights,
+          1,
+          csvContext,
+        );
 
         // Should still work correctly with case-insensitive matching
         // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
@@ -2718,16 +2836,16 @@ describe('MerklProcessorService', () => {
     describe('getTokenWeighting method', () => {
       it('should return correct specific weighting from config', () => {
         const weight = (testService as any).getTokenWeighting(
-          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // Mixed case like config
-          ExchangeId.OGCoti,
+          '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // USDT - 2.0 weight
+          ExchangeId.OGTac,
         );
         expect(weight).toBe(2.0);
       });
 
-      it('should return 0.5 for whitelisted assets', () => {
+      it('should return 0.5 for TON token', () => {
         const weight = (testService as any).getTokenWeighting(
-          '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // Mixed case like config
-          ExchangeId.OGCoti,
+          '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // TON - 0.5 weight
+          ExchangeId.OGTac,
         );
         expect(weight).toBe(0.5);
       });
@@ -2735,9 +2853,9 @@ describe('MerklProcessorService', () => {
       it('should return default weighting for unlisted tokens', () => {
         const weight = (testService as any).getTokenWeighting(
           '0x0000000000000000000000000000000000000000',
-          ExchangeId.OGCoti,
+          ExchangeId.OGTac,
         );
-        expect(weight).toBe(0); // Default for OGCoti
+        expect(weight).toBe(0.5); // Default for OGTac
       });
 
       it('should return default weighting for OGEthereum', () => {
@@ -2749,22 +2867,22 @@ describe('MerklProcessorService', () => {
       });
 
       it('should be case-insensitive for token addresses', () => {
-        // Test with different case variations of the same address
+        // Test with different case variations of USDT address
         const weightLower = (testService as any).getTokenWeighting(
-          '0xf1feebc4376c68b7003450ae66343ae59ab37d3c', // all lowercase
-          ExchangeId.OGCoti,
+          '0xaf988c3f7cb2aceabb15f96b19388a259b6c438f', // all lowercase
+          ExchangeId.OGTac,
         );
         const weightUpper = (testService as any).getTokenWeighting(
-          '0xF1FEEBC4376C68B7003450AE66343AE59AB37D3C', // all uppercase
-          ExchangeId.OGCoti,
+          '0xAF988C3F7CB2ACEABB15F96B19388A259B6C438F', // all uppercase
+          ExchangeId.OGTac,
         );
         const weightMixed = (testService as any).getTokenWeighting(
-          '0xf1Feebc4376c68B7003450ae66343Ae59AB37d3C', // mixed case (same as config)
-          ExchangeId.OGCoti,
+          '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // mixed case (same as config)
+          ExchangeId.OGTac,
         );
         const weightDifferentMixed = (testService as any).getTokenWeighting(
-          '0xF1fEEBC4376C68b7003450AE66343aE59aB37D3c', // different mixed case
-          ExchangeId.OGCoti,
+          '0xAf988c3F7cb2AceaBb15F96B19388A259b6c438F', // different mixed case
+          ExchangeId.OGTac,
         );
 
         // All should return the same weight regardless of case
@@ -2774,26 +2892,26 @@ describe('MerklProcessorService', () => {
         expect(weightDifferentMixed).toBe(2.0);
       });
 
-      it('should be case-insensitive for whitelisted assets', () => {
-        // Test whitelisted asset with different case variations
+      it('should be case-insensitive for TON token', () => {
+        // Test TON token with different case variations
         const weightLower = (testService as any).getTokenWeighting(
-          '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1', // all lowercase
-          ExchangeId.OGCoti,
+          '0xb76d91340f5ce3577f0a056d29f6e3eb4e88b140', // all lowercase
+          ExchangeId.OGTac,
         );
         const weightUpper = (testService as any).getTokenWeighting(
-          '0x7637C7838EC4EC6B85080F28A678F8E234BB83D1', // all uppercase
-          ExchangeId.OGCoti,
+          '0xB76D91340F5CE3577F0A056D29F6E3EB4E88B140', // all uppercase
+          ExchangeId.OGTac,
         );
         const weightMixed = (testService as any).getTokenWeighting(
-          '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // mixed case (same as config)
-          ExchangeId.OGCoti,
+          '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // mixed case (same as config)
+          ExchangeId.OGTac,
         );
         const weightDifferentMixed = (testService as any).getTokenWeighting(
-          '0x7637c7838EC4ec6B85080f28a678F8e234BB83d1', // different mixed case
-          ExchangeId.OGCoti,
+          '0xB76d91340f5ce3577F0A056d29F6E3eb4e88b140', // different mixed case
+          ExchangeId.OGTac,
         );
 
-        // All should return 0.5 (whitelisted asset weight) regardless of case
+        // All should return 0.5 (TON token weight) regardless of case
         expect(weightLower).toBe(0.5);
         expect(weightUpper).toBe(0.5);
         expect(weightMixed).toBe(0.5);
