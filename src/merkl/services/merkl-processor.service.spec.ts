@@ -912,9 +912,9 @@ describe('MerklProcessorService', () => {
         const result = await (service as any).createPriceCache(campaigns, batchStartTimestamp, mockDeployment);
 
         expect(result.rates.size).toBe(2);
-        expect(result.rates.get(mockToken0.address.toLowerCase())).toBe(100);
-        expect(result.rates.get(mockToken1.address.toLowerCase())).toBe(200);
-        expect(result.timestamp).toBe(batchStartTimestamp);
+        expect(result.rates.get(mockToken0.address.toLowerCase())).toEqual([{ timestamp: 1704067200, usd: 100 }]);
+        expect(result.rates.get(mockToken1.address.toLowerCase())).toEqual([{ timestamp: 1704067200, usd: 200 }]);
+        expect(result.timeWindow).toEqual({ start: batchStartTimestamp, end: batchStartTimestamp + 24 * 60 * 60 });
       });
 
       it('should handle duplicate token addresses across campaigns', async () => {
@@ -938,10 +938,10 @@ describe('MerklProcessorService', () => {
       beforeEach(() => {
         mockPriceCache = {
           rates: new Map([
-            [mockToken0.address.toLowerCase(), 100],
-            [mockToken1.address.toLowerCase(), 200],
+            [mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]],
+            [mockToken1.address.toLowerCase(), [{ timestamp: 1704067200, usd: 200 }]],
           ]),
-          timestamp: 1704067200,
+          timeWindow: { start: 1704067200, end: 1704067200 + 24 * 60 * 60 },
         };
       });
 
@@ -962,7 +962,7 @@ describe('MerklProcessorService', () => {
       });
 
       it('should return null when token rates are zero', () => {
-        mockPriceCache.rates.set(mockToken0.address.toLowerCase(), 0);
+        mockPriceCache.rates.set(mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 0 }]);
 
         const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
 
@@ -971,8 +971,8 @@ describe('MerklProcessorService', () => {
 
       it('should handle case-insensitive address lookup', () => {
         mockPriceCache.rates.clear();
-        mockPriceCache.rates.set(mockToken0.address.toUpperCase(), 100);
-        mockPriceCache.rates.set(mockToken1.address.toLowerCase(), 200);
+        mockPriceCache.rates.set(mockToken0.address.toUpperCase(), [{ timestamp: 1704067200, usd: 100 }]);
+        mockPriceCache.rates.set(mockToken1.address.toLowerCase(), [{ timestamp: 1704067200, usd: 200 }]);
 
         const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
 
@@ -980,37 +980,60 @@ describe('MerklProcessorService', () => {
       });
     });
 
-    describe('findClosestRate', () => {
+    describe('getUsdRateForTimestamp', () => {
       it('should find closest rate by timestamp', () => {
-        const rates = [
-          { address: mockToken0.address, day: 1704067000, usd: 90 },
-          { address: mockToken0.address, day: 1704067200, usd: 100 },
-          { address: mockToken0.address, day: 1704067400, usd: 110 },
-        ];
+        const mockPriceCache = {
+          rates: new Map([
+            [
+              mockToken0.address.toLowerCase(),
+              [
+                { timestamp: 1704067000, usd: 90 },
+                { timestamp: 1704067200, usd: 100 },
+                { timestamp: 1704067400, usd: 110 },
+              ],
+            ],
+          ]),
+          timeWindow: { start: 1704067000, end: 1704067400 },
+        };
 
-        const result = (service as any).findClosestRate(rates, mockToken0.address, 1704067150);
+        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, mockToken0.address, 1704067150);
 
         expect(result).toBe(100); // Closest to 1704067200
       });
 
-      it('should return null for non-existent token', () => {
-        const rates = [{ address: mockToken0.address, day: 1704067200, usd: 100 }];
+      it('should return 0 for non-existent token', () => {
+        const mockPriceCache = {
+          rates: new Map([[mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]]]),
+          timeWindow: { start: 1704067200, end: 1704067200 },
+        };
 
-        const result = (service as any).findClosestRate(rates, '0xnonexistent', 1704067200);
+        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, '0xnonexistent', 1704067200);
 
-        expect(result).toBeNull();
+        expect(result).toBe(0);
       });
 
       it('should handle empty rates array', () => {
-        const result = (service as any).findClosestRate([], mockToken0.address, 1704067200);
+        const mockPriceCache = {
+          rates: new Map([[mockToken0.address.toLowerCase(), []]]),
+          timeWindow: { start: 1704067200, end: 1704067200 },
+        };
 
-        expect(result).toBeNull();
+        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, mockToken0.address, 1704067200);
+
+        expect(result).toBe(0);
       });
 
       it('should be case-insensitive for address matching', () => {
-        const rates = [{ address: mockToken0.address.toUpperCase(), day: 1704067200, usd: 100 }];
+        const mockPriceCache = {
+          rates: new Map([[mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]]]),
+          timeWindow: { start: 1704067200, end: 1704067200 },
+        };
 
-        const result = (service as any).findClosestRate(rates, mockToken0.address.toLowerCase(), 1704067200);
+        const result = (service as any).getUsdRateForTimestamp(
+          mockPriceCache,
+          mockToken0.address.toUpperCase(),
+          1704067200,
+        );
 
         expect(result).toBe(100);
       });
@@ -1783,12 +1806,6 @@ describe('MerklProcessorService', () => {
       (testService as any).currentEpochStart = '1704081600';
       (testService as any).currentEpochNumber = 1;
       (testService as any).rewardBreakdown = {};
-      (testService as any).priceCache = {
-        rates: new Map([
-          ['0x1234567890123456789012345678901234567890', 100],
-          ['0x0987654321098765432109876543210987654321', 200],
-        ]),
-      };
 
       // Create test data
       const snapshot = {
@@ -1831,8 +1848,13 @@ describe('MerklProcessorService', () => {
         currentEpochStart: '1704081600',
         currentEpochNumber: 1,
         currentCampaign: campaign,
-        priceCache: null,
-        globalSubEpochNumber: 1,
+        priceCache: {
+          rates: new Map([
+            ['0x1234567890123456789012345678901234567890', [{ timestamp: 1704081600, usd: 100 }]],
+            ['0x0987654321098765432109876543210987654321', [{ timestamp: 1704081600, usd: 200 }]],
+          ]),
+          timeWindow: { start: 1704081600, end: 1704081600 },
+        },
       };
 
       // Call the method
@@ -1840,7 +1862,6 @@ describe('MerklProcessorService', () => {
         snapshot,
         new Decimal('1000000000000000000000'),
         campaign,
-        1,
         csvContext,
       );
 
@@ -1857,7 +1878,7 @@ describe('MerklProcessorService', () => {
       expect(subEpochKey).toBeDefined();
 
       const subEpochData = epochData.sub_epochs[subEpochKey];
-      expect(subEpochData.sub_epoch_number).toBe(1);
+      expect(subEpochData.sub_epoch_timestamp).toBeDefined();
       expect(subEpochData.strategy_liquidity.liquidity0).toBe('1000000000000000000');
       expect(subEpochData.strategy_liquidity.liquidity1).toBe('2000000000000000000');
       expect(subEpochData.market_data.token0_address).toBe('0x1234567890123456789012345678901234567890');

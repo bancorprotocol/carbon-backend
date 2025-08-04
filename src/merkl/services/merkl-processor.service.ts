@@ -68,8 +68,8 @@ interface SnapshotData {
 }
 
 interface PriceCache {
-  rates: Map<string, number>; // tokenAddress -> USD rate
-  timestamp: number; // When this cache was created
+  rates: Map<string, Array<{ timestamp: number; usd: number }>>; // tokenAddress -> array of rates with timestamps
+  timeWindow: { start: number; end: number }; // Time window this cache covers
 }
 
 interface BatchEvents {
@@ -105,7 +105,6 @@ interface CSVContext {
   currentEpochNumber: number;
   currentCampaign: Campaign | null;
   priceCache: PriceCache | null;
-  globalSubEpochNumber: number;
 }
 
 @Injectable()
@@ -120,13 +119,14 @@ export class MerklProcessorService {
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
   private readonly csvExportEnabled: boolean;
 
-  // Note: Sensitive state moved to local variables in update() to prevent concurrent deployment interference
-
   // Token weighting configuration per deployment
   private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
     // Ethereum mainnet
     [ExchangeId.OGEthereum]: {
-      tokenWeightings: {},
+      tokenWeightings: {
+        '0xdAC17F958D2ee523a2206206994597C13D831ec7': 0.7, // usdt
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 1.8, // eth
+      },
       whitelistedAssets: [],
       defaultWeighting: 1, // Other assets get no incentives
     },
@@ -143,8 +143,10 @@ export class MerklProcessorService {
         '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140': 0.5, // ton
         '0x61D66bC21fED820938021B06e9b2291f3FB91945': 1.25, // weth
         '0xAf368c91793CB22739386DFCbBb2F1A9e4bCBeBf': 1.25, // wstETH
-        '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 1.25, // cbBTC
-        '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 1.25, // lbBTC
+        // '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 2, // cbBTC
+        // '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 0.7, // lbBTC
+        '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 1, // cbBTC
+        '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 1, // lbBTC
       },
       whitelistedAssets: [],
       defaultWeighting: 0.5,
@@ -174,7 +176,6 @@ export class MerklProcessorService {
       currentEpochNumber: 0,
       currentCampaign: null,
       priceCache: null,
-      globalSubEpochNumber: 0, // Reset global sub-epoch counter for each deployment processing
     };
 
     // 1. Get single global lastProcessedBlock for merkl
@@ -202,6 +203,17 @@ export class MerklProcessorService {
       });
     }
 
+    // 2.5. Create global price cache for consistent USD rates across all batches
+    const globalStartTimestamp = await this.getTimestampForBlock(lastProcessedBlock + 1, deployment);
+    const globalEndTimestamp = await this.getTimestampForBlock(endBlock, deployment);
+    const activeCampaigns = campaignContexts.map((ctx) => ctx.campaign);
+    const globalPriceCache = await this.createGlobalPriceCache(
+      activeCampaigns,
+      globalStartTimestamp,
+      globalEndTimestamp,
+      deployment,
+    );
+
     // 3. Process blocks in batches globally
     for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
@@ -224,6 +236,7 @@ export class MerklProcessorService {
         batchEnd,
         deployment,
         csvContext,
+        globalPriceCache,
       );
 
       // 6. Update the global lastProcessedBlock after each batch
@@ -252,6 +265,7 @@ export class MerklProcessorService {
     batchEnd: number,
     deployment: Deployment,
     csvContext: CSVContext,
+    globalPriceCache: PriceCache,
   ): Promise<void> {
     const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
     const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
@@ -268,11 +282,7 @@ export class MerklProcessorService {
       blockTimestamps = await this.blockService.getBlocksDictionary([...allBlockIds], deployment);
     }
 
-    // Create price cache once for all campaigns in this batch
-    const campaigns = campaignContexts.map((ctx) => ctx.campaign);
-    const priceCache = await this.createPriceCache(campaigns, batchStartTimestamp, deployment);
-
-    // Process each campaign with the same batch of events
+    // Process each campaign with the same batch of events using global price cache
     for (const context of campaignContexts) {
       const campaignEndTimestamp = Math.floor(context.campaign.endDate.getTime() / 1000);
 
@@ -315,7 +325,7 @@ export class MerklProcessorService {
         batchStartTimestamp,
         batchEndTimestamp,
         context.strategyStates,
-        priceCache,
+        globalPriceCache,
         {
           createdEvents: pairCreatedEvents,
           updatedEvents: pairUpdatedEvents,
@@ -909,14 +919,7 @@ export class MerklProcessorService {
 
     for (let i = 0; i < snapshots.length; i++) {
       const snapshot = snapshots[i];
-      csvContext.globalSubEpochNumber++; // Increment global sub-epoch counter
-      const snapshotRewards = this.calculateSnapshotRewards(
-        snapshot,
-        rewardPerSnapshot,
-        campaign,
-        csvContext.globalSubEpochNumber, // Use global counter instead of local i+1
-        csvContext,
-      );
+      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot, campaign, csvContext);
 
       // Check if snapshot had no eligible liquidity
       const hasEligibleLiquidity = snapshotRewards.size > 0;
@@ -1103,7 +1106,6 @@ export class MerklProcessorService {
     snapshot: SnapshotData,
     rewardPool: Decimal,
     campaign: Campaign,
-    subEpochNumber: number,
     csvContext: CSVContext,
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
@@ -1183,13 +1185,19 @@ export class MerklProcessorService {
         const token0RewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
         const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
 
-        // Get USD rates from price cache
-        const token0UsdRate = csvContext.priceCache?.rates?.get(strategy.token0Address.toLowerCase()) || 0;
-        const token1UsdRate = csvContext.priceCache?.rates?.get(strategy.token1Address.toLowerCase()) || 0;
+        // Get USD rates from price cache using actual sub-epoch timestamp for deterministic lookup
+        const subEpochTimestampUnix = Math.floor(new Date(subEpochTimestamp).getTime() / 1000);
+        const token0UsdRate = csvContext.priceCache
+          ? this.getUsdRateForTimestamp(csvContext.priceCache, strategy.token0Address, subEpochTimestampUnix)
+          : 0;
+        const token1UsdRate = csvContext.priceCache
+          ? this.getUsdRateForTimestamp(csvContext.priceCache, strategy.token1Address, subEpochTimestampUnix)
+          : 0;
 
         // Store sub-epoch data (rewards will be filled in Phase 2)
-        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber] = {
-          sub_epoch_number: subEpochNumber,
+        // Use timestamp as key for automatic deduplication
+        const timestampKey = subEpochTimestamp;
+        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[timestampKey] = {
           sub_epoch_timestamp: subEpochTimestamp,
           token0_reward: '0', // Will be updated in Phase 2
           token1_reward: '0', // Will be updated in Phase 2
@@ -1244,7 +1252,7 @@ export class MerklProcessorService {
         if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
           subEpochData.token0_reward = reward.toString();
 
           // Update running totals
@@ -1265,7 +1273,7 @@ export class MerklProcessorService {
         if (this.csvExportEnabled && subEpochTimestamp) {
           const lpKey = `LP_${strategyId}`;
           const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochNumber];
+            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
           subEpochData.token1_reward = reward.toString();
 
           // Update running totals
@@ -1280,7 +1288,7 @@ export class MerklProcessorService {
       for (const [strategyId] of rewards) {
         const lpKey = `LP_${strategyId}`;
         const epochData = csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart];
-        const subEpochData = epochData.sub_epochs[subEpochNumber];
+        const subEpochData = epochData.sub_epochs[subEpochTimestamp];
 
         // Aggregate to epoch level
         epochData.token0_reward = new Decimal(epochData.token0_reward).add(subEpochData.token0_reward).toString();
@@ -1504,19 +1512,107 @@ export class MerklProcessorService {
     // Fetch USD rates for all token addresses at once
     const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, targetDate, endDate);
 
-    // Build cache map
-    const cacheMap = new Map<string, number>();
+    // Build cache map - store ALL rates, not just closest to batchStartTimestamp
+    const cacheMap = new Map<string, Array<{ timestamp: number; usd: number }>>();
     for (const rate of rates) {
-      const closestRate = this.findClosestRate(rates, rate.address, batchStartTimestamp);
-      if (closestRate !== null) {
-        cacheMap.set(rate.address.toLowerCase(), closestRate);
+      const tokenAddress = rate.address.toLowerCase();
+      if (!cacheMap.has(tokenAddress)) {
+        cacheMap.set(tokenAddress, []);
       }
+      const tokenRates = cacheMap.get(tokenAddress);
+      if (tokenRates) {
+        tokenRates.push({
+          timestamp: rate.day,
+          usd: rate.usd,
+        });
+      }
+    }
+
+    // Sort rates by timestamp for efficient closest lookup
+    for (const [, tokenRates] of cacheMap.entries()) {
+      tokenRates.sort((a, b) => a.timestamp - b.timestamp);
     }
 
     return {
       rates: cacheMap,
-      timestamp: batchStartTimestamp,
+      timeWindow: { start: batchStartTimestamp, end: batchStartTimestamp + 24 * 60 * 60 },
     };
+  }
+
+  /**
+   * Create global price cache covering entire processing timeframe for consistent USD rates
+   */
+  private async createGlobalPriceCache(
+    campaigns: Campaign[],
+    startTimestamp: number,
+    endTimestamp: number,
+    deployment: Deployment,
+  ): Promise<PriceCache> {
+    // Collect all unique token addresses from campaigns
+    const uniqueTokenAddresses = new Set<string>();
+    for (const campaign of campaigns) {
+      uniqueTokenAddresses.add(campaign.pair.token0.address);
+      uniqueTokenAddresses.add(campaign.pair.token1.address);
+    }
+
+    const tokenAddresses = Array.from(uniqueTokenAddresses);
+    const startDate = new Date(startTimestamp * 1000).toISOString();
+    const endDate = new Date(endTimestamp * 1000).toISOString();
+
+    this.logger.log(`Fetching global USD rates for ${tokenAddresses.length} tokens from ${startDate} to ${endDate}`);
+
+    // Fetch USD rates for entire timeframe
+    const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, startDate, endDate);
+
+    // Build cache map - store ALL rates
+    const cacheMap = new Map<string, Array<{ timestamp: number; usd: number }>>();
+    for (const rate of rates) {
+      const tokenAddress = rate.address.toLowerCase();
+      if (!cacheMap.has(tokenAddress)) {
+        cacheMap.set(tokenAddress, []);
+      }
+      const tokenRates = cacheMap.get(tokenAddress);
+      if (tokenRates) {
+        tokenRates.push({
+          timestamp: rate.day,
+          usd: rate.usd,
+        });
+      }
+    }
+
+    // Sort rates by timestamp for efficient closest lookup
+    for (const [, tokenRates] of cacheMap.entries()) {
+      tokenRates.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    return {
+      rates: cacheMap,
+      timeWindow: { start: startTimestamp, end: endTimestamp },
+    };
+  }
+
+  /**
+   * Get USD rate for a specific timestamp using deterministic closest lookup
+   */
+  private getUsdRateForTimestamp(priceCache: PriceCache, tokenAddress: string, targetTimestamp: number): number {
+    const tokenRates = priceCache.rates.get(tokenAddress.toLowerCase());
+    if (!tokenRates || tokenRates.length === 0) {
+      return 0;
+    }
+
+    // Find rate with timestamp closest to target (DETERMINISTIC)
+    let closest = tokenRates[0];
+    let minDiff = Math.abs(closest.timestamp - targetTimestamp);
+
+    for (const rate of tokenRates) {
+      const diff = Math.abs(rate.timestamp - targetTimestamp);
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = rate;
+      }
+    }
+
+    return closest.usd;
   }
 
   private getTargetPricesAtTime(
@@ -1524,11 +1620,11 @@ export class MerklProcessorService {
     campaign: Campaign,
     priceCache: PriceCache,
   ): { order0TargetPrice: Decimal; order1TargetPrice: Decimal } | null {
-    // Get token addresses and USD rates
-    const token0Address = campaign.pair.token0.address.toLowerCase();
-    const token1Address = campaign.pair.token1.address.toLowerCase();
-    const token0Rate = priceCache.rates.get(token0Address);
-    const token1Rate = priceCache.rates.get(token1Address);
+    // Get token addresses and USD rates using deterministic lookup
+    const token0Address = campaign.pair.token0.address;
+    const token1Address = campaign.pair.token1.address;
+    const token0Rate = this.getUsdRateForTimestamp(priceCache, token0Address, timestamp);
+    const token1Rate = this.getUsdRateForTimestamp(priceCache, token1Address, timestamp);
 
     if (!token0Rate || !token1Rate || token0Rate === 0 || token1Rate === 0) {
       this.logger.warn(
@@ -1542,26 +1638,6 @@ export class MerklProcessorService {
       order0TargetPrice: new Decimal(token1Rate).div(token0Rate), // token1Usd/token0Usd for order0
       order1TargetPrice: new Decimal(token0Rate).div(token1Rate), // token0Usd/token1Usd for order1
     };
-  }
-
-  private findClosestRate(rates: any[], tokenAddress: string, targetTimestamp: number): number | null {
-    const tokenRates = rates.filter((rate) => rate.address.toLowerCase() === tokenAddress.toLowerCase());
-
-    if (tokenRates.length === 0) return null;
-
-    // Find rate with timestamp closest to target
-    let closest = tokenRates[0];
-    let minDiff = Math.abs(closest.day - targetTimestamp);
-
-    for (const rate of tokenRates) {
-      const diff = Math.abs(rate.day - targetTimestamp);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = rate;
-      }
-    }
-
-    return closest.usd;
   }
 
   private async writeRewardBreakdownFile(deployment: Deployment, csvContext: CSVContext): Promise<void> {
@@ -1612,7 +1688,7 @@ export class MerklProcessorService {
 
       // Write CSV header
       csvStream.write(
-        'strategy_id,epoch_start,epoch_number,sub_epoch_timestamp,sub_epoch_number,token0_reward,token1_reward,total_reward,liquidity0,liquidity1,token0_address,token1_address,token0_usd_rate,token1_usd_rate,target_price,eligible0,eligible1,token0_reward_zone_boundary,token1_reward_zone_boundary\n',
+        'strategy_id,epoch_start,epoch_number,sub_epoch_timestamp,token0_reward,token1_reward,total_reward,liquidity0,liquidity1,token0_address,token1_address,token0_usd_rate,token1_usd_rate,target_price,eligible0,eligible1,token0_reward_zone_boundary,token1_reward_zone_boundary\n',
       );
 
       // Write CSV data rows
@@ -1633,7 +1709,6 @@ export class MerklProcessorService {
               epochKey,
               epochNumber,
               subEpochData.sub_epoch_timestamp,
-              subEpochData.sub_epoch_number,
               subEpochData.token0_reward,
               subEpochData.token1_reward,
               subEpochData.total_reward,
