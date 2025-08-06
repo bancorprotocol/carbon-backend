@@ -2,10 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Decimal } from 'decimal.js';
-import { createWriteStream } from 'fs';
+import { createWriteStream, WriteStream } from 'fs';
 import { ConfigService } from '@nestjs/config';
 import { partitionSingleEpoch } from './partitioner';
 import { createHash } from 'crypto';
+import { execSync } from 'child_process';
+import { unlinkSync, renameSync } from 'fs';
+import * as path from 'path';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
 import { CampaignService } from './campaign.service';
@@ -99,10 +102,9 @@ interface TokenWeightingConfig {
   defaultWeighting: number;
 }
 
-interface CSVContext {
-  rewardBreakdown: any;
-  currentEpochStart: string;
-  currentEpochNumber: number;
+interface StreamingCSVContext {
+  csvStream: WriteStream | null;
+  isHeaderWritten: boolean;
   currentCampaign: Campaign | null;
   priceCache: PriceCache | null;
 }
@@ -169,14 +171,20 @@ export class MerklProcessorService {
   }
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
-    // Initialize CSV context locally to prevent concurrent deployment interference
-    const csvContext: CSVContext = {
-      rewardBreakdown: {},
-      currentEpochStart: '',
-      currentEpochNumber: 0,
+    // Initialize streaming CSV context locally to prevent concurrent deployment interference
+    const streamingContext: StreamingCSVContext = {
+      csvStream: null,
+      isHeaderWritten: false,
       currentCampaign: null,
       priceCache: null,
     };
+
+    // Initialize CSV stream if enabled
+    if (this.csvExportEnabled) {
+      const csvFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.csv`;
+      streamingContext.csvStream = createWriteStream(csvFilename);
+      this.logger.log(`📝 Started streaming CSV to ${csvFilename}`);
+    }
 
     // 1. Get single global lastProcessedBlock for merkl
     const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
@@ -235,7 +243,7 @@ export class MerklProcessorService {
         batchStart,
         batchEnd,
         deployment,
-        csvContext,
+        streamingContext,
         globalPriceCache,
       );
 
@@ -247,9 +255,9 @@ export class MerklProcessorService {
     const endBlockTimestamp = await this.getTimestampForBlock(endBlock, deployment);
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
 
-    // 8. Write reward breakdown JSON file
+    // 8. Close CSV stream if enabled
     if (this.csvExportEnabled) {
-      await this.writeRewardBreakdownFile(deployment, csvContext);
+      await this.closeCSVStream(streamingContext);
     }
   }
 
@@ -264,7 +272,7 @@ export class MerklProcessorService {
     batchStart: number,
     batchEnd: number,
     deployment: Deployment,
-    csvContext: CSVContext,
+    streamingContext: StreamingCSVContext,
     globalPriceCache: PriceCache,
   ): Promise<void> {
     const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
@@ -333,7 +341,7 @@ export class MerklProcessorService {
           transferEvents: pairTransferEvents,
           blockTimestamps,
         },
-        csvContext,
+        streamingContext,
       );
 
       // Update strategy states after epoch processing
@@ -715,7 +723,7 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
-    csvContext: CSVContext,
+    streamingContext: StreamingCSVContext,
   ): Promise<void> {
     // Skip if start timestamp is after campaign end
     const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
@@ -738,7 +746,7 @@ export class MerklProcessorService {
     for (const epoch of epochs) {
       // Clone strategy states for this epoch
       const epochStrategyStates = this.deepCloneStrategyStates(strategyStates);
-      await this.processEpoch(campaign, epoch, epochStrategyStates, priceCache, batchEvents, csvContext);
+      await this.processEpoch(campaign, epoch, epochStrategyStates, priceCache, batchEvents, streamingContext);
     }
   }
 
@@ -807,7 +815,7 @@ export class MerklProcessorService {
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
-    csvContext: CSVContext,
+    streamingContext: StreamingCSVContext,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
@@ -846,7 +854,7 @@ export class MerklProcessorService {
         campaign,
         priceCache,
         batchEvents,
-        csvContext,
+        streamingContext,
       );
 
       // Validate that new epoch rewards won't exceed campaign total
@@ -896,13 +904,55 @@ export class MerklProcessorService {
     }
   }
 
+  private writeCSVHeader(streamingContext: StreamingCSVContext): void {
+    if (!streamingContext.csvStream || streamingContext.isHeaderWritten) return;
+
+    const header = [
+      'strategy_id',
+      'epoch_start',
+      'epoch_number',
+      'sub_epoch_timestamp',
+      'token0_reward',
+      'token1_reward',
+      'total_reward',
+      'liquidity0',
+      'liquidity1',
+      'token0_address',
+      'token1_address',
+      'token0_usd_rate',
+      'token1_usd_rate',
+      'target_price',
+      'eligible0',
+      'eligible1',
+      'token0_reward_zone_boundary',
+      'token1_reward_zone_boundary',
+      'token0_reward_weight',
+      'token1_reward_weight',
+      'token0_decimals',
+      'token1_decimals',
+      'token0_order_A_compressed',
+      'token0_order_B_compressed',
+      'token0_order_A',
+      'token0_order_B',
+      'token0_order_z',
+      'token1_order_A_compressed',
+      'token1_order_B_compressed',
+      'token1_order_A',
+      'token1_order_B',
+      'token1_order_z',
+    ].join(',');
+
+    streamingContext.csvStream.write(header + '\n');
+    streamingContext.isHeaderWritten = true;
+  }
+
   private calculateEpochRewards(
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
     campaign: Campaign,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
-    csvContext: CSVContext,
+    streamingContext: StreamingCSVContext,
   ): Map<string, { owner: string; totalReward: Decimal }> {
     const epochRewards = new Map<string, { owner: string; totalReward: Decimal }>();
 
@@ -910,20 +960,22 @@ export class MerklProcessorService {
     const snapshots = this.generateSnapshotsForEpoch(epoch, strategyStates, campaign, priceCache, batchEvents);
     const rewardPerSnapshot = epoch.totalRewards.div(snapshots.length);
 
-    // Track epoch data for JSON output
-    const epochStartISO = epoch.startTimestamp.toISOString();
-    csvContext.currentEpochStart = epochStartISO;
-    csvContext.currentEpochNumber = epoch.epochNumber;
-    csvContext.currentCampaign = campaign;
-    csvContext.priceCache = priceCache;
+    // Set context for CSV streaming
+    streamingContext.currentCampaign = campaign;
+    streamingContext.priceCache = priceCache;
 
     for (let i = 0; i < snapshots.length; i++) {
       const snapshot = snapshots[i];
-      const snapshotRewards = this.calculateSnapshotRewards(snapshot, rewardPerSnapshot, campaign, csvContext);
+      const snapshotRewards = this.calculateSnapshotRewards(
+        snapshot,
+        rewardPerSnapshot,
+        campaign,
+        epoch,
+        streamingContext,
+      );
 
       // Check if snapshot had no eligible liquidity
       const hasEligibleLiquidity = snapshotRewards.size > 0;
-
       if (!hasEligibleLiquidity) {
         continue; // Skip this snapshot, rewards are lost
       }
@@ -1106,7 +1158,8 @@ export class MerklProcessorService {
     snapshot: SnapshotData,
     rewardPool: Decimal,
     campaign: Campaign,
-    csvContext: CSVContext,
+    epoch: EpochInfo,
+    streamingContext: StreamingCSVContext,
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
@@ -1116,13 +1169,16 @@ export class MerklProcessorService {
     const strategyWeightedEligibility0 = new Map<string, Decimal>();
     const strategyWeightedEligibility1 = new Map<string, Decimal>();
 
-    // CSV prep (only if enabled)
-    let subEpochTimestamp: string | null = null;
+    // Prepare CSV data
+    const subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
+    const epochStartISO = epoch.startTimestamp.toISOString();
+
+    // Write CSV header if first time
     if (this.csvExportEnabled) {
-      subEpochTimestamp = new Date(snapshot.timestamp * 1000).toISOString();
+      this.writeCSVHeader(streamingContext);
     }
 
-    // PHASE 1: Single pass calculation + CSV data collection
+    // PHASE 1: Calculate eligibility and weightings
     for (const [strategyId, strategy] of snapshot.strategies) {
       if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
         continue;
@@ -1131,7 +1187,7 @@ export class MerklProcessorService {
       const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
       const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
 
-      // Calculate eligible liquidity ONCE per side
+      // Calculate eligible liquidity
       const eligible0 = this.calculateEligibleLiquidity(
         strategy.liquidity0,
         strategy.order0_z,
@@ -1162,68 +1218,9 @@ export class MerklProcessorService {
         strategyWeightedEligibility1.set(strategyId, weightedEligible1);
         totalWeightedEligible1 = totalWeightedEligible1.add(weightedEligible1);
       }
-
-      // CSV DATA COLLECTION (inline, using already-calculated values)
-      if (this.csvExportEnabled && subEpochTimestamp) {
-        const lpKey = `LP_${strategyId}`;
-
-        // Initialize structure if needed
-        if (!csvContext.rewardBreakdown[lpKey]) {
-          csvContext.rewardBreakdown[lpKey] = { epochs: {} };
-        }
-        if (!csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart]) {
-          csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart] = {
-            epoch_number: csvContext.currentEpochNumber,
-            sub_epochs: {},
-            token0_reward: '0',
-            token1_reward: '0',
-            total_reward: '0',
-          };
-        }
-
-        // Calculate reward zone boundaries
-        const token0RewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
-        const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
-
-        // Get USD rates from price cache using actual sub-epoch timestamp for deterministic lookup
-        const subEpochTimestampUnix = Math.floor(new Date(subEpochTimestamp).getTime() / 1000);
-        const token0UsdRate = csvContext.priceCache
-          ? this.getUsdRateForTimestamp(csvContext.priceCache, strategy.token0Address, subEpochTimestampUnix)
-          : 0;
-        const token1UsdRate = csvContext.priceCache
-          ? this.getUsdRateForTimestamp(csvContext.priceCache, strategy.token1Address, subEpochTimestampUnix)
-          : 0;
-
-        // Store sub-epoch data (rewards will be filled in Phase 2)
-        // Use timestamp as key for automatic deduplication
-        const timestampKey = subEpochTimestamp;
-        csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[timestampKey] = {
-          sub_epoch_timestamp: subEpochTimestamp,
-          token0_reward: '0', // Will be updated in Phase 2
-          token1_reward: '0', // Will be updated in Phase 2
-          total_reward: '0', // Will be updated in Phase 2
-          strategy_liquidity: {
-            liquidity0: strategy.liquidity0.toString(),
-            liquidity1: strategy.liquidity1.toString(),
-          },
-          market_data: {
-            token0_usd_rate: token0UsdRate.toString(),
-            token1_usd_rate: token1UsdRate.toString(),
-            target_price: snapshot.order0TargetPrice.toString(),
-            token0_address: strategy.token0Address,
-            token1_address: strategy.token1Address,
-          },
-          eligibility: {
-            eligible0: eligible0.toString(), // Using calculated value
-            eligible1: eligible1.toString(), // Using calculated value
-            token0_reward_zone_boundary: token0RewardZoneBoundary.toString(),
-            token1_reward_zone_boundary: token1RewardZoneBoundary.toString(),
-          },
-        };
-      }
     }
 
-    // Calculate weight-based reward pool allocation (Python simulator approach)
+    // Calculate weight-based reward pool allocation
     const token0Weighting = this.getTokenWeighting(campaign.pair.token0.address, campaign.exchangeId);
     const token1Weighting = this.getTokenWeighting(campaign.pair.token1.address, campaign.exchangeId);
     const totalWeight = token0Weighting + token1Weighting;
@@ -1241,59 +1238,113 @@ export class MerklProcessorService {
       return rewards;
     }
 
-    // PHASE 2: Distribute token0 rewards + update CSV
+    // PHASE 2: Distribute rewards AND write CSV rows immediately
+    const strategyRewards = new Map<string, { token0: Decimal; token1: Decimal }>();
+
+    // Distribute token0 rewards
     if (totalWeightedEligible0.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility0) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible0);
         const reward = token0RewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
-
-        // Update CSV with actual token0 reward
-        if (this.csvExportEnabled && subEpochTimestamp) {
-          const lpKey = `LP_${strategyId}`;
-          const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
-          subEpochData.token0_reward = reward.toString();
-
-          // Update running totals
-          const currentTotal = new Decimal(subEpochData.total_reward);
-          subEpochData.total_reward = currentTotal.add(reward).toString();
-        }
+        const existing = strategyRewards.get(strategyId) || { token0: new Decimal(0), token1: new Decimal(0) };
+        existing.token0 = existing.token0.add(reward);
+        strategyRewards.set(strategyId, existing);
       }
     }
 
-    // PHASE 3: Distribute token1 rewards + update CSV
+    // Distribute token1 rewards
     if (totalWeightedEligible1.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility1) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible1);
         const reward = token1RewardPool.mul(rewardShare);
         rewards.set(strategyId, (rewards.get(strategyId) || new Decimal(0)).add(reward));
-
-        // Update CSV with actual token1 reward
-        if (this.csvExportEnabled && subEpochTimestamp) {
-          const lpKey = `LP_${strategyId}`;
-          const subEpochData =
-            csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart].sub_epochs[subEpochTimestamp];
-          subEpochData.token1_reward = reward.toString();
-
-          // Update running totals
-          const currentTotal = new Decimal(subEpochData.total_reward);
-          subEpochData.total_reward = currentTotal.add(reward).toString();
-        }
+        const existing = strategyRewards.get(strategyId) || { token0: new Decimal(0), token1: new Decimal(0) };
+        existing.token1 = existing.token1.add(reward);
+        strategyRewards.set(strategyId, existing);
       }
     }
 
-    // PHASE 4: Update epoch-level aggregates (CSV only)
-    if (this.csvExportEnabled && subEpochTimestamp) {
-      for (const [strategyId] of rewards) {
-        const lpKey = `LP_${strategyId}`;
-        const epochData = csvContext.rewardBreakdown[lpKey].epochs[csvContext.currentEpochStart];
-        const subEpochData = epochData.sub_epochs[subEpochTimestamp];
+    // PHASE 3: Write CSV rows immediately
+    if (this.csvExportEnabled && streamingContext.csvStream) {
+      for (const [strategyId, strategy] of snapshot.strategies) {
+        if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
+          continue;
+        }
 
-        // Aggregate to epoch level
-        epochData.token0_reward = new Decimal(epochData.token0_reward).add(subEpochData.token0_reward).toString();
-        epochData.token1_reward = new Decimal(epochData.token1_reward).add(subEpochData.token1_reward).toString();
-        epochData.total_reward = new Decimal(epochData.total_reward).add(subEpochData.total_reward).toString();
+        const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
+        const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
+        const eligible0 = this.calculateEligibleLiquidity(
+          strategy.liquidity0,
+          strategy.order0_z,
+          strategy.order0_A,
+          strategy.order0_B,
+          snapshot.targetSqrtPriceScaled,
+          toleranceFactor,
+        );
+        const eligible1 = this.calculateEligibleLiquidity(
+          strategy.liquidity1,
+          strategy.order1_z,
+          strategy.order1_A,
+          strategy.order1_B,
+          snapshot.invTargetSqrtPriceScaled,
+          toleranceFactor,
+        );
+
+        const token0RewardZoneBoundary = toleranceFactor.mul(snapshot.targetSqrtPriceScaled);
+        const token1RewardZoneBoundary = toleranceFactor.mul(snapshot.invTargetSqrtPriceScaled);
+
+        // Get USD rates
+        const subEpochTimestampUnix = Math.floor(new Date(subEpochTimestamp).getTime() / 1000);
+        const token0UsdRate = streamingContext.priceCache
+          ? this.getUsdRateForTimestamp(streamingContext.priceCache, strategy.token0Address, subEpochTimestampUnix)
+          : 0;
+        const token1UsdRate = streamingContext.priceCache
+          ? this.getUsdRateForTimestamp(streamingContext.priceCache, strategy.token1Address, subEpochTimestampUnix)
+          : 0;
+
+        const strategyReward = strategyRewards.get(strategyId) || { token0: new Decimal(0), token1: new Decimal(0) };
+        const totalReward = strategyReward.token0.add(strategyReward.token1);
+
+        // Build CSV row with all columns
+        const csvRow = [
+          strategyId,
+          epochStartISO,
+          epoch.epochNumber,
+          subEpochTimestamp,
+          strategyReward.token0.toString(),
+          strategyReward.token1.toString(),
+          totalReward.toString(),
+          strategy.liquidity0.toString(),
+          strategy.liquidity1.toString(),
+          strategy.token0Address,
+          strategy.token1Address,
+          token0UsdRate.toString(),
+          token1UsdRate.toString(),
+          snapshot.order0TargetPrice.toString(),
+          eligible0.toString(),
+          eligible1.toString(),
+          token0RewardZoneBoundary.toString(),
+          token1RewardZoneBoundary.toString(),
+          token0Weighting.toString(),
+          token1Weighting.toString(),
+          strategy.token0Decimals.toString(),
+          strategy.token1Decimals.toString(),
+          strategy.order0_A_compressed.toString(),
+          strategy.order0_B_compressed.toString(),
+          strategy.order0_A.toString(),
+          strategy.order0_B.toString(),
+          strategy.order0_z.toString(),
+          strategy.order1_A_compressed.toString(),
+          strategy.order1_B_compressed.toString(),
+          strategy.order1_A.toString(),
+          strategy.order1_B.toString(),
+          strategy.order1_z.toString(),
+        ]
+          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .join(',');
+
+        streamingContext.csvStream.write(csvRow + '\n');
       }
     }
 
@@ -1640,115 +1691,65 @@ export class MerklProcessorService {
     };
   }
 
-  private async writeRewardBreakdownFile(deployment: Deployment, csvContext: CSVContext): Promise<void> {
+  private async closeCSVStream(streamingContext: StreamingCSVContext): Promise<void> {
+    if (!streamingContext.csvStream) return;
+
+    return new Promise((resolve, reject) => {
+      const stream = streamingContext.csvStream;
+      if (stream) {
+        const originalFile = stream.path as string;
+
+        stream.end();
+        stream.on('finish', async () => {
+          try {
+            this.logger.log('✅ CSV streaming completed successfully');
+
+            // Auto-deduplicate the CSV file
+            await this.deduplicateCSVFile(originalFile);
+
+            resolve();
+          } catch (error) {
+            this.logger.error(`Failed to deduplicate CSV: ${error.message}`);
+            reject(error);
+          }
+        });
+        stream.on('error', reject);
+      }
+    });
+  }
+
+  /**
+   * Deduplicate CSV file by removing duplicate strategy_id + sub_epoch_timestamp combinations
+   * Keeps the latest occurrence of each duplicate
+   */
+  private async deduplicateCSVFile(csvFilePath: string): Promise<void> {
     try {
-      const jsonFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.json`;
-      const csvFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.csv`;
+      const tempFile = csvFilePath.replace('.csv', '_temp.csv');
+      const scriptPath = path.join(process.cwd(), 'scripts', 'deduplicate-csv.sh');
 
-      // Write JSON file using streaming approach
-      const jsonStream = createWriteStream(jsonFilename);
-      jsonStream.write('{\n');
+      this.logger.log(`🔄 Deduplicating CSV file: ${path.basename(csvFilePath)}`);
 
-      const strategyKeys = Object.keys(csvContext.rewardBreakdown);
-      let isFirstStrategy = true;
+      // Run the deduplication script
+      const result = execSync(`"${scriptPath}" "${csvFilePath}" "${tempFile}"`, {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024 * 10, // 10MB buffer
+      });
 
-      for (const strategyKey of strategyKeys) {
-        if (!isFirstStrategy) {
-          jsonStream.write(',\n');
-        }
-        isFirstStrategy = false;
-
-        // Write strategy key
-        jsonStream.write(`  "${strategyKey}": {\n`);
-        jsonStream.write(`    "epochs": {\n`);
-
-        const epochs = csvContext.rewardBreakdown[strategyKey].epochs;
-        const epochKeys = Object.keys(epochs);
-        let isFirstEpoch = true;
-
-        for (const epochKey of epochKeys) {
-          if (!isFirstEpoch) {
-            jsonStream.write(',\n');
-          }
-          isFirstEpoch = false;
-
-          // Write epoch key and data
-          jsonStream.write(`      "${epochKey}": `);
-          jsonStream.write(JSON.stringify(epochs[epochKey], null, 6));
-        }
-
-        jsonStream.write('\n    }\n  }');
+      // Parse the result to get statistics
+      const lines = result.split('\n');
+      const statsLine = lines.find((line) => line.includes('Removed duplicates:'));
+      if (statsLine) {
+        this.logger.log(`📊 ${statsLine.trim()}`);
       }
 
-      jsonStream.write('\n}');
-      jsonStream.end();
+      // Replace original file with deduplicated version
+      unlinkSync(csvFilePath);
+      renameSync(tempFile, csvFilePath);
 
-      // Write CSV file
-      const csvStream = createWriteStream(csvFilename);
-
-      // Write CSV header
-      csvStream.write(
-        'strategy_id,epoch_start,epoch_number,sub_epoch_timestamp,token0_reward,token1_reward,total_reward,liquidity0,liquidity1,token0_address,token1_address,token0_usd_rate,token1_usd_rate,target_price,eligible0,eligible1,token0_reward_zone_boundary,token1_reward_zone_boundary\n',
-      );
-
-      // Write CSV data rows
-      for (const strategyKey of strategyKeys) {
-        const strategyId = strategyKey.replace('LP_', '');
-        const epochs = csvContext.rewardBreakdown[strategyKey].epochs;
-
-        for (const epochKey of Object.keys(epochs)) {
-          const epochData = epochs[epochKey];
-          const epochNumber = epochData.epoch_number;
-
-          for (const subEpochNumber of Object.keys(epochData.sub_epochs)) {
-            const subEpochData = epochData.sub_epochs[subEpochNumber];
-
-            // Escape CSV values and write row
-            const row = [
-              strategyId,
-              epochKey,
-              epochNumber,
-              subEpochData.sub_epoch_timestamp,
-              subEpochData.token0_reward,
-              subEpochData.token1_reward,
-              subEpochData.total_reward,
-              subEpochData.strategy_liquidity.liquidity0,
-              subEpochData.strategy_liquidity.liquidity1,
-              `"${subEpochData.market_data.token0_address}"`,
-              `"${subEpochData.market_data.token1_address}"`,
-              subEpochData.market_data.token0_usd_rate,
-              subEpochData.market_data.token1_usd_rate,
-              subEpochData.market_data.target_price,
-              subEpochData.eligibility.eligible0,
-              subEpochData.eligibility.eligible1,
-              subEpochData.eligibility.token0_reward_zone_boundary,
-              subEpochData.eligibility.token1_reward_zone_boundary,
-            ]
-              .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-              .join(',');
-
-            csvStream.write(row + '\n');
-          }
-        }
-      }
-
-      csvStream.end();
-
-      // Wait for both streams to finish
-      await Promise.all([
-        new Promise((resolve, reject) => {
-          jsonStream.on('finish', resolve);
-          jsonStream.on('error', reject);
-        }),
-        new Promise((resolve, reject) => {
-          csvStream.on('finish', resolve);
-          csvStream.on('error', reject);
-        }),
-      ]);
-
-      this.logger.log(`✅ Reward breakdown written to ${jsonFilename} and ${csvFilename}`);
+      this.logger.log(`✅ CSV deduplication completed: ${path.basename(csvFilePath)}`);
     } catch (error) {
-      this.logger.error('Failed to write reward breakdown files:', error);
+      this.logger.error(`Failed to deduplicate CSV file: ${error.message}`);
+      throw error;
     }
   }
 

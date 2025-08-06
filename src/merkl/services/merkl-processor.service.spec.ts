@@ -327,8 +327,8 @@ describe('MerklProcessorService', () => {
 
   describe('update', () => {
     beforeEach(() => {
-      // Mock file system operations to avoid actual file writes
-      jest.spyOn(service as any, 'writeRewardBreakdownFile').mockResolvedValue(undefined);
+      // Mock CSV stream operations to avoid actual file writes
+      jest.spyOn(service as any, 'closeCSVStream').mockResolvedValue(undefined);
     });
 
     it('should process update successfully with active campaigns', async () => {
@@ -1651,7 +1651,7 @@ describe('MerklProcessorService', () => {
       expect((testService as any).csvExportEnabled).toBe(true);
     });
 
-    it('should not call writeRewardBreakdownFile when CSV export is disabled', async () => {
+    it('should not call closeCSVStream when CSV export is disabled', async () => {
       // Setup service with CSV disabled
       const module: TestingModule = await Test.createTestingModule({
         providers: [
@@ -1715,7 +1715,7 @@ describe('MerklProcessorService', () => {
       }).compile();
 
       const testService = module.get<MerklProcessorService>(MerklProcessorService);
-      const writeRewardBreakdownFileSpy = jest.spyOn(testService as any, 'writeRewardBreakdownFile');
+      const closeCSVStreamSpy = jest.spyOn(testService as any, 'closeCSVStream');
 
       const deployment = {
         blockchainType: 'ethereum',
@@ -1725,10 +1725,10 @@ describe('MerklProcessorService', () => {
 
       await testService.update(200, deployment as any);
 
-      expect(writeRewardBreakdownFileSpy).not.toHaveBeenCalled();
+      expect(closeCSVStreamSpy).not.toHaveBeenCalled();
     });
 
-    it('should call writeRewardBreakdownFile when CSV export is enabled', () => {
+    it('should call closeCSVStream when CSV export is enabled', async () => {
       // Create a service instance with CSV enabled
       const configServiceMock = {
         get: jest.fn().mockReturnValue('1'), // Enabled
@@ -1749,39 +1749,29 @@ describe('MerklProcessorService', () => {
 
       expect((testService as any).csvExportEnabled).toBe(true);
 
-      // Spy on the writeRewardBreakdownFile method and mock it
-      const writeRewardBreakdownFileSpy = jest
-        .spyOn(testService as any, 'writeRewardBreakdownFile')
+      // Spy on the closeCSVStream method and mock it
+      const closeCSVStreamSpy = jest
+        .spyOn(testService as any, 'closeCSVStream')
         .mockImplementation(() => Promise.resolve());
 
-      // Mock the rewardBreakdown property
-      (testService as any).rewardBreakdown = {
-        LP_strategy1: {
-          epochs: {
-            '1704081600': {
-              epoch_number: 1,
-              sub_epochs: {},
-              token0_reward: '100',
-              token1_reward: '200',
-              total_reward: '300',
-            },
-          },
+      // Mock a stream context
+      const mockStreamContext = {
+        csvStream: {
+          write: jest.fn(),
+          end: jest.fn(),
         },
+        isHeaderWritten: false,
+        currentCampaign: null,
+        priceCache: null,
       };
 
-      const deployment = {
-        blockchainType: 'ethereum',
-        exchangeId: 'ethereum',
-        startBlock: 1,
-      };
+      // Call the closeCSVStream method directly
+      await (testService as any).closeCSVStream(mockStreamContext);
 
-      // Call the writeRewardBreakdownFile method directly
-      (testService as any).writeRewardBreakdownFile(deployment);
-
-      expect(writeRewardBreakdownFileSpy).toHaveBeenCalledWith(deployment);
+      expect(closeCSVStreamSpy).toHaveBeenCalledWith(mockStreamContext);
     });
 
-    it('should collect CSV data inline during reward calculation when enabled', () => {
+    it('should write CSV rows directly to stream when enabled', () => {
       // Setup service with CSV enabled
       const configServiceMock = {
         get: jest.fn().mockReturnValue('1'),
@@ -1802,11 +1792,6 @@ describe('MerklProcessorService', () => {
 
       expect((testService as any).csvExportEnabled).toBe(true);
 
-      // Mock the necessary properties and methods
-      (testService as any).currentEpochStart = '1704081600';
-      (testService as any).currentEpochNumber = 1;
-      (testService as any).rewardBreakdown = {};
-
       // Create test data
       const snapshot = {
         timestamp: 1704081600,
@@ -1828,12 +1813,17 @@ describe('MerklProcessorService', () => {
               order1_B: new Decimal('1000000000000000000000000'),
               token0Address: '0x1234567890123456789012345678901234567890',
               token1Address: '0x0987654321098765432109876543210987654321',
+              token0Decimals: 18,
+              token1Decimals: 18,
+              order0_A_compressed: new Decimal('1000000000000000000000000'),
+              order0_B_compressed: new Decimal('1000000000000000000000000'),
+              order1_A_compressed: new Decimal('1000000000000000000000000'),
+              order1_B_compressed: new Decimal('1000000000000000000000000'),
             },
           ],
         ]),
       };
 
-      // The campaign object used in CSV tests needs proper pair info for weight-based allocation
       const campaign = {
         exchangeId: 'ethereum',
         pair: {
@@ -1842,11 +1832,22 @@ describe('MerklProcessorService', () => {
         },
       };
 
-      // Create csvContext for the test
-      const csvContext = {
-        rewardBreakdown: {},
-        currentEpochStart: '1704081600',
-        currentEpochNumber: 1,
+      const epoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2024-01-01T00:00:00Z'),
+        endTimestamp: new Date('2024-01-01T04:00:00Z'),
+        totalRewards: new Decimal('1000000000000000000000'),
+      };
+
+      // Mock CSV stream
+      const mockCsvStream = {
+        write: jest.fn(),
+        end: jest.fn(),
+      };
+
+      const streamingContext = {
+        csvStream: mockCsvStream,
+        isHeaderWritten: false,
         currentCampaign: campaign,
         priceCache: {
           rates: new Map([
@@ -1858,36 +1859,31 @@ describe('MerklProcessorService', () => {
       };
 
       // Call the method
-      const result = (testService as any).calculateSnapshotRewards(
+      (testService as any).calculateSnapshotRewards(
         snapshot,
         new Decimal('1000000000000000000000'),
         campaign,
-        csvContext,
+        epoch,
+        streamingContext,
       );
 
-      // Verify CSV data was collected
-      expect(csvContext.rewardBreakdown['LP_strategy1']).toBeDefined();
-      expect(csvContext.rewardBreakdown['LP_strategy1'].epochs).toBeDefined();
-      expect(csvContext.rewardBreakdown['LP_strategy1'].epochs['1704081600']).toBeDefined();
+      // Verify CSV stream was called
+      expect(mockCsvStream.write).toHaveBeenCalled();
 
-      const epochData = csvContext.rewardBreakdown['LP_strategy1'].epochs['1704081600'];
-      expect(epochData.epoch_number).toBe(1);
-      expect(epochData.sub_epochs).toBeDefined();
+      // Check that header was written
+      const calls = mockCsvStream.write.mock.calls;
+      expect(calls.length).toBeGreaterThan(0);
 
-      const subEpochKey = Object.keys(epochData.sub_epochs)[0];
-      expect(subEpochKey).toBeDefined();
+      // First call should be the header (if not already written)
+      const headerCall = calls.find((call) => call[0].includes('strategy_id,epoch_start'));
+      expect(headerCall).toBeDefined();
 
-      const subEpochData = epochData.sub_epochs[subEpochKey];
-      expect(subEpochData.sub_epoch_timestamp).toBeDefined();
-      expect(subEpochData.strategy_liquidity.liquidity0).toBe('1000000000000000000');
-      expect(subEpochData.strategy_liquidity.liquidity1).toBe('2000000000000000000');
-      expect(subEpochData.market_data.token0_address).toBe('0x1234567890123456789012345678901234567890');
-      expect(subEpochData.market_data.token1_address).toBe('0x0987654321098765432109876543210987654321');
-      expect(subEpochData.eligibility.eligible0).toBeDefined();
-      expect(subEpochData.eligibility.eligible1).toBeDefined();
+      // Should have at least one data row written
+      const dataRowCalls = calls.filter((call) => call[0].includes('strategy1') && !call[0].includes('strategy_id'));
+      expect(dataRowCalls.length).toBeGreaterThan(0);
     });
 
-    it('should not collect CSV data when disabled', () => {
+    it('should not write to CSV stream when disabled', () => {
       // Setup service with CSV disabled
       const configServiceMock = {
         get: jest.fn().mockReturnValue('0'),
@@ -1908,9 +1904,6 @@ describe('MerklProcessorService', () => {
 
       expect((testService as any).csvExportEnabled).toBe(false);
 
-      // Mock the necessary properties
-      (testService as any).rewardBreakdown = {};
-
       // Create test data
       const snapshot = {
         timestamp: 1704081600,
@@ -1932,6 +1925,12 @@ describe('MerklProcessorService', () => {
               order1_B: new Decimal('1000000000000000000000000'),
               token0Address: '0x1234567890123456789012345678901234567890',
               token1Address: '0x0987654321098765432109876543210987654321',
+              token0Decimals: 18,
+              token1Decimals: 18,
+              order0_A_compressed: new Decimal('1000000000000000000000000'),
+              order0_B_compressed: new Decimal('1000000000000000000000000'),
+              order1_A_compressed: new Decimal('1000000000000000000000000'),
+              order1_B_compressed: new Decimal('1000000000000000000000000'),
             },
           ],
         ]),
@@ -1945,27 +1944,38 @@ describe('MerklProcessorService', () => {
         },
       };
 
-      // Create csvContext for the test
-      const csvContext = {
-        rewardBreakdown: {},
-        currentEpochStart: '1704081600',
-        currentEpochNumber: 1,
+      const epoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2024-01-01T00:00:00Z'),
+        endTimestamp: new Date('2024-01-01T04:00:00Z'),
+        totalRewards: new Decimal('1000000000000000000000'),
+      };
+
+      // Mock CSV stream (but it should not be used since CSV is disabled)
+      const mockCsvStream = {
+        write: jest.fn(),
+        end: jest.fn(),
+      };
+
+      const streamingContext = {
+        csvStream: null, // No stream when disabled
+        isHeaderWritten: false,
         currentCampaign: campaign,
         priceCache: null,
-        globalSubEpochNumber: 1,
       };
 
       // Call the method
-      const result = (testService as any).calculateSnapshotRewards(
+      (testService as any).calculateSnapshotRewards(
         snapshot,
         new Decimal('1000000000000000000000'),
         campaign,
-        1,
-        csvContext,
+        epoch,
+        streamingContext,
       );
 
-      // Verify no CSV data was collected (since CSV is disabled in this test)
-      expect(Object.keys(csvContext.rewardBreakdown)).toHaveLength(0);
+      // Verify no CSV operations were performed
+      expect(mockCsvStream.write).not.toHaveBeenCalled();
+      expect(streamingContext.csvStream).toBeNull();
     });
   });
 
@@ -2432,21 +2442,25 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000'); // 1000 tokens
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: mockCampaignWithWeights,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           mockCampaignWithWeights,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
@@ -2505,21 +2519,25 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: campaignWithZeroWeight,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           campaignWithZeroWeight,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Token0 weight: 2.0, Token1 weight: 0, Total weight: 2.0
@@ -2578,21 +2596,24 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: campaignWithZeroWeights,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           campaignWithZeroWeights,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Both tokens have 0 weight, so no rewards should be distributed
@@ -2631,21 +2652,24 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: campaignWithEqualWeights,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           campaignWithEqualWeights,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Token0 weight: 1.0, Token1 weight: 1.0, Total weight: 2.0
@@ -2703,21 +2727,25 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: campaignWithWhitelistedAsset,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           campaignWithWhitelistedAsset,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
@@ -2760,21 +2788,25 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: mockCampaignWithWeights,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           mockCampaignWithWeights,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
@@ -2822,21 +2854,25 @@ describe('MerklProcessorService', () => {
         };
 
         const rewardPool = new Decimal('1000000000000000000000');
-        const csvContext = {
-          rewardBreakdown: {},
-          currentEpochStart: '',
-          currentEpochNumber: 1,
+        const epoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2024-01-01T00:00:00Z'),
+          endTimestamp: new Date('2024-01-01T04:00:00Z'),
+          totalRewards: rewardPool,
+        };
+        const streamingContext = {
+          csvStream: null,
+          isHeaderWritten: false,
           currentCampaign: mockCampaignWithWeights,
           priceCache: null,
-          globalSubEpochNumber: 1,
         };
 
         const result = (testService as any).calculateSnapshotRewards(
           snapshot,
           rewardPool,
           mockCampaignWithWeights,
-          1,
-          csvContext,
+          epoch,
+          streamingContext,
         );
 
         // Should still work correctly with case-insensitive matching

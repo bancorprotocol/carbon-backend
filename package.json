@@ -28,7 +28,8 @@
     "cleanup:duplicates": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/cleanup-duplicates.ts",
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
-    "db:seed": "node src/scripts/seed.js"
+    "db:seed": "node src/scripts/seed.js",
+    "validate-csv": "TZ=UTC ts-node -r tsconfig-paths/register scripts/validate-csv-streaming.ts"
   },
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
@@ -52,6 +53,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.0",
     "copyfiles": "^2.4.1",
+    "csv-parse": "^6.1.0",
     "decimal.js": "^10.5.0",
     "dotenv": "^16.5.0",
     "ethers": "^5.7.2",
