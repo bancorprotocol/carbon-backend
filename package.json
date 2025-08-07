@@ -29,7 +29,7 @@
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
     "db:seed": "node src/scripts/seed.js",
-    "validate-csv": "TZ=UTC ts-node -r tsconfig-paths/register scripts/validate-csv-streaming.ts"
+    "generate-merkl-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/generate-csv.ts"
   },
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
@@ -86,6 +86,7 @@
     "eslint-config-prettier": "^8.8.0",
     "eslint-plugin-prettier": "^4.2.1",
     "jest": "^29.5.0",
+    "pg-query-stream": "^4.10.3",
     "prettier": "^2.8.8",
     "source-map-support": "^0.5.21",
     "supertest": "^6.3.3",

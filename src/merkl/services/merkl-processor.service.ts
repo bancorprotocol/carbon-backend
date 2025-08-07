@@ -252,8 +252,6 @@ export class MerklProcessorService {
       (event) => allBlockIds.add(event.block.id),
     );
 
-    // Note: Block timestamps are no longer needed since events have direct timestamp fields
-
     // LOCAL VARIABLES - Query once per campaign before processing to track reward limits
     const campaignDistributedAmounts = new Map<string, Decimal>(); // campaignId -> total distributed
     const campaignTotalAmounts = new Map<string, Decimal>(); // campaignId -> campaign amount
@@ -888,12 +886,8 @@ export class MerklProcessorService {
           continue;
         }
 
-        const pointInTimeStrategy = this.calculatePointInTimeState(
-          strategyId,
-          subEpochData.timestamp, // Use milliseconds directly
-          subEpochData.strategies,
-          batchEvents,
-        );
+        // The strategy from subEpochData.strategies already contains the correct point-in-time state
+        // as calculated by generateSubEpochsForEpoch through event replay
 
         const totalStrategyReward = rewardResults.totalRewards.get(strategyId) || new Decimal(0);
         const tokenRewards = rewardResults.tokenRewards.get(strategyId) || {
@@ -901,7 +895,7 @@ export class MerklProcessorService {
           token1: new Decimal(0),
         };
 
-        // Calculate all values
+        // Calculate all values using the point-in-time strategy state
         const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
         const eligible0 = this.calculateEligibleLiquidity(
           strategy.liquidity0,
@@ -924,7 +918,7 @@ export class MerklProcessorService {
         const token0RewardZoneBoundary = toleranceFactor.mul(subEpochData.targetSqrtPriceScaled);
         const token1RewardZoneBoundary = toleranceFactor.mul(subEpochData.invTargetSqrtPriceScaled);
 
-        // Get USD rates
+        // Get USD rates using point-in-time strategy
         const token0UsdRate = this.getUsdRateForTimestamp(priceCache, strategy.token0Address, subEpochData.timestamp);
         const token1UsdRate = this.getUsdRateForTimestamp(priceCache, strategy.token1Address, subEpochData.timestamp);
 
@@ -940,10 +934,10 @@ export class MerklProcessorService {
           token0Reward: tokenRewards.token0.toString(),
           token1Reward: tokenRewards.token1.toString(),
           totalReward: totalStrategyReward.toString(),
-          liquidity0: pointInTimeStrategy.liquidity0.toString(),
-          liquidity1: pointInTimeStrategy.liquidity1.toString(),
-          token0Address: pointInTimeStrategy.token0Address,
-          token1Address: pointInTimeStrategy.token1Address,
+          liquidity0: strategy.liquidity0.toString(),
+          liquidity1: strategy.liquidity1.toString(),
+          token0Address: strategy.token0Address,
+          token1Address: strategy.token1Address,
           token0UsdRate: token0UsdRate.toString(),
           token1UsdRate: token1UsdRate.toString(),
           targetPrice: subEpochData.order0TargetPrice.toString(),
@@ -953,21 +947,21 @@ export class MerklProcessorService {
           token1RewardZoneBoundary: token1RewardZoneBoundary.toString(),
           token0Weighting: token0Weighting.toString(),
           token1Weighting: token1Weighting.toString(),
-          token0Decimals: pointInTimeStrategy.token0Decimals,
-          token1Decimals: pointInTimeStrategy.token1Decimals,
-          order0ACompressed: pointInTimeStrategy.order0_A_compressed.toString(),
-          order0BCompressed: pointInTimeStrategy.order0_B_compressed.toString(),
-          order0A: pointInTimeStrategy.order0_A.toString(),
-          order0B: pointInTimeStrategy.order0_B.toString(),
-          order0Z: pointInTimeStrategy.order0_z.toString(),
-          order1ACompressed: pointInTimeStrategy.order1_A_compressed.toString(),
-          order1BCompressed: pointInTimeStrategy.order1_B_compressed.toString(),
-          order1A: pointInTimeStrategy.order1_A.toString(),
-          order1B: pointInTimeStrategy.order1_B.toString(),
-          order1Z: pointInTimeStrategy.order1_z.toString(),
-          lastEventTimestamp: new Date(pointInTimeStrategy.lastEventTimestamp),
+          token0Decimals: strategy.token0Decimals,
+          token1Decimals: strategy.token1Decimals,
+          order0ACompressed: strategy.order0_A_compressed.toString(),
+          order0BCompressed: strategy.order0_B_compressed.toString(),
+          order0A: strategy.order0_A.toString(),
+          order0B: strategy.order0_B.toString(),
+          order0Z: strategy.order0_z.toString(),
+          order1ACompressed: strategy.order1_A_compressed.toString(),
+          order1BCompressed: strategy.order1_B_compressed.toString(),
+          order1A: strategy.order1_A.toString(),
+          order1B: strategy.order1_B.toString(),
+          order1Z: strategy.order1_z.toString(),
+          lastEventTimestamp: new Date(strategy.lastEventTimestamp),
           lastProcessedBlock: currentBatchEndBlock,
-          ownerAddress: pointInTimeStrategy.currentOwner,
+          ownerAddress: strategy.currentOwner,
         });
       }
     }
@@ -1240,99 +1234,6 @@ export class MerklProcessorService {
       }
     }
 
-    // // PHASE 3: Write CSV rows with point-in-time strategy states
-    // if (this.csvExportEnabled && streamingContext.csvFilename) {
-    //   for (const [strategyId, strategy] of subEpoch.strategies) {
-    //     if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
-    //       continue;
-    //     }
-
-    //     // Calculate point-in-time strategy state for this snapshot timestamp
-    //     const pointInTimeStrategy = this.calculatePointInTimeState(
-    //       strategyId,
-    //       subEpoch.timestamp,
-    //       subEpoch.strategies,
-    //       batchEvents,
-    //     );
-
-    //     const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
-    //     const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
-    //     const eligible0 = this.calculateEligibleLiquidity(
-    //       strategy.liquidity0,
-    //       strategy.order0_z,
-    //       strategy.order0_A,
-    //       strategy.order0_B,
-    //       subEpoch.targetSqrtPriceScaled,
-    //       toleranceFactor,
-    //     );
-    //     const eligible1 = this.calculateEligibleLiquidity(
-    //       strategy.liquidity1,
-    //       strategy.order1_z,
-    //       strategy.order1_A,
-    //       strategy.order1_B,
-    //       subEpoch.invTargetSqrtPriceScaled,
-    //       toleranceFactor,
-    //     );
-
-    //     const token0RewardZoneBoundary = toleranceFactor.mul(subEpoch.targetSqrtPriceScaled);
-    //     const token1RewardZoneBoundary = toleranceFactor.mul(subEpoch.invTargetSqrtPriceScaled);
-
-    //     // Get USD rates
-    //     const subEpochTimestampUnix = Math.floor(new Date(subEpochTimestamp).getTime() / 1000);
-    //     const token0UsdRate = streamingContext.priceCache
-    //       ? this.getUsdRateForTimestamp(streamingContext.priceCache, strategy.token0Address, subEpochTimestampUnix)
-    //       : 0;
-    //     const token1UsdRate = streamingContext.priceCache
-    //       ? this.getUsdRateForTimestamp(streamingContext.priceCache, strategy.token1Address, subEpochTimestampUnix)
-    //       : 0;
-
-    //     const strategyReward = strategyRewards.get(strategyId) || { token0: new Decimal(0), token1: new Decimal(0) };
-    //     const totalReward = strategyReward.token0.add(strategyReward.token1);
-
-    //     // Build CSV row with point-in-time strategy state
-    //     const csvRow = [
-    //       strategyId,
-    //       epochStartISO,
-    //       epoch.epochNumber,
-    //       subEpochTimestamp,
-    //       strategyReward.token0.toString(),
-    //       strategyReward.token1.toString(),
-    //       totalReward.toString(),
-    //       pointInTimeStrategy.liquidity0.toString(),
-    //       pointInTimeStrategy.liquidity1.toString(),
-    //       pointInTimeStrategy.token0Address,
-    //       pointInTimeStrategy.token1Address,
-    //       token0UsdRate.toString(),
-    //       token1UsdRate.toString(),
-    //       subEpoch.order0TargetPrice.toString(),
-    //       eligible0.toString(),
-    //       eligible1.toString(),
-    //       token0RewardZoneBoundary.toString(),
-    //       token1RewardZoneBoundary.toString(),
-    //       token0Weighting.toString(),
-    //       token1Weighting.toString(),
-    //       pointInTimeStrategy.token0Decimals.toString(),
-    //       pointInTimeStrategy.token1Decimals.toString(),
-    //       pointInTimeStrategy.order0_A_compressed.toString(),
-    //       pointInTimeStrategy.order0_B_compressed.toString(),
-    //       pointInTimeStrategy.order0_A.toString(),
-    //       pointInTimeStrategy.order0_B.toString(),
-    //       pointInTimeStrategy.order0_z.toString(),
-    //       pointInTimeStrategy.order1_A_compressed.toString(),
-    //       pointInTimeStrategy.order1_B_compressed.toString(),
-    //       pointInTimeStrategy.order1_A.toString(),
-    //       pointInTimeStrategy.order1_B.toString(),
-    //       pointInTimeStrategy.order1_z.toString(),
-    //       pointInTimeStrategy.lastEventTimestamp.toString(),
-    //     ]
-    //       .map((value) => `"${String(value).replace(/"/g, '""')}"`)
-    //       .join(',');
-
-    //     streamingContext.csvStream.write(csvRow + '\n');
-    //     streamingContext.hasDataRows = true;
-    //   }
-    // }
-
     // REWARD CAPPING LOGIC - Ensure campaign limits are never exceeded
     const currentDistributed = campaignDistributedAmounts.get(campaign.id) as Decimal;
     const campaignTotal = campaignTotalAmounts.get(campaign.id) as Decimal;
@@ -1386,46 +1287,6 @@ export class MerklProcessorService {
   }
 
   /**
-   * Calculate the point-in-time strategy state that was valid at a specific timestamp.
-   * This ensures CSV rows reflect the actual state at the snapshot time, not the final state.
-   */
-  private calculatePointInTimeState(
-    strategyId: string,
-    snapshotTimestamp: number,
-    snapshotStrategies: Map<string, StrategyState>,
-    batchEvents: BatchEvents,
-  ): StrategyState {
-    const baseStrategy = snapshotStrategies.get(strategyId);
-    if (!baseStrategy) {
-      throw new Error(`Strategy ${strategyId} not found in snapshot`);
-    }
-
-    // Get all events for this strategy from the batch, sorted chronologically
-    const strategyEvents = this.getStrategyEventsFromBatch(strategyId, batchEvents)
-      .filter((event) => event.timestamp <= snapshotTimestamp)
-      .sort((a, b) => {
-        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
-        if (a.blockId !== b.blockId) return a.blockId - b.blockId;
-        if (a.transactionIndex !== b.transactionIndex) return a.transactionIndex - b.transactionIndex;
-        return a.logIndex - b.logIndex;
-      });
-
-    // If no events occurred at or before this timestamp, use the base strategy
-    if (strategyEvents.length === 0) {
-      return baseStrategy;
-    }
-
-    // Find the most recent event before or at the snapshot timestamp
-    const lastRelevantEvent = strategyEvents[strategyEvents.length - 1];
-
-    // Return a copy of the strategy state with the lastEventTimestamp from the most recent relevant event
-    return {
-      ...baseStrategy,
-      lastEventTimestamp: lastRelevantEvent.timestamp,
-    };
-  }
-
-  /**
    * Extract all events related to a specific strategy from batch events
    */
   private getStrategyEventsFromBatch(
@@ -1439,7 +1300,7 @@ export class MerklProcessorService {
       .filter((event) => event.strategyId === strategyId)
       .forEach((event) =>
         events.push({
-          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          timestamp: event.timestamp.getTime(),
           blockId: event.block.id,
           transactionIndex: event.transactionIndex,
           logIndex: event.logIndex,
@@ -1451,7 +1312,7 @@ export class MerklProcessorService {
       .filter((event) => event.strategyId === strategyId)
       .forEach((event) =>
         events.push({
-          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          timestamp: event.timestamp.getTime(),
           blockId: event.block.id,
           transactionIndex: event.transactionIndex,
           logIndex: event.logIndex,
@@ -1463,7 +1324,7 @@ export class MerklProcessorService {
       .filter((event) => event.strategyId === strategyId)
       .forEach((event) =>
         events.push({
-          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          timestamp: event.timestamp.getTime(),
           blockId: event.block.id,
           transactionIndex: event.transactionIndex,
           logIndex: event.logIndex,
@@ -1475,7 +1336,7 @@ export class MerklProcessorService {
       .filter((event) => event.strategyId === strategyId)
       .forEach((event) =>
         events.push({
-          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          timestamp: event.timestamp.getTime(),
           blockId: event.block.id,
           transactionIndex: event.transactionIndex,
           logIndex: event.logIndex,
@@ -1590,102 +1451,6 @@ export class MerklProcessorService {
       this.logger.error(`Error validating epoch integrity for campaign ${campaign.id}:`, error);
       return false;
     }
-  }
-
-  /**
-   * Validates that new epoch rewards won't exceed campaign total
-   * TODO: Update this method to work with SubEpoch table
-   */
-  private async validateEpochRewardsWontExceedTotal(
-    campaign: Campaign,
-    epoch: EpochInfo,
-    newRewards: Map<string, { owner: string; totalReward: Decimal }>,
-  ): Promise<boolean> {
-    // Temporarily disabled - needs update for SubEpoch table
-    return true;
-    try {
-      // TODO: Implement validation using SubEpoch table
-      const result = { total: '0' }; // Temporary placeholder
-
-      const currentTotal = new Decimal(result.total || '0');
-
-      // Calculate new epoch total
-      const newEpochTotal = Array.from(newRewards.values()).reduce(
-        (sum, { totalReward }) => sum.add(totalReward),
-        new Decimal(0),
-      );
-
-      const projectedTotal = currentTotal.add(newEpochTotal);
-      const campaignAmount = new Decimal(campaign.rewardAmount);
-
-      if (projectedTotal.gt(campaignAmount)) {
-        this.logger.error(
-          `Epoch rewards validation failed for campaign ${campaign.id}, epoch ${epoch.epochNumber}: ` +
-            `current_total=${currentTotal.toString()}, new_epoch_total=${newEpochTotal.toString()}, ` +
-            `projected_total=${projectedTotal.toString()}, campaign_amount=${campaignAmount.toString()}`,
-        );
-        return false;
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(
-        `Error validating epoch rewards for campaign ${campaign.id}, epoch ${epoch.epochNumber}:`,
-        error,
-      );
-      return false;
-    }
-  }
-
-  /**
-   * Fetch USD rates for all unique token addresses in campaigns once per batch
-   */
-  private async createPriceCache(
-    campaigns: Campaign[],
-    batchStartTimestamp: number,
-    deployment: Deployment,
-  ): Promise<PriceCache> {
-    // Collect all unique token addresses from campaigns
-    const uniqueTokenAddresses = new Set<string>();
-    for (const campaign of campaigns) {
-      uniqueTokenAddresses.add(campaign.pair.token0.address);
-      uniqueTokenAddresses.add(campaign.pair.token1.address);
-    }
-
-    const tokenAddresses = Array.from(uniqueTokenAddresses);
-    const targetDate = new Date(batchStartTimestamp).toISOString();
-    const endDate = new Date(batchStartTimestamp + 24 * 60 * 60 * 1000).toISOString(); // +1 day
-
-    this.logger.log(`Fetching USD rates for ${tokenAddresses.length} unique tokens at ${targetDate}`);
-
-    // Fetch USD rates for all token addresses at once
-    const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, targetDate, endDate);
-
-    // Build cache map - store ALL rates, not just closest to batchStartTimestamp
-    const cacheMap = new Map<string, Array<{ timestamp: number; usd: number }>>();
-    for (const rate of rates) {
-      const tokenAddress = rate.address.toLowerCase();
-      if (!cacheMap.has(tokenAddress)) {
-        cacheMap.set(tokenAddress, []);
-      }
-      const tokenRates = cacheMap.get(tokenAddress);
-      if (tokenRates) {
-        tokenRates.push({
-          timestamp: rate.day * 1000, // Convert seconds to milliseconds
-          usd: rate.usd,
-        });
-      }
-    }
-
-    // Sort rates by timestamp for efficient closest lookup
-    for (const [, tokenRates] of cacheMap.entries()) {
-      tokenRates.sort((a, b) => a.timestamp - b.timestamp);
-    }
-
-    return {
-      rates: cacheMap,
-      timeWindow: { start: batchStartTimestamp, end: batchStartTimestamp + 24 * 60 * 60 },
-    };
   }
 
   /**

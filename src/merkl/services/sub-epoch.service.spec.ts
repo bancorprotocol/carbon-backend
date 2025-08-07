@@ -18,6 +18,7 @@ describe('SubEpochService', () => {
       andWhere: jest.fn().mockReturnThis(),
       groupBy: jest.fn().mockReturnThis(),
       addGroupBy: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
       getRawOne: jest.fn(),
       getRawMany: jest.fn(),
       getMany: jest.fn(),
@@ -189,13 +190,17 @@ describe('SubEpochService', () => {
 
       const result = await service.getEpochRewards(campaignId, epochNumber);
 
-      expect(mockQueryBuilder.select).toHaveBeenCalledWith('se.strategyId', 'strategyId');
+      expect(mockQueryBuilder.select).toHaveBeenCalledWith('se.epochNumber', 'epochNumber');
+      expect(mockQueryBuilder.addSelect).toHaveBeenCalledWith('se.strategyId', 'strategyId');
       expect(mockQueryBuilder.addSelect).toHaveBeenCalledWith('se.ownerAddress', 'owner');
       expect(mockQueryBuilder.addSelect).toHaveBeenCalledWith('SUM(CAST(se.totalReward AS DECIMAL))', 'totalReward');
+      expect(mockQueryBuilder.addSelect).toHaveBeenCalledWith('MAX(se.subEpochTimestamp)', 'epochEnd');
       expect(mockQueryBuilder.where).toHaveBeenCalledWith('se.campaignId = :campaignId', { campaignId });
       expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('se.epochNumber = :epochNumber', { epochNumber });
-      expect(mockQueryBuilder.groupBy).toHaveBeenCalledWith('se.strategyId');
+      expect(mockQueryBuilder.groupBy).toHaveBeenCalledWith('se.epochNumber');
+      expect(mockQueryBuilder.addGroupBy).toHaveBeenCalledWith('se.strategyId');
       expect(mockQueryBuilder.addGroupBy).toHaveBeenCalledWith('se.ownerAddress');
+      expect(mockQueryBuilder.orderBy).toHaveBeenCalledWith('se.epochNumber', 'ASC');
 
       expect(result).toHaveLength(2);
       expect(result[0].strategyId).toBe('strategy-1');
