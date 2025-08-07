@@ -7,7 +7,7 @@ import { ConfigService } from '@nestjs/config';
 import { partitionSingleEpoch } from './partitioner';
 import { createHash } from 'crypto';
 import { execSync } from 'child_process';
-import { unlinkSync, renameSync } from 'fs';
+import {} from 'fs';
 import * as path from 'path';
 import { Campaign } from '../entities/campaign.entity';
 import { EpochReward } from '../entities/epoch-reward.entity';
@@ -52,6 +52,8 @@ interface StrategyState {
   creationWallet: string;
   lastProcessedBlock: number;
   isDeleted: boolean;
+  // Metadata for chronological deduplication
+  lastEventTimestamp: number; // Unix timestamp of the latest event that modified this strategy
 }
 
 interface EpochInfo {
@@ -80,7 +82,6 @@ interface BatchEvents {
   updatedEvents: StrategyUpdatedEvent[];
   deletedEvents: StrategyDeletedEvent[];
   transferEvents: VoucherTransferEvent[];
-  blockTimestamps: Record<number, Date>;
 }
 
 interface TimestampedEvent {
@@ -104,7 +105,9 @@ interface TokenWeightingConfig {
 
 interface StreamingCSVContext {
   csvStream: WriteStream | null;
+  csvFilename: string | null;
   isHeaderWritten: boolean;
+  hasDataRows: boolean;
   currentCampaign: Campaign | null;
   priceCache: PriceCache | null;
 }
@@ -132,8 +135,11 @@ export class MerklProcessorService {
       whitelistedAssets: [],
       defaultWeighting: 1, // Other assets get no incentives
     },
-    [ExchangeId.OGCoti]: {
-      tokenWeightings: {},
+    [ExchangeId.OGSei]: {
+      tokenWeightings: {
+        '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8': 1, // weth
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 99, // sei
+      },
       whitelistedAssets: [],
       defaultWeighting: 0,
     },
@@ -174,16 +180,18 @@ export class MerklProcessorService {
     // Initialize streaming CSV context locally to prevent concurrent deployment interference
     const streamingContext: StreamingCSVContext = {
       csvStream: null,
+      csvFilename: null,
       isHeaderWritten: false,
+      hasDataRows: false,
       currentCampaign: null,
       priceCache: null,
     };
 
-    // Initialize CSV stream if enabled
+    // Store CSV filename if enabled (stream will be created lazily when first data is written)
     if (this.csvExportEnabled) {
-      const csvFilename = `reward_breakdown_${deployment.blockchainType}_${deployment.exchangeId}_${Date.now()}.csv`;
-      streamingContext.csvStream = createWriteStream(csvFilename);
-      this.logger.log(`📝 Started streaming CSV to ${csvFilename}`);
+      streamingContext.csvFilename = `reward_breakdown_${deployment.blockchainType}_${
+        deployment.exchangeId
+      }_${Date.now()}.csv`;
     }
 
     // 1. Get single global lastProcessedBlock for merkl
@@ -284,11 +292,7 @@ export class MerklProcessorService {
       (event) => allBlockIds.add(event.block.id),
     );
 
-    // FETCH ALL BLOCK TIMESTAMPS AT ONCE (only if we have events)
-    let blockTimestamps: Record<number, Date> = {};
-    if (allBlockIds.size > 0) {
-      blockTimestamps = await this.blockService.getBlocksDictionary([...allBlockIds], deployment);
-    }
+    // Note: Block timestamps are no longer needed since events have direct timestamp fields
 
     // Process each campaign with the same batch of events using global price cache
     for (const context of campaignContexts) {
@@ -301,9 +305,9 @@ export class MerklProcessorService {
       }
 
       // Filter events by campaign end time
-      const filterEventsByCampaignEnd = <T extends { block: { id: number } }>(eventList: T[]): T[] => {
+      const filterEventsByCampaignEnd = <T extends { timestamp: Date }>(eventList: T[]): T[] => {
         return eventList.filter((event) => {
-          const eventTimestamp = Math.floor(blockTimestamps[event.block.id].getTime() / 1000);
+          const eventTimestamp = Math.floor(event.timestamp.getTime() / 1000);
           return eventTimestamp < campaignEndTimestamp;
         });
       };
@@ -339,7 +343,6 @@ export class MerklProcessorService {
           updatedEvents: pairUpdatedEvents,
           deletedEvents: pairDeletedEvents,
           transferEvents: pairTransferEvents,
-          blockTimestamps,
         },
         streamingContext,
       );
@@ -516,6 +519,8 @@ export class MerklProcessorService {
         creationWallet: strategyState.owner || '',
         lastProcessedBlock: strategyState.block_id,
         isDeleted,
+        // Set initial timestamp to 0 - will be updated when events are processed
+        lastEventTimestamp: 0,
       };
 
       strategyStates.set(strategyId, state);
@@ -546,24 +551,29 @@ export class MerklProcessorService {
 
     // Process events chronologically
     for (const { type, event } of allEvents) {
+      const eventTimestamp = Math.floor(event.timestamp.getTime() / 1000);
       switch (type) {
         case 'created':
-          this.processCreatedEvent(event, strategyStates);
+          this.processCreatedEvent(event, strategyStates, eventTimestamp);
           break;
         case 'updated':
-          this.processUpdatedEvent(event, strategyStates);
+          this.processUpdatedEvent(event, strategyStates, eventTimestamp);
           break;
         case 'deleted':
-          this.processDeletedEvent(event, strategyStates);
+          this.processDeletedEvent(event, strategyStates, eventTimestamp);
           break;
         case 'transfer':
-          this.processTransferEvent(event, strategyStates);
+          this.processTransferEvent(event, strategyStates, eventTimestamp);
           break;
       }
     }
   }
 
-  private processCreatedEvent(event: StrategyCreatedEvent, strategyStates: StrategyStatesMap): void {
+  private processCreatedEvent(
+    event: StrategyCreatedEvent,
+    strategyStates: StrategyStatesMap,
+    eventTimestamp: number,
+  ): void {
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
@@ -605,12 +615,17 @@ export class MerklProcessorService {
       creationWallet: event.owner,
       lastProcessedBlock: event.block.id,
       isDeleted: false,
+      lastEventTimestamp: eventTimestamp,
     };
 
     strategyStates.set(event.strategyId, state);
   }
 
-  private processUpdatedEvent(event: StrategyUpdatedEvent, strategyStates: StrategyStatesMap): void {
+  private processUpdatedEvent(
+    event: StrategyUpdatedEvent,
+    strategyStates: StrategyStatesMap,
+    eventTimestamp: number,
+  ): void {
     const existingState = strategyStates.get(event.strategyId);
     if (!existingState) return;
 
@@ -640,9 +655,14 @@ export class MerklProcessorService {
     existingState.order1_B_compressed = new Decimal(order1ForPair.B || '0');
     existingState.order1_z_compressed = new Decimal(order1ForPair.z || order1ForPair.y || '0');
     existingState.lastProcessedBlock = event.block.id;
+    existingState.lastEventTimestamp = eventTimestamp;
   }
 
-  private processDeletedEvent(event: StrategyDeletedEvent, strategyStates: StrategyStatesMap): void {
+  private processDeletedEvent(
+    event: StrategyDeletedEvent,
+    strategyStates: StrategyStatesMap,
+    eventTimestamp: number,
+  ): void {
     const existingState = strategyStates.get(event.strategyId);
     if (!existingState) return;
 
@@ -656,14 +676,20 @@ export class MerklProcessorService {
     existingState.order1_B_compressed = new Decimal(0);
     existingState.order1_z_compressed = new Decimal(0);
     existingState.lastProcessedBlock = event.block.id;
+    existingState.lastEventTimestamp = eventTimestamp;
   }
 
-  private processTransferEvent(event: VoucherTransferEvent, strategyStates: StrategyStatesMap): void {
+  private processTransferEvent(
+    event: VoucherTransferEvent,
+    strategyStates: StrategyStatesMap,
+    eventTimestamp: number,
+  ): void {
     const existingState = strategyStates.get(event.strategyId);
     if (!existingState) return;
 
     existingState.currentOwner = event.to;
     existingState.lastProcessedBlock = event.block.id;
+    existingState.lastEventTimestamp = eventTimestamp;
   }
 
   private decompressRateParameter(compressedValue: string): Decimal {
@@ -702,6 +728,7 @@ export class MerklProcessorService {
       creationWallet: state.creationWallet,
       lastProcessedBlock: state.lastProcessedBlock,
       isDeleted: state.isDeleted,
+      lastEventTimestamp: state.lastEventTimestamp,
     };
   }
 
@@ -905,7 +932,15 @@ export class MerklProcessorService {
   }
 
   private writeCSVHeader(streamingContext: StreamingCSVContext): void {
-    if (!streamingContext.csvStream || streamingContext.isHeaderWritten) return;
+    if (streamingContext.isHeaderWritten) return;
+
+    // Lazily create CSV stream when first data needs to be written
+    if (!streamingContext.csvStream && streamingContext.csvFilename) {
+      streamingContext.csvStream = createWriteStream(streamingContext.csvFilename);
+      this.logger.log(`📝 Started streaming CSV to ${streamingContext.csvFilename}`);
+    }
+
+    if (!streamingContext.csvStream) return;
 
     const header = [
       'strategy_id',
@@ -940,6 +975,7 @@ export class MerklProcessorService {
       'token1_order_A',
       'token1_order_B',
       'token1_order_z',
+      'last_event_timestamp',
     ].join(',');
 
     streamingContext.csvStream.write(header + '\n');
@@ -972,6 +1008,7 @@ export class MerklProcessorService {
         campaign,
         epoch,
         streamingContext,
+        batchEvents,
       );
 
       // Check if snapshot had no eligible liquidity
@@ -1160,6 +1197,7 @@ export class MerklProcessorService {
     campaign: Campaign,
     epoch: EpochInfo,
     streamingContext: StreamingCSVContext,
+    batchEvents: BatchEvents,
   ): Map<string, Decimal> {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
@@ -1265,12 +1303,20 @@ export class MerklProcessorService {
       }
     }
 
-    // PHASE 3: Write CSV rows immediately
-    if (this.csvExportEnabled && streamingContext.csvStream) {
+    // PHASE 3: Write CSV rows with point-in-time strategy states
+    if (this.csvExportEnabled && streamingContext.csvFilename) {
       for (const [strategyId, strategy] of snapshot.strategies) {
         if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
           continue;
         }
+
+        // Calculate point-in-time strategy state for this snapshot timestamp
+        const pointInTimeStrategy = this.calculatePointInTimeState(
+          strategyId,
+          snapshot.timestamp,
+          snapshot.strategies,
+          batchEvents,
+        );
 
         const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
         const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
@@ -1306,7 +1352,7 @@ export class MerklProcessorService {
         const strategyReward = strategyRewards.get(strategyId) || { token0: new Decimal(0), token1: new Decimal(0) };
         const totalReward = strategyReward.token0.add(strategyReward.token1);
 
-        // Build CSV row with all columns
+        // Build CSV row with point-in-time strategy state
         const csvRow = [
           strategyId,
           epochStartISO,
@@ -1315,10 +1361,10 @@ export class MerklProcessorService {
           strategyReward.token0.toString(),
           strategyReward.token1.toString(),
           totalReward.toString(),
-          strategy.liquidity0.toString(),
-          strategy.liquidity1.toString(),
-          strategy.token0Address,
-          strategy.token1Address,
+          pointInTimeStrategy.liquidity0.toString(),
+          pointInTimeStrategy.liquidity1.toString(),
+          pointInTimeStrategy.token0Address,
+          pointInTimeStrategy.token1Address,
           token0UsdRate.toString(),
           token1UsdRate.toString(),
           snapshot.order0TargetPrice.toString(),
@@ -1328,27 +1374,129 @@ export class MerklProcessorService {
           token1RewardZoneBoundary.toString(),
           token0Weighting.toString(),
           token1Weighting.toString(),
-          strategy.token0Decimals.toString(),
-          strategy.token1Decimals.toString(),
-          strategy.order0_A_compressed.toString(),
-          strategy.order0_B_compressed.toString(),
-          strategy.order0_A.toString(),
-          strategy.order0_B.toString(),
-          strategy.order0_z.toString(),
-          strategy.order1_A_compressed.toString(),
-          strategy.order1_B_compressed.toString(),
-          strategy.order1_A.toString(),
-          strategy.order1_B.toString(),
-          strategy.order1_z.toString(),
+          pointInTimeStrategy.token0Decimals.toString(),
+          pointInTimeStrategy.token1Decimals.toString(),
+          pointInTimeStrategy.order0_A_compressed.toString(),
+          pointInTimeStrategy.order0_B_compressed.toString(),
+          pointInTimeStrategy.order0_A.toString(),
+          pointInTimeStrategy.order0_B.toString(),
+          pointInTimeStrategy.order0_z.toString(),
+          pointInTimeStrategy.order1_A_compressed.toString(),
+          pointInTimeStrategy.order1_B_compressed.toString(),
+          pointInTimeStrategy.order1_A.toString(),
+          pointInTimeStrategy.order1_B.toString(),
+          pointInTimeStrategy.order1_z.toString(),
+          pointInTimeStrategy.lastEventTimestamp.toString(),
         ]
           .map((value) => `"${String(value).replace(/"/g, '""')}"`)
           .join(',');
 
         streamingContext.csvStream.write(csvRow + '\n');
+        streamingContext.hasDataRows = true;
       }
     }
 
     return rewards;
+  }
+
+  /**
+   * Calculate the point-in-time strategy state that was valid at a specific timestamp.
+   * This ensures CSV rows reflect the actual state at the snapshot time, not the final state.
+   */
+  private calculatePointInTimeState(
+    strategyId: string,
+    snapshotTimestamp: number,
+    snapshotStrategies: Map<string, StrategyState>,
+    batchEvents: BatchEvents,
+  ): StrategyState {
+    const baseStrategy = snapshotStrategies.get(strategyId);
+    if (!baseStrategy) {
+      throw new Error(`Strategy ${strategyId} not found in snapshot`);
+    }
+
+    // Get all events for this strategy from the batch, sorted chronologically
+    const strategyEvents = this.getStrategyEventsFromBatch(strategyId, batchEvents)
+      .filter((event) => event.timestamp <= snapshotTimestamp)
+      .sort((a, b) => {
+        if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+        if (a.blockId !== b.blockId) return a.blockId - b.blockId;
+        if (a.transactionIndex !== b.transactionIndex) return a.transactionIndex - b.transactionIndex;
+        return a.logIndex - b.logIndex;
+      });
+
+    // If no events occurred at or before this timestamp, use the base strategy
+    if (strategyEvents.length === 0) {
+      return baseStrategy;
+    }
+
+    // Find the most recent event before or at the snapshot timestamp
+    const lastRelevantEvent = strategyEvents[strategyEvents.length - 1];
+
+    // Return a copy of the strategy state with the lastEventTimestamp from the most recent relevant event
+    return {
+      ...baseStrategy,
+      lastEventTimestamp: lastRelevantEvent.timestamp,
+    };
+  }
+
+  /**
+   * Extract all events related to a specific strategy from batch events
+   */
+  private getStrategyEventsFromBatch(
+    strategyId: string,
+    batchEvents: BatchEvents,
+  ): Array<{ timestamp: number; blockId: number; transactionIndex: number; logIndex: number }> {
+    const events: Array<{ timestamp: number; blockId: number; transactionIndex: number; logIndex: number }> = [];
+
+    // Add created events
+    batchEvents.createdEvents
+      .filter((event) => event.strategyId === strategyId)
+      .forEach((event) =>
+        events.push({
+          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          blockId: event.block.id,
+          transactionIndex: event.transactionIndex,
+          logIndex: event.logIndex,
+        }),
+      );
+
+    // Add updated events
+    batchEvents.updatedEvents
+      .filter((event) => event.strategyId === strategyId)
+      .forEach((event) =>
+        events.push({
+          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          blockId: event.block.id,
+          transactionIndex: event.transactionIndex,
+          logIndex: event.logIndex,
+        }),
+      );
+
+    // Add deleted events
+    batchEvents.deletedEvents
+      .filter((event) => event.strategyId === strategyId)
+      .forEach((event) =>
+        events.push({
+          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          blockId: event.block.id,
+          transactionIndex: event.transactionIndex,
+          logIndex: event.logIndex,
+        }),
+      );
+
+    // Add transfer events
+    batchEvents.transferEvents
+      .filter((event) => event.strategyId === strategyId)
+      .forEach((event) =>
+        events.push({
+          timestamp: Math.floor(event.timestamp.getTime() / 1000),
+          blockId: event.block.id,
+          transactionIndex: event.transactionIndex,
+          logIndex: event.logIndex,
+        }),
+      );
+
+    return events;
   }
 
   private calculateEligibleLiquidity(
@@ -1692,6 +1840,12 @@ export class MerklProcessorService {
   }
 
   private async closeCSVStream(streamingContext: StreamingCSVContext): Promise<void> {
+    // If no data rows were written, don't create an empty CSV file
+    if (!streamingContext.hasDataRows) {
+      this.logger.log('🗑️ No data to export, skipping CSV file creation');
+      return;
+    }
+
     if (!streamingContext.csvStream) return;
 
     return new Promise((resolve, reject) => {
@@ -1721,16 +1875,20 @@ export class MerklProcessorService {
   /**
    * Deduplicate CSV file by removing duplicate strategy_id + sub_epoch_timestamp combinations
    * Keeps the latest occurrence of each duplicate
+   * Creates a separate deduplicated file while preserving the original
    */
   private async deduplicateCSVFile(csvFilePath: string): Promise<void> {
     try {
-      const tempFile = csvFilePath.replace('.csv', '_temp.csv');
+      // Create deduplicated filename by inserting '_deduplicated' before the extension
+      const deduplicatedFile = csvFilePath.replace('.csv', '_deduplicated.csv');
       const scriptPath = path.join(process.cwd(), 'scripts', 'deduplicate-csv.sh');
 
-      this.logger.log(`🔄 Deduplicating CSV file: ${path.basename(csvFilePath)}`);
+      this.logger.log(
+        `🔄 Creating deduplicated copy: ${path.basename(csvFilePath)} -> ${path.basename(deduplicatedFile)}`,
+      );
 
-      // Run the deduplication script
-      const result = execSync(`"${scriptPath}" "${csvFilePath}" "${tempFile}"`, {
+      // Run the deduplication script with the new filename
+      const result = execSync(`"${scriptPath}" "${csvFilePath}" "${deduplicatedFile}"`, {
         encoding: 'utf8',
         maxBuffer: 1024 * 1024 * 10, // 10MB buffer
       });
@@ -1742,11 +1900,9 @@ export class MerklProcessorService {
         this.logger.log(`📊 ${statsLine.trim()}`);
       }
 
-      // Replace original file with deduplicated version
-      unlinkSync(csvFilePath);
-      renameSync(tempFile, csvFilePath);
-
-      this.logger.log(`✅ CSV deduplication completed: ${path.basename(csvFilePath)}`);
+      this.logger.log(`✅ CSV deduplication completed!`);
+      this.logger.log(`   📄 Original file: ${path.basename(csvFilePath)}`);
+      this.logger.log(`   🧹 Deduplicated file: ${path.basename(deduplicatedFile)}`);
     } catch (error) {
       this.logger.error(`Failed to deduplicate CSV file: ${error.message}`);
       throw error;
@@ -1759,7 +1915,7 @@ export class MerklProcessorService {
     // Convert all event types to timestamped events
     const addEvents = (eventList: any[], type: string) => {
       eventList.forEach((event) => {
-        const timestamp = Math.floor(batchEvents.blockTimestamps[event.block.id].getTime() / 1000);
+        const timestamp = Math.floor(event.timestamp.getTime() / 1000);
         events.push({ timestamp, type: type as any, event });
       });
     };
@@ -1781,16 +1937,16 @@ export class MerklProcessorService {
   private applyEventToStrategyStates(event: TimestampedEvent, strategyStates: StrategyStatesMap): void {
     switch (event.type) {
       case 'created':
-        this.processCreatedEvent(event.event as StrategyCreatedEvent, strategyStates);
+        this.processCreatedEvent(event.event as StrategyCreatedEvent, strategyStates, event.timestamp);
         break;
       case 'updated':
-        this.processUpdatedEvent(event.event as StrategyUpdatedEvent, strategyStates);
+        this.processUpdatedEvent(event.event as StrategyUpdatedEvent, strategyStates, event.timestamp);
         break;
       case 'deleted':
-        this.processDeletedEvent(event.event as StrategyDeletedEvent, strategyStates);
+        this.processDeletedEvent(event.event as StrategyDeletedEvent, strategyStates, event.timestamp);
         break;
       case 'transfer':
-        this.processTransferEvent(event.event as VoucherTransferEvent, strategyStates);
+        this.processTransferEvent(event.event as VoucherTransferEvent, strategyStates, event.timestamp);
         break;
     }
   }
