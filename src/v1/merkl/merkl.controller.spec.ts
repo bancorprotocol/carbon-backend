@@ -5,7 +5,7 @@ import { MerklController } from './merkl.controller';
 import { CampaignService } from '../../merkl/services/campaign.service';
 import { DeploymentService, BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 import { Campaign } from '../../merkl/entities/campaign.entity';
-import { EpochReward } from '../../merkl/entities/epoch-reward.entity';
+import { SubEpochService } from '../../merkl/services/sub-epoch.service';
 import { DataJSON, DataResponseDto } from '../../merkl/dto/data-response.dto';
 import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
 import { PairService } from '../../pair/pair.service';
@@ -25,7 +25,7 @@ describe('MerklController', () => {
   let tokenService: TokenService;
   let historicQuoteService: HistoricQuoteService;
   let campaignRepository: Repository<Campaign>;
-  let epochRewardRepository: Repository<EpochReward>;
+  let subEpochService: SubEpochService;
 
   const mockCampaignService = {
     getActiveCampaigns: jest.fn(),
@@ -57,9 +57,8 @@ describe('MerklController', () => {
     findOne: jest.fn(),
   };
 
-  const mockEpochRewardRepository = {
-    find: jest.fn(),
-    findOne: jest.fn(),
+  const mockSubEpochService = {
+    getEpochRewards: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -95,8 +94,8 @@ describe('MerklController', () => {
           useValue: mockCampaignRepository,
         },
         {
-          provide: getRepositoryToken(EpochReward),
-          useValue: mockEpochRewardRepository,
+          provide: SubEpochService,
+          useValue: mockSubEpochService,
         },
       ],
     }).compile();
@@ -108,7 +107,7 @@ describe('MerklController', () => {
     tokenService = module.get<TokenService>(TokenService);
     historicQuoteService = module.get<HistoricQuoteService>(HistoricQuoteService);
     campaignRepository = module.get<Repository<Campaign>>(getRepositoryToken(Campaign));
-    epochRewardRepository = module.get<Repository<EpochReward>>(getRepositoryToken(EpochReward));
+    subEpochService = module.get<SubEpochService>(SubEpochService);
   });
 
   afterEach(() => {
@@ -594,22 +593,25 @@ describe('MerklController', () => {
 
       const mockEpochRewards = [
         {
+          epochNumber: 1,
           owner: '0x1234567890abcdef1234567890abcdef12345678',
-          reason: 'liquidity_providing',
-          rewardAmount: '2.024792857777485576', // Normalized amount in DB
-          epochEndTimestamp: new Date(1640995200 * 1000),
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('2.024792857777485576'), // Normalized amount in DB
+          epochEnd: new Date('2025-01-25T20:00:00Z'),
         },
         {
+          epochNumber: 2,
           owner: '0x1234567890abcdef1234567890abcdef12345678',
-          reason: 'volume_incentive',
-          rewardAmount: '1.529891386638038979', // Normalized amount in DB
-          epochEndTimestamp: new Date(1640995500 * 1000),
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('1.529891386638038979'), // Normalized amount in DB
+          epochEnd: new Date('2025-01-26T00:00:00Z'),
         },
         {
+          epochNumber: 1,
           owner: '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd',
-          reason: 'liquidity_providing',
-          rewardAmount: '47.914227570040216219', // Normalized amount in DB
-          epochEndTimestamp: new Date(1640995200 * 1000),
+          strategyId: '1234567890123456789012345678901234567890',
+          totalReward: new Decimal('47.914227570040216219'), // Normalized amount in DB
+          epochEnd: new Date('2025-01-25T20:00:00Z'),
         },
       ];
 
@@ -634,26 +636,26 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
-      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+      mockSubEpochService.getEpochRewards.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
-          liquidity_providing: {
+          'epoch-1-2722258935367507707706996859454145692818': {
             amount: '2024792857777485576', // Converted to wei (18 decimals)
-            timestamp: '1640995200',
+            timestamp: expect.any(String),
           },
-          volume_incentive: {
+          'epoch-2-2722258935367507707706996859454145692818': {
             amount: '1529891386638038979', // Converted to wei (18 decimals)
-            timestamp: '1640995500',
+            timestamp: expect.any(String),
           },
         },
         '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd': {
-          liquidity_providing: {
+          'epoch-1-1234567890123456789012345678901234567890': {
             amount: '47914227570040216219', // Converted to wei (18 decimals)
-            timestamp: '1640995200',
+            timestamp: expect.any(String),
           },
         },
       });
@@ -687,10 +689,11 @@ describe('MerklController', () => {
 
       const mockEpochRewards = [
         {
+          epochNumber: 1,
           owner: '0x1234567890abcdef1234567890abcdef12345678',
-          reason: 'liquidity_providing',
-          rewardAmount: '100.5', // Normalized amount in DB
-          epochEndTimestamp: new Date(1640995200 * 1000),
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('100.5'), // Normalized amount in DB
+          epochEnd: new Date('2025-01-25T20:00:00Z'),
         },
       ];
 
@@ -715,15 +718,15 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
-      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+      mockSubEpochService.getEpochRewards.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
-          liquidity_providing: {
+          'epoch-1-2722258935367507707706996859454145692818': {
             amount: '100500000', // Converted to wei (6 decimals: 100.5 * 10^6)
-            timestamp: '1640995200',
+            timestamp: expect.any(String),
           },
         },
       });
@@ -754,10 +757,11 @@ describe('MerklController', () => {
 
       const mockEpochRewards = [
         {
+          epochNumber: 1,
           owner: '0x1234567890abcdef1234567890abcdef12345678',
-          reason: 'liquidity_providing',
-          rewardAmount: '1.5', // Normalized amount in DB
-          epochEndTimestamp: new Date(1640995200 * 1000),
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('1.5'), // Normalized amount in DB
+          epochEnd: new Date('2025-01-25T20:00:00Z'),
         },
       ];
 
@@ -773,15 +777,15 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue({}); // Empty - token not found
-      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+      mockSubEpochService.getEpochRewards.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
-          liquidity_providing: {
+          'epoch-1-2722258935367507707706996859454145692818': {
             amount: '1500000000000000000', // Converted to wei (18 decimals: 1.5 * 10^18)
-            timestamp: '1640995200',
+            timestamp: expect.any(String),
           },
         },
       });
@@ -822,13 +826,84 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue({});
-      mockEpochRewardRepository.find.mockResolvedValue([]); // Empty rewards
+      mockSubEpochService.getEpochRewards.mockResolvedValue([]); // Empty rewards
 
       const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({});
       expect(Object.keys(result.rewards)).toHaveLength(0);
       expect(result.rewardToken).toBe('0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984');
+    });
+
+    it('should filter rewards by start timestamp when provided', async () => {
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaign = {
+        id: '1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        pair: {
+          id: 1,
+          token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+          token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+        },
+        isActive: true,
+      };
+
+      const mockEpochRewards = [
+        {
+          epochNumber: 2,
+          owner: '0x1234567890abcdef1234567890abcdef12345678',
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('1.5'),
+          epochEnd: new Date('2025-01-26T00:00:00Z'),
+        },
+      ];
+
+      const mockTokensByAddress = {
+        '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984': {
+          decimals: 18,
+          symbol: 'UNI',
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+        },
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
+      mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
+      mockSubEpochService.getEpochRewards.mockResolvedValue(mockEpochRewards);
+
+      const startTimestamp = '1737835200'; // 2025-01-25T21:00:00Z
+      const result = await controller.getRewards({ pair, start: startTimestamp }, ExchangeId.OGEthereum);
+
+      // Verify that getEpochRewards was called with the start timestamp
+      expect(mockSubEpochService.getEpochRewards).toHaveBeenCalledWith('1', undefined, 1737835200);
+
+      expect(result.rewards).toEqual({
+        '0x1234567890abcdef1234567890abcdef12345678': {
+          'epoch-2-2722258935367507707706996859454145692818': {
+            amount: '1500000000000000000', // 1.5 * 10^18
+            timestamp: expect.any(String),
+          },
+        },
+      });
     });
 
     it('should handle very small reward amounts', async () => {
@@ -856,10 +931,11 @@ describe('MerklController', () => {
 
       const mockEpochRewards = [
         {
+          epochNumber: 1,
           owner: '0x1234567890abcdef1234567890abcdef12345678',
-          reason: 'dust_reward',
-          rewardAmount: '0.000000000000000001', // Smallest possible normalized amount (1 wei when converted)
-          epochEndTimestamp: new Date(1640995200 * 1000),
+          strategyId: '2722258935367507707706996859454145692818',
+          totalReward: new Decimal('0.000000000000000001'), // Smallest possible normalized amount (1 wei when converted)
+          epochEnd: new Date('2025-01-25T20:00:00Z'),
         },
       ];
 
@@ -883,15 +959,15 @@ describe('MerklController', () => {
       });
       mockCampaignRepository.findOne.mockResolvedValue(mockCampaign);
       mockTokenService.allByAddress.mockResolvedValue(mockTokensByAddress);
-      mockEpochRewardRepository.find.mockResolvedValue(mockEpochRewards);
+      mockSubEpochService.getEpochRewards.mockResolvedValue(mockEpochRewards);
 
       const result = await controller.getRewards({ pair }, ExchangeId.OGEthereum);
 
       expect(result.rewards).toEqual({
         '0x1234567890abcdef1234567890abcdef12345678': {
-          dust_reward: {
+          'epoch-1-2722258935367507707706996859454145692818': {
             amount: '1', // 1 wei
-            timestamp: '1640995200',
+            timestamp: expect.any(String),
           },
         },
       });

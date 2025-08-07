@@ -1,11 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository, QueryBuilder, EntityManager } from 'typeorm';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Decimal } from 'decimal.js';
 import { MerklProcessorService } from './merkl-processor.service';
-import { EpochReward } from '../entities/epoch-reward.entity';
+import { SubEpochService } from './sub-epoch.service';
 import { Campaign } from '../entities/campaign.entity';
 import { CampaignService } from './campaign.service';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
@@ -16,9 +14,6 @@ import { StrategyUpdatedEventService } from '../../events/strategy-updated-event
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
 import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
-import { StrategyUpdatedEvent } from '../../events/strategy-updated-event/strategy-updated-event.entity';
-import { StrategyDeletedEvent } from '../../events/strategy-deleted-event/strategy-deleted-event.entity';
-import { VoucherTransferEvent } from '../../events/voucher-transfer-event/voucher-transfer-event.entity';
 import { BlockchainType, ExchangeId, Deployment } from '../../deployment/deployment.service';
 import { Pair } from '../../pair/pair.entity';
 import { Token } from '../../token/token.entity';
@@ -26,7 +21,7 @@ import { Block } from '../../block/block.entity';
 
 describe('MerklProcessorService', () => {
   let service: MerklProcessorService;
-  let mockRepository: jest.Mocked<Repository<EpochReward>>;
+  let mockSubEpochService: jest.Mocked<SubEpochService>;
   let mockCampaignService: jest.Mocked<CampaignService>;
   let mockLastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
   let mockBlockService: jest.Mocked<BlockService>;
@@ -35,8 +30,7 @@ describe('MerklProcessorService', () => {
   let mockStrategyUpdatedEventService: jest.Mocked<StrategyUpdatedEventService>;
   let mockStrategyDeletedEventService: jest.Mocked<StrategyDeletedEventService>;
   let mockVoucherTransferEventService: jest.Mocked<VoucherTransferEventService>;
-  let mockEntityManager: jest.Mocked<EntityManager>;
-  let mockQueryBuilder: any;
+  let mockConfigService: jest.Mocked<ConfigService>;
 
   // Test data fixtures
   const mockToken0: Token = {
@@ -55,7 +49,7 @@ describe('MerklProcessorService', () => {
     id: 2,
     blockchainType: BlockchainType.Ethereum,
     exchangeId: ExchangeId.OGEthereum,
-    address: '0x2345678901234567890123456789012345678901',
+    address: '0x0987654321098765432109876543210987654321',
     symbol: 'TKN1',
     name: 'Token 1',
     decimals: 18,
@@ -64,9 +58,9 @@ describe('MerklProcessorService', () => {
   };
 
   const mockBlock: Block = {
-    id: 1000,
+    id: 1000001,
     blockchainType: BlockchainType.Ethereum,
-    timestamp: new Date('2024-01-01T00:00:00Z'),
+    timestamp: new Date('2023-01-01T01:00:00Z'),
     createdAt: new Date(),
     updatedAt: new Date(),
   };
@@ -75,244 +69,177 @@ describe('MerklProcessorService', () => {
     id: 1,
     blockchainType: BlockchainType.Ethereum,
     exchangeId: ExchangeId.OGEthereum,
-    block: mockBlock,
     token0: mockToken0,
     token1: mockToken1,
+    block: mockBlock,
     name: 'TKN0/TKN1',
+    tokensTradedEvents: [],
     createdAt: new Date(),
     updatedAt: new Date(),
-    tokensTradedEvents: [],
   };
 
   const mockCampaign: Campaign = {
-    id: '1',
+    id: 'campaign-1',
     blockchainType: BlockchainType.Ethereum,
     exchangeId: ExchangeId.OGEthereum,
     pairId: 1,
     pair: mockPair,
-    rewardAmount: '1000000000000000000000', // 1000 tokens
     rewardTokenAddress: '0xrewardtoken',
-    startDate: new Date('2024-01-01T00:00:00Z'),
-    endDate: new Date('2024-01-02T00:00:00Z'),
     opportunityName: 'Test Campaign',
     isActive: true,
+    startDate: new Date('2023-01-01T00:00:00Z'),
+    endDate: new Date('2023-01-02T00:00:00Z'),
+    rewardAmount: '1000000000000000000000', // 1000 tokens
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
   const mockDeployment: Deployment = {
-    exchangeId: ExchangeId.OGEthereum,
     blockchainType: BlockchainType.Ethereum,
-    rpcEndpoint: 'http://localhost:8545',
-    harvestEventsBatchSize: 10000,
-    harvestConcurrency: 5,
+    exchangeId: ExchangeId.OGEthereum,
+    startBlock: 1000000,
+    rpcEndpoint: 'https://ethereum.rpc',
+    harvestEventsBatchSize: 1000,
+    harvestConcurrency: 10,
     multicallAddress: '0xmulticall',
-    gasToken: {
-      name: 'Ethereum',
-      symbol: 'ETH',
-      address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-    },
-    startBlock: 1,
+    gasToken: { name: 'ETH', symbol: 'ETH', address: '0xgas' },
     contracts: {},
   };
 
-  const mockStrategyCreatedEvent: StrategyCreatedEvent = {
-    id: '1',
-    strategyId: '12345',
-    pair: mockPair,
-    block: mockBlock,
-    blockchainType: BlockchainType.Ethereum,
-    exchangeId: ExchangeId.OGEthereum,
-    timestamp: new Date('2024-01-01T00:05:00Z'),
-    owner: '0xowner',
-    token0: mockToken0,
-    token1: mockToken1,
-    order0: '{"y":"1000000000000000000","A":"100","B":"200","z":"1000000000000000000"}',
-    order1: '{"y":"2000000000000000000","A":"150","B":"250","z":"2000000000000000000"}',
-    transactionHash: '0xtx1',
-    transactionIndex: 0,
-    logIndex: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockStrategyUpdatedEvent: StrategyUpdatedEvent = {
-    id: 2,
-    strategyId: '12345',
-    pair: mockPair,
-    block: mockBlock,
-    blockchainType: BlockchainType.Ethereum,
-    exchangeId: ExchangeId.OGEthereum,
-    timestamp: new Date('2024-01-01T00:10:00Z'),
-    reason: 1,
-    token0: mockToken0,
-    token1: mockToken1,
-    order0: '{"y":"1500000000000000000","A":"120","B":"220","z":"1500000000000000000"}',
-    order1: '{"y":"2500000000000000000","A":"170","B":"270","z":"2500000000000000000"}',
-    transactionHash: '0xtx2',
-    transactionIndex: 1,
-    logIndex: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockStrategyDeletedEvent: StrategyDeletedEvent = {
-    id: 3,
-    strategyId: '12345',
-    pair: mockPair,
-    block: mockBlock,
-    blockchainType: BlockchainType.Ethereum,
-    exchangeId: ExchangeId.OGEthereum,
-    timestamp: new Date('2024-01-01T00:15:00Z'),
-    token0: mockToken0,
-    token1: mockToken1,
-    order0: '{"y":"0","A":"0","B":"0","z":"0"}',
-    order1: '{"y":"0","A":"0","B":"0","z":"0"}',
-    transactionHash: '0xtx3',
-    transactionIndex: 2,
-    logIndex: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockVoucherTransferEvent: VoucherTransferEvent = {
-    id: 4,
-    strategyId: '12345',
-    from: '0xowner',
-    to: '0xnewowner',
-    block: mockBlock,
-    blockchainType: BlockchainType.Ethereum,
-    exchangeId: ExchangeId.OGEthereum,
-    timestamp: new Date('2024-01-01T00:20:00Z'),
-    transactionHash: '0xtx4',
-    transactionIndex: 3,
-    logIndex: 0,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
   beforeEach(async () => {
-    // Create comprehensive mocks
-    mockQueryBuilder = {
-      createQueryBuilder: jest.fn(),
-      delete: jest.fn().mockReturnThis(),
-      where: jest.fn().mockReturnThis(),
-      andWhere: jest.fn().mockReturnThis(),
-      execute: jest.fn().mockResolvedValue({ affected: 1 }),
-      select: jest.fn().mockReturnThis(),
-      getRawOne: jest.fn().mockResolvedValue({ total: '0' }),
-    } as any;
+    const mockSubEpochServiceFactory = () => ({
+      getTotalRewardsForCampaign: jest.fn(),
+      saveSubEpochs: jest.fn(),
+      getEpochRewards: jest.fn(),
+      subEpochRepository: {
+        manager: {
+          query: jest.fn().mockResolvedValue([]),
+        },
+      },
+    });
 
-    mockEntityManager = {
-      query: jest.fn().mockResolvedValue([]),
-      transaction: jest.fn().mockImplementation((callback) => callback(mockEntityManager)),
-      delete: jest.fn().mockResolvedValue({ affected: 1 }),
-      create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: '1' })),
-      save: jest.fn().mockResolvedValue([]),
-    } as any;
+    const mockCampaignServiceFactory = () => ({
+      getActiveCampaigns: jest.fn(),
+      markProcessedCampaignsInactive: jest.fn(),
+    });
 
-    mockRepository = {
-      manager: mockEntityManager,
-      createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
-      target: EpochReward,
-    } as any;
+    const mockLastProcessedBlockServiceFactory = () => ({
+      getOrInit: jest.fn(),
+      update: jest.fn(),
+    });
 
-    mockCampaignService = {
-      getActiveCampaigns: jest.fn().mockResolvedValue([mockCampaign]),
-      markProcessedCampaignsInactive: jest.fn().mockResolvedValue(undefined),
-    } as any;
-
-    mockLastProcessedBlockService = {
-      getOrInit: jest.fn().mockResolvedValue(999),
-      update: jest.fn().mockResolvedValue(undefined),
-    } as any;
-
-    mockBlockService = {
+    const mockBlockServiceFactory = () => ({
       getBlock: jest.fn().mockResolvedValue(mockBlock),
-      getBlocksDictionary: jest.fn().mockResolvedValue({ 1000: new Date('2024-01-01T00:00:00Z') }),
-    } as any;
+    });
 
-    mockHistoricQuoteService = {
+    const mockHistoricQuoteServiceFactory = () => ({
       getUsdRates: jest.fn().mockResolvedValue([
-        { address: mockToken0.address, day: 1704067200, usd: 100 },
-        { address: mockToken1.address, day: 1704067200, usd: 200 },
+        { address: mockToken0.address, day: 1672531200, usd: 1.5 }, // 2023-01-01
+        { address: mockToken1.address, day: 1672531200, usd: 2.5 },
       ]),
-    } as any;
+    });
 
-    mockStrategyCreatedEventService = {
-      get: jest.fn().mockResolvedValue([mockStrategyCreatedEvent]),
-    } as any;
+    const mockEventServiceFactory = () => ({
+      get: jest.fn().mockResolvedValue([
+        {
+          id: 'event-1',
+          strategyId: 'strategy-1',
+          pair: mockPair,
+          token0: mockToken0,
+          token1: mockToken1,
+          owner: '0xowner',
+          order0: JSON.stringify({
+            y: '1000000000000000000',
+            z: '2000000000000000000',
+            A: '3000000000000000000',
+            B: '4000000000000000000',
+          }),
+          order1: JSON.stringify({
+            y: '1500000000000000000',
+            z: '2500000000000000000',
+            A: '3500000000000000000',
+            B: '4500000000000000000',
+          }),
+          transactionHash: '0x123abc',
+          timestamp: new Date('2023-01-01T00:30:00Z'),
+          block: mockBlock,
+        },
+      ]),
+    });
 
-    mockStrategyUpdatedEventService = {
-      get: jest.fn().mockResolvedValue([mockStrategyUpdatedEvent]),
-    } as any;
-
-    mockStrategyDeletedEventService = {
-      get: jest.fn().mockResolvedValue([mockStrategyDeletedEvent]),
-    } as any;
-
-    mockVoucherTransferEventService = {
-      get: jest.fn().mockResolvedValue([mockVoucherTransferEvent]),
-    } as any;
+    const mockConfigServiceFactory = () => ({
+      get: jest.fn((key: string) => {
+        if (key === 'MERKL_SNAPSHOT_SALT') return 'test-salt-for-testing';
+        return undefined;
+      }),
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         MerklProcessorService,
         {
-          provide: getRepositoryToken(EpochReward),
-          useValue: mockRepository,
+          provide: SubEpochService,
+          useFactory: mockSubEpochServiceFactory,
         },
         {
           provide: CampaignService,
-          useValue: mockCampaignService,
+          useFactory: mockCampaignServiceFactory,
         },
         {
           provide: LastProcessedBlockService,
-          useValue: mockLastProcessedBlockService,
+          useFactory: mockLastProcessedBlockServiceFactory,
         },
         {
           provide: BlockService,
-          useValue: mockBlockService,
+          useFactory: mockBlockServiceFactory,
         },
         {
           provide: HistoricQuoteService,
-          useValue: mockHistoricQuoteService,
+          useFactory: mockHistoricQuoteServiceFactory,
         },
         {
           provide: StrategyCreatedEventService,
-          useValue: mockStrategyCreatedEventService,
+          useFactory: mockEventServiceFactory,
         },
         {
           provide: StrategyUpdatedEventService,
-          useValue: mockStrategyUpdatedEventService,
+          useFactory: mockEventServiceFactory,
         },
         {
           provide: StrategyDeletedEventService,
-          useValue: mockStrategyDeletedEventService,
+          useFactory: mockEventServiceFactory,
         },
         {
           provide: VoucherTransferEventService,
-          useValue: mockVoucherTransferEventService,
+          useFactory: mockEventServiceFactory,
         },
         {
           provide: ConfigService,
-          useValue: {
-            get: jest.fn().mockReturnValue('false'), // Default disabled for tests
-          },
+          useFactory: mockConfigServiceFactory,
         },
       ],
     }).compile();
 
     service = module.get<MerklProcessorService>(MerklProcessorService);
+    mockSubEpochService = module.get(SubEpochService);
+    mockCampaignService = module.get(CampaignService);
+    mockLastProcessedBlockService = module.get(LastProcessedBlockService);
+    mockBlockService = module.get(BlockService);
+    mockHistoricQuoteService = module.get(HistoricQuoteService);
+    mockStrategyCreatedEventService = module.get(StrategyCreatedEventService);
+    mockStrategyUpdatedEventService = module.get(StrategyUpdatedEventService);
+    mockStrategyDeletedEventService = module.get(StrategyDeletedEventService);
+    mockVoucherTransferEventService = module.get(VoucherTransferEventService);
+    mockConfigService = module.get(ConfigService);
 
-    // Mock console.log to avoid cluttering test output
-    // eslint-disable-next-line @typescript-eslint/no-empty-function
-    jest.spyOn(console, 'log').mockImplementation(() => {});
+    // Suppress logger during tests
+    jest.spyOn(Logger.prototype, 'log').mockImplementation();
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+    jest.spyOn(Logger.prototype, 'error').mockImplementation();
   });
 
   afterEach(() => {
     jest.clearAllMocks();
-    jest.restoreAllMocks();
   });
 
   describe('Constructor and Dependencies', () => {
@@ -321,3269 +248,183 @@ describe('MerklProcessorService', () => {
     });
 
     it('should inject all required dependencies', () => {
-      expect(service).toBeInstanceOf(MerklProcessorService);
+      expect(mockSubEpochService).toBeDefined();
+      expect(mockCampaignService).toBeDefined();
+      expect(mockLastProcessedBlockService).toBeDefined();
+      expect(mockBlockService).toBeDefined();
+      expect(mockHistoricQuoteService).toBeDefined();
     });
   });
 
   describe('update', () => {
     beforeEach(() => {
-      // Mock CSV stream operations to avoid actual file writes
-      jest.spyOn(service as any, 'closeCSVStream').mockResolvedValue(undefined);
-    });
-
-    it('should process update successfully with active campaigns', async () => {
-      mockEntityManager.query
-        .mockResolvedValueOnce([]) // Initialize strategy states query
-        .mockResolvedValueOnce([]) // Latest ownership states query
-        .mockResolvedValueOnce([]); // Deleted strategies query
-
-      await service.update(1100, mockDeployment);
-
-      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
-      expect(mockLastProcessedBlockService.getOrInit).toHaveBeenCalled();
-      expect(mockLastProcessedBlockService.update).toHaveBeenCalled();
-      expect(mockCampaignService.markProcessedCampaignsInactive).toHaveBeenCalled();
+      // Setup common mocks
+      mockLastProcessedBlockService.getOrInit.mockResolvedValue(1000000);
+      mockLastProcessedBlockService.update.mockResolvedValue(undefined);
     });
 
     it('should handle no active campaigns', async () => {
       mockCampaignService.getActiveCampaigns.mockResolvedValue([]);
 
-      await service.update(1100, mockDeployment);
+      await service.update(1000100, mockDeployment);
 
       expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
       expect(mockLastProcessedBlockService.update).toHaveBeenCalledWith(
         `${mockDeployment.blockchainType}-${mockDeployment.exchangeId}-merkl-global`,
-        1100,
+        1000100,
       );
     });
 
-    it('should process multiple batches correctly', async () => {
-      // Override BATCH_SIZE for testing
-      (service as any).BATCH_SIZE = 50;
+    it('should initialize reward tracking for campaigns', async () => {
+      mockCampaignService.getActiveCampaigns.mockResolvedValue([mockCampaign]);
+      mockSubEpochService.getTotalRewardsForCampaign.mockResolvedValue(new Decimal('500000000000000000000'));
+      mockSubEpochService.saveSubEpochs.mockResolvedValue(undefined);
 
-      mockEntityManager.query.mockResolvedValue([]).mockResolvedValue([]).mockResolvedValue([]);
+      await service.update(1000100, mockDeployment);
 
-      await service.update(1150, mockDeployment);
-
-      // Should process multiple batches
-      expect(mockStrategyCreatedEventService.get).toHaveBeenCalledTimes(4); // 1000-1049, 1050-1099, 1100-1149, 1150-1150
+      expect(mockSubEpochService.getTotalRewardsForCampaign).toHaveBeenCalledWith(mockCampaign.id);
     });
   });
 
-  describe('initializeStrategyStates', () => {
-    it('should initialize strategy states from database queries', async () => {
-      const mockLatestStates = [
-        {
-          strategy_id: '12345',
-          pair_id: 1,
-          token0_address: mockToken0.address,
-          token1_address: mockToken1.address,
-          token0_decimals: 18,
-          token1_decimals: 18,
-          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
-          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
-          owner: '0xowner',
-          block_id: 1000,
-        },
-      ];
-
-      mockEntityManager.query
-        .mockResolvedValueOnce(mockLatestStates) // Latest strategy states
-        .mockResolvedValueOnce([]) // Latest ownership states
-        .mockResolvedValueOnce([]); // Deleted strategies
-
-      const strategyStates = new Map();
-      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
-
-      expect(strategyStates.size).toBe(1);
-      expect(strategyStates.has('12345')).toBe(true);
-
-      const state = strategyStates.get('12345');
-      expect(state.strategyId).toBe('12345');
-      expect(state.pairId).toBe(1);
-      expect(state.isDeleted).toBe(false);
-    });
-
-    it('should handle deleted strategies', async () => {
-      const mockLatestStates = [
-        {
-          strategy_id: '12345',
-          pair_id: 1,
-          token0_address: mockToken0.address,
-          token1_address: mockToken1.address,
-          token0_decimals: 18,
-          token1_decimals: 18,
-          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
-          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
-          owner: '0xowner',
-          block_id: 1000,
-        },
-      ];
-
-      const mockDeletedStrategies = [{ strategy_id: '12345' }];
-
-      mockEntityManager.query
-        .mockResolvedValueOnce(mockLatestStates)
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce(mockDeletedStrategies);
-
-      const strategyStates = new Map();
-      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
-
-      const state = strategyStates.get('12345');
-      expect(state.isDeleted).toBe(true);
-      expect(state.liquidity0.toString()).toBe('0');
-      expect(state.liquidity1.toString()).toBe('0');
-    });
-
-    it('should handle ownership transfers', async () => {
-      const mockLatestStates = [
-        {
-          strategy_id: '12345',
-          pair_id: 1,
-          token0_address: mockToken0.address,
-          token1_address: mockToken1.address,
-          token0_decimals: 18,
-          token1_decimals: 18,
-          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
-          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
-          owner: '0xoriginalowner',
-          block_id: 1000,
-        },
-      ];
-
-      const mockOwnershipStates = [
-        {
-          strategy_id: '12345',
-          current_owner: '0xnewowner',
-        },
-      ];
-
-      mockEntityManager.query
-        .mockResolvedValueOnce(mockLatestStates)
-        .mockResolvedValueOnce(mockOwnershipStates)
-        .mockResolvedValueOnce([]);
-
-      const strategyStates = new Map();
-      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
-
-      const state = strategyStates.get('12345');
-      expect(state.currentOwner).toBe('0xnewowner');
-      expect(state.creationWallet).toBe('0xoriginalowner');
-    });
-
-    it('should handle lexicographic token ordering', async () => {
-      const mockLatestStates = [
-        {
-          strategy_id: '12345',
-          pair_id: 1,
-          token0_address: mockToken1.address, // Larger address
-          token1_address: mockToken0.address, // Smaller address
-          token0_decimals: 18,
-          token1_decimals: 6,
-          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
-          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
-          owner: '0xowner',
-          block_id: 1000,
-        },
-      ];
-
-      mockEntityManager.query
-        .mockResolvedValueOnce(mockLatestStates)
-        .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
-
-      const strategyStates = new Map();
-      await (service as any).initializeStrategyStates(1000, mockDeployment, mockCampaign, strategyStates);
-
-      const state = strategyStates.get('12345');
-      // Should reorder tokens lexicographically
-      expect(state.token0Address).toBe(mockToken0.address); // Smaller address becomes token0
-      expect(state.token1Address).toBe(mockToken1.address); // Larger address becomes token1
-      expect(state.token0Decimals).toBe(6); // Decimals follow the reordering (mockToken0 had 6 decimals)
-      expect(state.token1Decimals).toBe(18); // mockToken1 had 18 decimals
-    });
-  });
-
-  describe('Event Processing', () => {
-    let strategyStates: Map<string, any>;
-
-    beforeEach(() => {
-      strategyStates = new Map();
-    });
-
-    describe('processCreatedEvent', () => {
-      it('should create new strategy state from created event', () => {
-        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
-
-        expect(strategyStates.size).toBe(1);
-        expect(strategyStates.has('12345')).toBe(true);
-
-        const state = strategyStates.get('12345');
-        expect(state.strategyId).toBe('12345');
-        expect(state.currentOwner).toBe('0xowner');
-        expect(state.isDeleted).toBe(false);
-      });
-
-      it('should handle lexicographic token ordering in created event', () => {
-        const eventWithReversedTokens = {
-          ...mockStrategyCreatedEvent,
-          token0: mockToken1, // Larger address
-          token1: mockToken0, // Smaller address
-          order0: '{"y":"1000","A":"100","B":"200","z":"1000"}',
-          order1: '{"y":"2000","A":"150","B":"250","z":"2000"}',
-        };
-
-        (service as any).processCreatedEvent(eventWithReversedTokens, strategyStates);
-
-        const state = strategyStates.get('12345');
-        expect(state.token0Address).toBe(mockToken0.address.toLowerCase()); // Should be reordered
-        expect(state.token1Address).toBe(mockToken1.address.toLowerCase());
-      });
-    });
-
-    describe('processUpdatedEvent', () => {
-      beforeEach(() => {
-        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
-      });
-
-      it('should update existing strategy state', () => {
-        const initialLiquidity0 = strategyStates.get('12345').liquidity0;
-
-        (service as any).processUpdatedEvent(mockStrategyUpdatedEvent, strategyStates);
-
-        const state = strategyStates.get('12345');
-        expect(state.liquidity0).not.toEqual(initialLiquidity0);
-        expect(state.lastProcessedBlock).toBe(mockBlock.id);
-      });
-
-      it('should ignore update for non-existent strategy', () => {
-        const nonExistentEvent = { ...mockStrategyUpdatedEvent, strategyId: 'nonexistent' };
-
-        (service as any).processUpdatedEvent(nonExistentEvent, strategyStates);
-
-        expect(strategyStates.size).toBe(1); // Should still only have original strategy
-        expect(strategyStates.has('nonexistent')).toBe(false);
-      });
-    });
-
-    describe('processDeletedEvent', () => {
-      beforeEach(() => {
-        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
-      });
-
-      it('should mark strategy as deleted and zero out liquidity', () => {
-        (service as any).processDeletedEvent(mockStrategyDeletedEvent, strategyStates);
-
-        const state = strategyStates.get('12345');
-        expect(state.isDeleted).toBe(true);
-        expect(state.liquidity0.toString()).toBe('0');
-        expect(state.liquidity1.toString()).toBe('0');
-        expect(state.lastProcessedBlock).toBe(mockBlock.id);
-      });
-
-      it('should ignore delete for non-existent strategy', () => {
-        const nonExistentEvent = { ...mockStrategyDeletedEvent, strategyId: 'nonexistent' };
-
-        (service as any).processDeletedEvent(nonExistentEvent, strategyStates);
-
-        expect(strategyStates.size).toBe(1); // Should still only have original strategy
-      });
-    });
-
-    describe('processTransferEvent', () => {
-      beforeEach(() => {
-        (service as any).processCreatedEvent(mockStrategyCreatedEvent, strategyStates);
-      });
-
-      it('should update strategy owner', () => {
-        (service as any).processTransferEvent(mockVoucherTransferEvent, strategyStates);
-
-        const state = strategyStates.get('12345');
-        expect(state.currentOwner).toBe('0xnewowner');
-        expect(state.lastProcessedBlock).toBe(mockBlock.id);
-      });
-
-      it('should ignore transfer for non-existent strategy', () => {
-        const nonExistentEvent = { ...mockVoucherTransferEvent, strategyId: 'nonexistent' };
-
-        (service as any).processTransferEvent(nonExistentEvent, strategyStates);
-
-        expect(strategyStates.size).toBe(1); // Should still only have original strategy
-      });
-    });
-
-    describe('updateStrategyStates', () => {
-      it('should process events in chronological order', () => {
-        const events = [
-          mockStrategyCreatedEvent,
-          mockStrategyUpdatedEvent,
-          mockStrategyDeletedEvent,
-          mockVoucherTransferEvent,
-        ];
-
-        (service as any).updateStrategyStates(
-          [mockStrategyCreatedEvent],
-          [mockStrategyUpdatedEvent],
-          [mockStrategyDeletedEvent],
-          [mockVoucherTransferEvent],
-          strategyStates,
-        );
-
-        expect(strategyStates.size).toBe(1);
-        const state = strategyStates.get('12345');
-        expect(state.isDeleted).toBe(true); // Should reflect final state after all events
-        expect(state.currentOwner).toBe('0xnewowner'); // Should reflect final owner
-      });
-
-      it('should handle empty event lists', () => {
-        (service as any).updateStrategyStates([], [], [], [], strategyStates);
-        expect(strategyStates.size).toBe(0);
-      });
-    });
-  });
-
-  describe('Rate Parameter Decompression', () => {
-    it('should decompress rate parameters correctly', () => {
-      const SCALING_CONSTANT = new Decimal(2).pow(48);
-      const mantissa = new Decimal(123456);
-      const exponent = new Decimal(5);
-      const compressed = mantissa.add(exponent.mul(SCALING_CONSTANT));
-
-      const result = (service as any).decompressRateParameter(compressed.toString());
-      const expected = mantissa.mul(new Decimal(2).pow(exponent));
-
-      expect(result.toString()).toBe(expected.toString());
-    });
-
-    it('should handle zero compressed value', () => {
-      const result = (service as any).decompressRateParameter('0');
-      expect(result.toString()).toBe('0');
-    });
-
-    it('should handle empty string', () => {
-      const result = (service as any).decompressRateParameter('');
-      expect(result.toString()).toBe('0');
-    });
-  });
-
-  describe('Strategy State Cloning', () => {
-    let originalState: any;
-
-    beforeEach(() => {
-      originalState = {
-        strategyId: '12345',
-        pairId: 1,
-        token0Address: '0xtoken0',
-        token1Address: '0xtoken1',
-        token0Decimals: 18,
-        token1Decimals: 18,
-        liquidity0: new Decimal('1000'),
-        liquidity1: new Decimal('2000'),
-        order0_A: new Decimal('100'),
-        order0_B: new Decimal('200'),
-        order0_z: new Decimal('1000'),
-        order1_A: new Decimal('150'),
-        order1_B: new Decimal('250'),
-        order1_z: new Decimal('2000'),
-        order0_A_compressed: '100',
-        order0_B_compressed: '200',
-        order0_z_compressed: '1000',
-        order1_A_compressed: '150',
-        order1_B_compressed: '250',
-        order1_z_compressed: '2000',
-        currentOwner: '0xowner',
-        creationWallet: '0xowner',
-        lastProcessedBlock: 1000,
-        isDeleted: false,
-      };
-    });
-
-    describe('deepCloneStrategyState', () => {
-      it('should create a deep clone of strategy state', () => {
-        const cloned = (service as any).deepCloneStrategyState(originalState);
-
-        expect(cloned).not.toBe(originalState);
-        expect(cloned.liquidity0).not.toBe(originalState.liquidity0); // Different Decimal instances
-        expect(cloned.liquidity0.toString()).toBe(originalState.liquidity0.toString()); // Same values
-        expect(cloned.strategyId).toBe(originalState.strategyId);
-        expect(cloned.isDeleted).toBe(originalState.isDeleted);
-      });
-
-      it('should allow independent modification of cloned state', () => {
-        const cloned = (service as any).deepCloneStrategyState(originalState);
-
-        cloned.liquidity0 = new Decimal('5000');
-        cloned.currentOwner = '0xnewowner';
-
-        expect(originalState.liquidity0.toString()).toBe('1000'); // Original unchanged
-        expect(originalState.currentOwner).toBe('0xowner'); // Original unchanged
-        expect(cloned.liquidity0.toString()).toBe('5000');
-        expect(cloned.currentOwner).toBe('0xnewowner');
-      });
-    });
-
-    describe('deepCloneStrategyStates', () => {
-      it('should clone a map of strategy states', () => {
-        const originalMap = new Map();
-        originalMap.set('12345', originalState);
-        originalMap.set('67890', { ...originalState, strategyId: '67890' });
-
-        const clonedMap = (service as any).deepCloneStrategyStates(originalMap);
-
-        expect(clonedMap).not.toBe(originalMap);
-        expect(clonedMap.size).toBe(2);
-        expect(clonedMap.get('12345')).not.toBe(originalState);
-        expect(clonedMap.get('12345').strategyId).toBe('12345');
-      });
-    });
-  });
-
-  describe('Epoch Calculations', () => {
-    describe('calculateEpochsInRange', () => {
-      it('should calculate epochs correctly within campaign duration', () => {
-        const EPOCH_DURATION = 4 * 60 * 60; // 4 hours
-        (service as any).EPOCH_DURATION = EPOCH_DURATION;
-
-        const startTimestamp = Math.floor(mockCampaign.startDate.getTime() / 1000);
-        const endTimestamp = Math.floor(mockCampaign.endDate.getTime() / 1000);
-
-        const epochs = (service as any).calculateEpochsInRange(mockCampaign, startTimestamp, endTimestamp);
-
-        expect(epochs.length).toBeGreaterThan(0);
-        expect(epochs[0].epochNumber).toBe(1);
-
-        // Verify total rewards sum to campaign amount
-        const totalRewards = epochs.reduce((sum, epoch) => sum.add(epoch.totalRewards), new Decimal(0));
-        expect(totalRewards.toFixed()).toBe(mockCampaign.rewardAmount);
-      });
-
-      it('should handle partial epoch at campaign end', () => {
-        const shortCampaign = {
-          ...mockCampaign,
-          endDate: new Date(mockCampaign.startDate.getTime() + 2 * 60 * 60 * 1000), // 2 hours
-        };
-
-        const startTimestamp = Math.floor(shortCampaign.startDate.getTime() / 1000);
-        const endTimestamp = Math.floor(shortCampaign.endDate.getTime() / 1000);
-
-        const epochs = (service as any).calculateEpochsInRange(shortCampaign, startTimestamp, endTimestamp);
-
-        expect(epochs.length).toBe(1);
-        expect(epochs[0].totalRewards.toFixed()).toBe(shortCampaign.rewardAmount);
-      });
-
-      it("should handle time range that doesn't align with campaign boundaries", () => {
-        const campaignStart = Math.floor(mockCampaign.startDate.getTime() / 1000);
-        const rangeStart = campaignStart + 3600; // 1 hour after campaign start
-        const rangeEnd = rangeStart + 7200; // 2 hours range
-
-        const epochs = (service as any).calculateEpochsInRange(mockCampaign, rangeStart, rangeEnd);
-
-        expect(epochs.length).toBeGreaterThan(0);
-        // Should only include epochs that intersect with the range
-      });
-    });
-  });
-
-  describe('Target Price Calculations', () => {
-    describe('calculateTargetSqrtPriceScaled', () => {
-      it('should calculate scaled square root price correctly', () => {
-        const targetPrice = new Decimal(2); // 2 token1 per token0
-        const baseDecimals = 18;
-        const quoteDecimals = 6;
-
-        const result = (service as any).calculateTargetSqrtPriceScaled(targetPrice, baseDecimals, quoteDecimals);
-
-        // Expected: price * 10^(18-6) = 2 * 10^12, sqrt = sqrt(2) * 10^6, scaled = sqrt(2) * 10^6 * 2^48
-        const expected = new Decimal(2).mul(new Decimal(10).pow(12)).sqrt().mul(new Decimal(2).pow(48));
-
-        expect(result.toString()).toBe(expected.toString());
-      });
-
-      it('should handle equal decimals', () => {
-        const targetPrice = new Decimal(1.5);
-        const decimals = 18;
-
-        const result = (service as any).calculateTargetSqrtPriceScaled(targetPrice, decimals, decimals);
-
-        const expected = targetPrice.sqrt().mul(new Decimal(2).pow(48));
-        expect(result.toString()).toBe(expected.toString());
-      });
-    });
-
-    describe('calculateInvTargetSqrtPriceScaled', () => {
-      it('should calculate inverse scaled square root price correctly', () => {
-        const targetPrice = new Decimal(0.5); // 0.5 token0 per token1
-        const baseDecimals = 18;
-        const quoteDecimals = 6;
-
-        const result = (service as any).calculateInvTargetSqrtPriceScaled(targetPrice, baseDecimals, quoteDecimals);
-
-        // Expected: price * 10^(6-18) = 0.5 * 10^(-12), sqrt, scaled
-        const expected = new Decimal(0.5).mul(new Decimal(10).pow(-12)).sqrt().mul(new Decimal(2).pow(48));
-
-        expect(result.toString()).toBe(expected.toString());
-      });
-    });
-  });
-
-  describe('Eligible Liquidity Calculation', () => {
-    describe('calculateEligibleLiquidity', () => {
-      it('should return full liquidity when reward zone boundary is below order range', () => {
-        const y = new Decimal('1000');
-        const z = new Decimal('1000');
-        const A = new Decimal('100');
-        const B = new Decimal('200');
-        const targetSqrtPriceScaled = new Decimal('150');
-        const toleranceFactor = new Decimal('0.98');
-
-        const rewardZoneBoundary = toleranceFactor.mul(targetSqrtPriceScaled); // 147, which is <= B (200)
-
-        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
-
-        expect(result.toString()).toBe(y.toString()); // Full liquidity eligible
-      });
-
-      it('should return zero when reward zone boundary is above order range', () => {
-        const y = new Decimal('1000');
-        const z = new Decimal('1000');
-        const A = new Decimal('100');
-        const B = new Decimal('200');
-        const targetSqrtPriceScaled = new Decimal('350');
-        const toleranceFactor = new Decimal('0.98');
-
-        const rewardZoneBoundary = toleranceFactor.mul(targetSqrtPriceScaled); // 343, which is >= orderPriceHigh (300)
-
-        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
-
-        expect(result.toString()).toBe('0'); // No liquidity eligible
-      });
-
-      it('should calculate partial eligibility correctly', () => {
-        const y = new Decimal('1000');
-        const z = new Decimal('1000');
-        const A = new Decimal('100');
-        const B = new Decimal('200');
-        const targetSqrtPriceScaled = new Decimal('230');
-        const toleranceFactor = new Decimal('0.98');
-
-        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
-
-        // Should be between 0 and y
-        expect(result.gt(0)).toBe(true);
-        expect(result.lt(y)).toBe(true);
-      });
-
-      it('should handle A equals zero case', () => {
-        const y = new Decimal('1000');
-        const z = new Decimal('1000');
-        const A = new Decimal('0');
-        const B = new Decimal('200');
-        const targetSqrtPriceScaled = new Decimal('250');
-        const toleranceFactor = new Decimal('0.98');
-
-        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
-
-        expect(result.toString()).toBe('0'); // Should return 0 to prevent division by zero
-      });
-
-      it('should ensure non-negative result', () => {
-        const y = new Decimal('100');
-        const z = new Decimal('1000');
-        const A = new Decimal('50');
-        const B = new Decimal('200');
-        const targetSqrtPriceScaled = new Decimal('300');
-        const toleranceFactor = new Decimal('0.98');
-
-        const result = (service as any).calculateEligibleLiquidity(y, z, A, B, targetSqrtPriceScaled, toleranceFactor);
-
-        expect(result.gte(0)).toBe(true);
-      });
-    });
-  });
-
-  describe('Price Cache and Target Prices', () => {
-    describe('createPriceCache', () => {
-      it('should create price cache for campaign tokens', async () => {
-        const campaigns = [mockCampaign];
-        const batchStartTimestamp = 1704067200;
-
-        const result = await (service as any).createPriceCache(campaigns, batchStartTimestamp, mockDeployment);
-
-        expect(result.rates.size).toBe(2);
-        expect(result.rates.get(mockToken0.address.toLowerCase())).toEqual([{ timestamp: 1704067200, usd: 100 }]);
-        expect(result.rates.get(mockToken1.address.toLowerCase())).toEqual([{ timestamp: 1704067200, usd: 200 }]);
-        expect(result.timeWindow).toEqual({ start: batchStartTimestamp, end: batchStartTimestamp + 24 * 60 * 60 });
-      });
-
-      it('should handle duplicate token addresses across campaigns', async () => {
-        const campaign2 = {
-          ...mockCampaign,
-          id: '2',
-          pair: { ...mockPair, id: 2 },
-        };
-        const campaigns = [mockCampaign, campaign2];
-
-        const result = await (service as any).createPriceCache(campaigns, 1704067200, mockDeployment);
-
-        // Should still only have 2 unique tokens
-        expect(result.rates.size).toBe(2);
-      });
-    });
-
-    describe('getTargetPricesAtTime', () => {
-      let mockPriceCache: any;
-
-      beforeEach(() => {
-        mockPriceCache = {
-          rates: new Map([
-            [mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]],
-            [mockToken1.address.toLowerCase(), [{ timestamp: 1704067200, usd: 200 }]],
-          ]),
-          timeWindow: { start: 1704067200, end: 1704067200 + 24 * 60 * 60 },
-        };
-      });
-
-      it('should calculate target prices correctly', () => {
-        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
-
-        expect(result).not.toBeNull();
-        expect(result.order0TargetPrice.toString()).toBe('2'); // 200/100
-        expect(result.order1TargetPrice.toString()).toBe('0.5'); // 100/200
-      });
-
-      it('should return null when token rates are missing', () => {
-        mockPriceCache.rates.delete(mockToken0.address.toLowerCase());
-
-        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
-
-        expect(result).toBeNull();
-      });
-
-      it('should return null when token rates are zero', () => {
-        mockPriceCache.rates.set(mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 0 }]);
-
-        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
-
-        expect(result).toBeNull();
-      });
-
-      it('should handle case-insensitive address lookup', () => {
-        mockPriceCache.rates.clear();
-        mockPriceCache.rates.set(mockToken0.address.toUpperCase(), [{ timestamp: 1704067200, usd: 100 }]);
-        mockPriceCache.rates.set(mockToken1.address.toLowerCase(), [{ timestamp: 1704067200, usd: 200 }]);
-
-        const result = (service as any).getTargetPricesAtTime(1704067200, mockCampaign, mockPriceCache);
-
-        expect(result).toBeNull(); // Should fail because uppercase key won't match lowercase lookup
-      });
-    });
-
-    describe('getUsdRateForTimestamp', () => {
-      it('should find closest rate by timestamp', () => {
-        const mockPriceCache = {
-          rates: new Map([
-            [
-              mockToken0.address.toLowerCase(),
-              [
-                { timestamp: 1704067000, usd: 90 },
-                { timestamp: 1704067200, usd: 100 },
-                { timestamp: 1704067400, usd: 110 },
-              ],
-            ],
-          ]),
-          timeWindow: { start: 1704067000, end: 1704067400 },
-        };
-
-        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, mockToken0.address, 1704067150);
-
-        expect(result).toBe(100); // Closest to 1704067200
-      });
-
-      it('should return 0 for non-existent token', () => {
-        const mockPriceCache = {
-          rates: new Map([[mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]]]),
-          timeWindow: { start: 1704067200, end: 1704067200 },
-        };
-
-        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, '0xnonexistent', 1704067200);
-
-        expect(result).toBe(0);
-      });
-
-      it('should handle empty rates array', () => {
-        const mockPriceCache = {
-          rates: new Map([[mockToken0.address.toLowerCase(), []]]),
-          timeWindow: { start: 1704067200, end: 1704067200 },
-        };
-
-        const result = (service as any).getUsdRateForTimestamp(mockPriceCache, mockToken0.address, 1704067200);
-
-        expect(result).toBe(0);
-      });
-
-      it('should be case-insensitive for address matching', () => {
-        const mockPriceCache = {
-          rates: new Map([[mockToken0.address.toLowerCase(), [{ timestamp: 1704067200, usd: 100 }]]]),
-          timeWindow: { start: 1704067200, end: 1704067200 },
-        };
-
-        const result = (service as any).getUsdRateForTimestamp(
-          mockPriceCache,
-          mockToken0.address.toUpperCase(),
-          1704067200,
-        );
-
-        expect(result).toBe(100);
-      });
-    });
-  });
-
-  describe('Per-Epoch Cleanup Behavior', () => {
-    it('should delete existing rewards for specific epoch before regenerating', async () => {
-      // Setup: Mock the transaction method to capture what gets deleted
-      const mockTransactionEntityManager = {
-        delete: jest.fn().mockResolvedValue({ affected: 2 }),
-        create: jest.fn().mockImplementation((entity, data) => ({ ...data, id: 'new-id' })),
-        save: jest.fn().mockResolvedValue([]),
-      };
-
-      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
-        return await callback(mockTransactionEntityManager);
-      });
-
-      // Mock the private methods that processEpoch depends on
-      const mockEpoch = {
-        epochNumber: 5,
-        startTimestamp: new Date('2024-01-01T00:00:00Z'),
-        endTimestamp: new Date('2024-01-01T04:00:00Z'),
-        totalRewards: new Decimal('1000'),
-      };
-
-      const mockStrategyStates = new Map([
-        [
-          'strategy1',
-          {
-            strategyId: 'strategy1',
-            currentOwner: '0xowner1',
-            liquidity0: new Decimal('100'),
-            liquidity1: new Decimal('200'),
-            isDeleted: false,
-          },
-        ],
-      ]);
-
-      const mockPriceCache = {
-        rates: new Map([
-          [mockToken0.address.toLowerCase(), 100],
-          [mockToken1.address.toLowerCase(), 200],
-        ]),
-        timestamp: 1704067200,
-      };
-
-      const mockBatchEvents = {
-        createdEvents: [],
-        updatedEvents: [],
-        deletedEvents: [],
-        transferEvents: [],
-        blockTimestamps: {},
-      };
-
-      // Mock the calculateEpochRewards method to return some rewards
-      jest
-        .spyOn(service as any, 'calculateEpochRewards')
-        .mockReturnValue(new Map([['strategy1', { owner: '0xowner1', totalReward: new Decimal('500') }]]));
-
-      // Mock validation methods
-      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(true);
-      jest.spyOn(service as any, 'validateTotalRewardsNotExceeded').mockResolvedValue(true);
-
-      // Call the processEpoch method
-      await (service as any).processEpoch(mockCampaign, mockEpoch, mockStrategyStates, mockPriceCache, mockBatchEvents);
-
-      // Verify that delete was called for the specific epoch and campaign
-      expect(mockTransactionEntityManager.delete).toHaveBeenCalledWith(EpochReward, {
-        campaignId: mockCampaign.id,
-        epochNumber: mockEpoch.epochNumber,
-        blockchainType: mockCampaign.blockchainType,
-        exchangeId: mockCampaign.exchangeId,
-      });
-
-      // Verify that new rewards were created and saved
-      expect(mockTransactionEntityManager.create).toHaveBeenCalled();
-      expect(mockTransactionEntityManager.save).toHaveBeenCalled();
-    });
-
-    it('should handle cleanup within transaction to ensure atomicity', async () => {
-      const transactionOrder: string[] = [];
-
-      const mockTransactionEntityManager = {
-        delete: jest.fn().mockImplementation(() => {
-          transactionOrder.push('delete');
-          return Promise.resolve({ affected: 1 });
-        }),
-        create: jest.fn().mockImplementation((entity, data) => {
-          transactionOrder.push('create');
-          return { ...data, id: 'new-id' };
-        }),
-        save: jest.fn().mockImplementation(() => {
-          transactionOrder.push('save');
-          return Promise.resolve([]);
-        }),
-      };
-
-      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
-        return await callback(mockTransactionEntityManager);
-      });
-
-      const mockEpoch = {
-        epochNumber: 1,
-        startTimestamp: new Date('2024-01-01T00:00:00Z'),
-        endTimestamp: new Date('2024-01-01T04:00:00Z'),
-        totalRewards: new Decimal('100'),
-      };
-
-      // Mock calculateEpochRewards to return some rewards so create/save will be called
-      jest
-        .spyOn(service as any, 'calculateEpochRewards')
-        .mockReturnValue(new Map([['strategy1', { owner: '0xowner1', totalReward: new Decimal('100') }]]));
-      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(true);
-      jest.spyOn(service as any, 'validateTotalRewardsNotExceeded').mockResolvedValue(true);
-
-      await (service as any).processEpoch(mockCampaign, mockEpoch, new Map(), {}, {});
-
-      // Verify that delete happens before create/save within the transaction
-      expect(transactionOrder[0]).toBe('delete');
-      expect(transactionOrder.indexOf('create')).toBeGreaterThan(transactionOrder.indexOf('delete'));
-      expect(transactionOrder.indexOf('save')).toBeGreaterThan(transactionOrder.indexOf('delete'));
-    });
-
-    it('should not save rewards if epoch validation fails', async () => {
-      const mockTransactionEntityManager = {
-        delete: jest.fn().mockResolvedValue({ affected: 0 }),
-        create: jest.fn(),
-        save: jest.fn(),
-      };
-
-      mockEntityManager.transaction.mockImplementation(async (callback: any) => {
-        return await callback(mockTransactionEntityManager);
-      });
-
-      const mockEpoch = {
-        epochNumber: 1,
-        startTimestamp: new Date('2024-01-01T00:00:00Z'),
-        endTimestamp: new Date('2024-01-01T04:00:00Z'),
-        totalRewards: new Decimal('100'),
-      };
-
-      jest.spyOn(service as any, 'calculateEpochRewards').mockReturnValue(new Map());
-      // Mock validation to fail
-      jest.spyOn(service as any, 'validateEpochRewardsWontExceedTotal').mockResolvedValue(false);
-
-      await (service as any).processEpoch(mockCampaign, mockEpoch, new Map(), {}, {});
-
-      // Should still call delete (cleanup)
-      expect(mockTransactionEntityManager.delete).toHaveBeenCalled();
-      // But should not call create or save due to validation failure
-      expect(mockTransactionEntityManager.create).not.toHaveBeenCalled();
-      expect(mockTransactionEntityManager.save).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('Validation Methods', () => {
-    describe('validateTotalRewardsNotExceeded', () => {
-      it('should return true when total rewards do not exceed campaign amount', async () => {
-        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '500000000000000000000' }); // 500 tokens
-
-        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
-
-        expect(result).toBe(true);
-      });
-
-      it('should return false when total rewards exceed campaign amount', async () => {
-        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '2000000000000000000000' }); // 2000 tokens
-
-        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
-
-        expect(result).toBe(false);
-      });
-
-      it('should handle null total from database', async () => {
-        mockQueryBuilder.getRawOne.mockResolvedValue({ total: null });
-
-        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
-
-        expect(result).toBe(true); // null should be treated as 0
-      });
-
-      it('should handle database errors gracefully', async () => {
-        mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Database error'));
-
-        const result = await (service as any).validateTotalRewardsNotExceeded(mockCampaign);
-
-        expect(result).toBe(false);
-      });
-    });
-
-    describe('validateEpochIntegrity', () => {
-      it('should return true for valid consecutive epochs', () => {
-        const epochs = [
-          {
-            epochNumber: 1,
-            startTimestamp: new Date('2024-01-01T00:00:00Z'),
-            endTimestamp: new Date('2024-01-01T04:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-          {
-            epochNumber: 2,
-            startTimestamp: new Date('2024-01-01T04:00:00Z'),
-            endTimestamp: new Date('2024-01-01T08:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-        ];
-
-        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
-
-        expect(result).toBe(true);
-      });
-
-      it('should return false for epochs with gaps', () => {
-        const epochs = [
-          {
-            epochNumber: 1,
-            startTimestamp: new Date('2024-01-01T00:00:00Z'),
-            endTimestamp: new Date('2024-01-01T04:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-          {
-            epochNumber: 2,
-            startTimestamp: new Date('2024-01-01T05:00:00Z'), // 1 hour gap
-            endTimestamp: new Date('2024-01-01T09:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-        ];
-
-        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
-
-        expect(result).toBe(false);
-      });
-
-      it('should return false for epochs with overlaps', () => {
-        const epochs = [
-          {
-            epochNumber: 1,
-            startTimestamp: new Date('2024-01-01T00:00:00Z'),
-            endTimestamp: new Date('2024-01-01T04:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-          {
-            epochNumber: 2,
-            startTimestamp: new Date('2024-01-01T03:00:00Z'), // 1 hour overlap
-            endTimestamp: new Date('2024-01-01T07:00:00Z'),
-            totalRewards: new Decimal('500'),
-          },
-        ];
-
-        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
-
-        expect(result).toBe(false);
-      });
-
-      it('should return false for epoch with non-positive duration', () => {
-        const epochs = [
-          {
-            epochNumber: 1,
-            startTimestamp: new Date('2024-01-01T04:00:00Z'),
-            endTimestamp: new Date('2024-01-01T04:00:00Z'), // Same time
-            totalRewards: new Decimal('500'),
-          },
-        ];
-
-        const result = (service as any).validateEpochIntegrity(mockCampaign, epochs);
-
-        expect(result).toBe(false);
-      });
-
-      it('should return true for empty epochs array', () => {
-        const result = (service as any).validateEpochIntegrity(mockCampaign, []);
-
-        expect(result).toBe(true);
-      });
-
-      it('should handle validation errors gracefully', () => {
-        const invalidEpochs = [null] as any;
-
-        const result = (service as any).validateEpochIntegrity(mockCampaign, invalidEpochs);
-
-        expect(result).toBe(false);
-      });
-    });
-
-    describe('validateEpochRewardsWontExceedTotal', () => {
-      it('should return true when projected total does not exceed campaign amount', async () => {
-        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '400000000000000000000' }); // 400 tokens
-
-        const newRewards = new Map([
-          ['strategy1', { owner: '0xowner1', totalReward: new Decimal('100000000000000000000') }], // 100 tokens
-          ['strategy2', { owner: '0xowner2', totalReward: new Decimal('200000000000000000000') }], // 200 tokens
-        ]);
-
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date(),
-          endTimestamp: new Date(),
-          totalRewards: new Decimal('300000000000000000000'),
-        };
-
-        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
-
-        expect(result).toBe(true); // 400 + 300 = 700 < 1000
-      });
-
-      it('should return false when projected total exceeds campaign amount', async () => {
-        mockQueryBuilder.getRawOne.mockResolvedValue({ total: '800000000000000000000' }); // 800 tokens
-
-        const newRewards = new Map([
-          ['strategy1', { owner: '0xowner1', totalReward: new Decimal('300000000000000000000') }], // 300 tokens
-        ]);
-
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date(),
-          endTimestamp: new Date(),
-          totalRewards: new Decimal('300000000000000000000'),
-        };
-
-        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
-
-        expect(result).toBe(false); // 800 + 300 = 1100 > 1000
-      });
-
-      it('should handle database errors gracefully', async () => {
-        mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Database error'));
-
-        const newRewards = new Map();
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date(),
-          endTimestamp: new Date(),
-          totalRewards: new Decimal('100'),
-        };
-
-        const result = await (service as any).validateEpochRewardsWontExceedTotal(mockCampaign, epoch, newRewards);
-
-        expect(result).toBe(false);
-      });
-    });
-  });
-
-  describe('Utility Methods', () => {
-    describe('getTimestampForBlock', () => {
-      it('should return timestamp for given block', async () => {
-        const result = await (service as any).getTimestampForBlock(1000, mockDeployment);
-
-        expect(result).toBe(Math.floor(mockBlock.timestamp.getTime() / 1000));
-        expect(mockBlockService.getBlock).toHaveBeenCalledWith(1000, mockDeployment);
-      });
-    });
-
-    describe('sortBatchEventsChronologically', () => {
-      it('should sort events chronologically with proper tiebreakers', () => {
-        const batchEvents = {
-          createdEvents: [mockStrategyCreatedEvent],
-          updatedEvents: [mockStrategyUpdatedEvent],
-          deletedEvents: [mockStrategyDeletedEvent],
-          transferEvents: [mockVoucherTransferEvent],
-          blockTimestamps: {
-            [mockBlock.id]: mockBlock.timestamp,
-          },
-        };
-
-        const result = (service as any).sortBatchEventsChronologically(batchEvents);
-
-        expect(result.length).toBe(4);
-        expect(result[0].type).toBe('created');
-        expect(result[1].type).toBe('updated');
-        expect(result[2].type).toBe('deleted');
-        expect(result[3].type).toBe('transfer');
-      });
-
-      it('should handle empty event lists', () => {
-        const batchEvents = {
-          createdEvents: [],
-          updatedEvents: [],
-          deletedEvents: [],
-          transferEvents: [],
-          blockTimestamps: {},
-        };
-
-        const result = (service as any).sortBatchEventsChronologically(batchEvents);
-
-        expect(result.length).toBe(0);
-      });
-    });
-
-    describe('applyEventToStrategyStates', () => {
-      let strategyStates: Map<string, any>;
-
-      beforeEach(() => {
-        strategyStates = new Map();
-      });
-
-      it('should apply created event', () => {
-        const timestampedEvent = {
-          timestamp: 1704067500,
-          type: 'created' as const,
-          event: mockStrategyCreatedEvent,
-        };
-
-        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
-
-        expect(strategyStates.has('12345')).toBe(true);
-      });
-
-      it('should apply updated event', () => {
-        strategyStates.set('12345', { strategyId: '12345', liquidity0: new Decimal('1000') });
-
-        const timestampedEvent = {
-          timestamp: 1704067600,
-          type: 'updated' as const,
-          event: mockStrategyUpdatedEvent,
-        };
-
-        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
-
-        // Should have updated the existing strategy
-        expect(strategyStates.get('12345').lastProcessedBlock).toBe(mockBlock.id);
-      });
-
-      it('should apply deleted event', () => {
-        strategyStates.set('12345', { strategyId: '12345', isDeleted: false });
-
-        const timestampedEvent = {
-          timestamp: 1704067700,
-          type: 'deleted' as const,
-          event: mockStrategyDeletedEvent,
-        };
-
-        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
-
-        expect(strategyStates.get('12345').isDeleted).toBe(true);
-      });
-
-      it('should apply transfer event', () => {
-        strategyStates.set('12345', { strategyId: '12345', currentOwner: '0xoldowner' });
-
-        const timestampedEvent = {
-          timestamp: 1704067800,
-          type: 'transfer' as const,
-          event: mockVoucherTransferEvent,
-        };
-
-        (service as any).applyEventToStrategyStates(timestampedEvent, strategyStates);
-
-        expect(strategyStates.get('12345').currentOwner).toBe('0xnewowner');
-      });
-    });
-  });
-
-  describe('Edge Cases and Error Handling', () => {
-    it('should handle campaigns ending before processing time', async () => {
-      const expiredCampaign = {
-        ...mockCampaign,
-        endDate: new Date('2023-12-31T23:59:59Z'), // Ended before processing
-      };
-
-      mockCampaignService.getActiveCampaigns.mockResolvedValue([expiredCampaign]);
-      mockEntityManager.query.mockResolvedValue([]);
-
-      await service.update(1100, mockDeployment);
-
-      // Should still process but skip epoch generation
-      expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalled();
-    });
-
-    it('should handle malformed JSON in order data', () => {
-      const malformedEvent = {
-        ...mockStrategyCreatedEvent,
-        order0: 'invalid json',
-      };
-
-      const strategyStates = new Map();
-
-      expect(() => {
-        (service as any).processCreatedEvent(malformedEvent, strategyStates);
-      }).toThrow();
-    });
-
-    it('should handle very large decimal numbers', () => {
-      const largeNumber = '999999999999999999999999999999999999999999';
-      const result = (service as any).decompressRateParameter(largeNumber);
-
-      expect(result).toBeInstanceOf(Decimal);
-      expect(result.toString()).toBeDefined();
-    });
-
-    it('should handle empty strategy states in various operations', () => {
-      const emptyStates = new Map();
-
-      // Test cloning empty map
-      const cloned = (service as any).deepCloneStrategyStates(emptyStates);
-      expect(cloned.size).toBe(0);
-
-      // Test event processing with empty states
-      (service as any).updateStrategyStates([], [], [], [], emptyStates);
-      expect(emptyStates.size).toBe(0);
-    });
-  });
-
-  describe('CSV Export Functionality', () => {
-    beforeEach(() => {
-      // Reset all mocks before each test
-      jest.clearAllMocks();
-      jest.restoreAllMocks();
-    });
-
-    it('should have CSV export disabled by default', async () => {
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          MerklProcessorService,
-          {
-            provide: getRepositoryToken(EpochReward),
-            useValue: mockRepository,
-          },
-          {
-            provide: CampaignService,
-            useValue: mockCampaignService,
-          },
-          {
-            provide: LastProcessedBlockService,
-            useValue: mockLastProcessedBlockService,
-          },
-          {
-            provide: BlockService,
-            useValue: mockBlockService,
-          },
-          {
-            provide: HistoricQuoteService,
-            useValue: mockHistoricQuoteService,
-          },
-          {
-            provide: StrategyCreatedEventService,
-            useValue: mockStrategyCreatedEventService,
-          },
-          {
-            provide: StrategyUpdatedEventService,
-            useValue: mockStrategyUpdatedEventService,
-          },
-          {
-            provide: StrategyDeletedEventService,
-            useValue: mockStrategyDeletedEventService,
-          },
-          {
-            provide: VoucherTransferEventService,
-            useValue: mockVoucherTransferEventService,
-          },
-          {
-            provide: ConfigService,
-            useValue: {
-              get: jest.fn().mockReturnValue('0'), // Explicitly disabled
-            },
-          },
-        ],
-      }).compile();
-
-      const testService = module.get<MerklProcessorService>(MerklProcessorService);
-      expect((testService as any).csvExportEnabled).toBe(false);
-    });
-
-    it('should enable CSV export when environment variable is set to "1"', async () => {
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          MerklProcessorService,
-          {
-            provide: getRepositoryToken(EpochReward),
-            useValue: mockRepository,
-          },
-          {
-            provide: CampaignService,
-            useValue: mockCampaignService,
-          },
-          {
-            provide: LastProcessedBlockService,
-            useValue: mockLastProcessedBlockService,
-          },
-          {
-            provide: BlockService,
-            useValue: mockBlockService,
-          },
-          {
-            provide: HistoricQuoteService,
-            useValue: mockHistoricQuoteService,
-          },
-          {
-            provide: StrategyCreatedEventService,
-            useValue: mockStrategyCreatedEventService,
-          },
-          {
-            provide: StrategyUpdatedEventService,
-            useValue: mockStrategyUpdatedEventService,
-          },
-          {
-            provide: StrategyDeletedEventService,
-            useValue: mockStrategyDeletedEventService,
-          },
-          {
-            provide: VoucherTransferEventService,
-            useValue: mockVoucherTransferEventService,
-          },
-          {
-            provide: ConfigService,
-            useValue: {
-              get: jest.fn().mockReturnValue('1'), // Explicitly enabled
-            },
-          },
-        ],
-      }).compile();
-
-      const testService = module.get<MerklProcessorService>(MerklProcessorService);
-      expect((testService as any).csvExportEnabled).toBe(true);
-    });
-
-    it('should not call closeCSVStream when CSV export is disabled', async () => {
-      // Setup service with CSV disabled
-      const module: TestingModule = await Test.createTestingModule({
-        providers: [
-          MerklProcessorService,
-          {
-            provide: getRepositoryToken(EpochReward),
-            useValue: {
-              ...mockRepository,
-              createQueryBuilder: jest.fn().mockReturnValue({
-                delete: jest.fn().mockReturnThis(),
-                from: jest.fn().mockReturnThis(),
-                where: jest.fn().mockReturnThis(),
-                execute: jest.fn().mockResolvedValue({ affected: 0 }),
-              }),
-            },
-          },
-          {
-            provide: CampaignService,
-            useValue: {
-              getActiveCampaigns: jest.fn().mockResolvedValue([]),
-            },
-          },
-          {
-            provide: LastProcessedBlockService,
-            useValue: {
-              getOrInit: jest.fn().mockResolvedValue(100),
-              update: jest.fn().mockResolvedValue(undefined),
-            },
-          },
-          {
-            provide: BlockService,
-            useValue: mockBlockService,
-          },
-          {
-            provide: HistoricQuoteService,
-            useValue: mockHistoricQuoteService,
-          },
-          {
-            provide: StrategyCreatedEventService,
-            useValue: mockStrategyCreatedEventService,
-          },
-          {
-            provide: StrategyUpdatedEventService,
-            useValue: mockStrategyUpdatedEventService,
-          },
-          {
-            provide: StrategyDeletedEventService,
-            useValue: mockStrategyDeletedEventService,
-          },
-          {
-            provide: VoucherTransferEventService,
-            useValue: mockVoucherTransferEventService,
-          },
-          {
-            provide: ConfigService,
-            useValue: {
-              get: jest.fn().mockReturnValue('0'), // Disabled
-            },
-          },
-        ],
-      }).compile();
-
-      const testService = module.get<MerklProcessorService>(MerklProcessorService);
-      const closeCSVStreamSpy = jest.spyOn(testService as any, 'closeCSVStream');
-
-      const deployment = {
-        blockchainType: 'ethereum',
-        exchangeId: 'ethereum',
-        startBlock: 1,
-      };
-
-      await testService.update(200, deployment as any);
-
-      expect(closeCSVStreamSpy).not.toHaveBeenCalled();
-    });
-
-    it('should call closeCSVStream when CSV export is enabled', async () => {
-      // Create a service instance with CSV enabled
-      const configServiceMock = {
-        get: jest.fn().mockReturnValue('1'), // Enabled
-      };
-
-      const testService = new (MerklProcessorService as any)(
-        mockRepository,
-        mockCampaignService,
-        mockLastProcessedBlockService,
-        mockBlockService,
-        mockHistoricQuoteService,
-        mockStrategyCreatedEventService,
-        mockStrategyUpdatedEventService,
-        mockStrategyDeletedEventService,
-        mockVoucherTransferEventService,
-        configServiceMock,
-      );
-
-      expect((testService as any).csvExportEnabled).toBe(true);
-
-      // Spy on the closeCSVStream method and mock it
-      const closeCSVStreamSpy = jest
-        .spyOn(testService as any, 'closeCSVStream')
-        .mockImplementation(() => Promise.resolve());
-
-      // Mock a stream context
-      const mockStreamContext = {
-        csvStream: {
-          write: jest.fn(),
-          end: jest.fn(),
-        },
-        isHeaderWritten: false,
-        currentCampaign: null,
-        priceCache: null,
-      };
-
-      // Call the closeCSVStream method directly
-      await (testService as any).closeCSVStream(mockStreamContext);
-
-      expect(closeCSVStreamSpy).toHaveBeenCalledWith(mockStreamContext);
-    });
-
-    it('should write CSV rows directly to stream when enabled', () => {
-      // Setup service with CSV enabled
-      const configServiceMock = {
-        get: jest.fn().mockReturnValue('1'),
-      };
-
-      const testService = new (MerklProcessorService as any)(
-        mockRepository,
-        mockCampaignService,
-        mockLastProcessedBlockService,
-        mockBlockService,
-        mockHistoricQuoteService,
-        mockStrategyCreatedEventService,
-        mockStrategyUpdatedEventService,
-        mockStrategyDeletedEventService,
-        mockVoucherTransferEventService,
-        configServiceMock,
-      );
-
-      expect((testService as any).csvExportEnabled).toBe(true);
-
-      // Create test data
-      const snapshot = {
-        timestamp: 1704081600,
-        targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-        invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-        order0TargetPrice: new Decimal('2'),
+  describe('Reward Capping Logic', () => {
+    it('should enforce campaign reward limits', () => {
+      const campaignDistributedAmounts = new Map([['campaign-1', new Decimal('950000000000000000000')]]); // 950 tokens
+      const campaignTotalAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens
+
+      const subEpochData = {
+        timestamp: Date.now(),
+        order0TargetPrice: new Decimal(1),
+        order1TargetPrice: new Decimal(1),
+        targetSqrtPriceScaled: new Decimal(1),
+        invTargetSqrtPriceScaled: new Decimal(1),
         strategies: new Map([
           [
-            'strategy1',
+            'strategy-1',
             {
-              isDeleted: false,
-              liquidity0: new Decimal('1000000000000000000'),
-              liquidity1: new Decimal('2000000000000000000'),
-              order0_z: new Decimal('500000000000000000'),
-              order0_A: new Decimal('1000000000000000000000000'),
-              order0_B: new Decimal('1000000000000000000000000'),
-              order1_z: new Decimal('1000000000000000000'),
-              order1_A: new Decimal('1000000000000000000000000'),
-              order1_B: new Decimal('1000000000000000000000000'),
-              token0Address: '0x1234567890123456789012345678901234567890',
-              token1Address: '0x0987654321098765432109876543210987654321',
+              strategyId: 'strategy-1',
+              pairId: 1,
+              token0Address: mockToken0.address,
+              token1Address: mockToken1.address,
               token0Decimals: 18,
               token1Decimals: 18,
-              order0_A_compressed: '1000000000000000000000000',
-              order0_B_compressed: '1000000000000000000000000',
-              order0_z_compressed: '500000000000000000',
-              order1_A_compressed: '1000000000000000000000000',
-              order1_B_compressed: '1000000000000000000000000',
-              order1_z_compressed: '1000000000000000000',
-              lastEventTimestamp: 1704081600,
+              liquidity0: new Decimal('1000000000000000000'), // 1 token
+              liquidity1: new Decimal('1000000000000000000'), // 1 token
+              order0_A: new Decimal(1),
+              order0_B: new Decimal(1),
+              order0_z: new Decimal('1000000000000000000'),
+              order1_A: new Decimal(1),
+              order1_B: new Decimal(1),
+              order1_z: new Decimal('1000000000000000000'),
+              order0_A_compressed: new Decimal(1),
+              order0_B_compressed: new Decimal(1),
+              order0_z_compressed: new Decimal(1),
+              order1_A_compressed: new Decimal(1),
+              order1_B_compressed: new Decimal(1),
+              order1_z_compressed: new Decimal(1),
+              currentOwner: '0xowner',
+              creationWallet: '0xowner',
+              lastProcessedBlock: 1000000,
+              isDeleted: false,
+              lastEventTimestamp: Date.now(),
             },
           ],
         ]),
       };
 
-      const campaign = {
-        exchangeId: 'ethereum',
-        pair: {
-          token0: { address: '0x1234567890123456789012345678901234567890' },
-          token1: { address: '0x0987654321098765432109876543210987654321' },
-        },
-      };
-
-      const epoch = {
-        epochNumber: 1,
-        startTimestamp: new Date('2024-01-01T00:00:00Z'),
-        endTimestamp: new Date('2024-01-01T04:00:00Z'),
-        totalRewards: new Decimal('1000000000000000000000'),
-      };
-
-      // Mock CSV stream
-      const mockCsvStream = {
-        write: jest.fn(),
-        end: jest.fn(),
-      };
-
-      const streamingContext = {
-        csvStream: mockCsvStream,
-        csvFilename: 'test-reward-breakdown.csv',
-        isHeaderWritten: false,
-        hasDataRows: false,
-        currentCampaign: campaign,
-        priceCache: {
-          rates: new Map([
-            ['0x1234567890123456789012345678901234567890', [{ timestamp: 1704081600, usd: 100 }]],
-            ['0x0987654321098765432109876543210987654321', [{ timestamp: 1704081600, usd: 200 }]],
-          ]),
-          timeWindow: { start: 1704081600, end: 1704081600 },
-        },
-      };
-
-      // Mock batchEvents for the new parameter
-      const batchEvents = {
-        createdEvents: [],
-        updatedEvents: [],
-        deletedEvents: [],
-        transferEvents: [],
-      };
-
-      // Call the method
-      (testService as any).calculateSnapshotRewards(
-        snapshot,
-        new Decimal('1000000000000000000000'),
-        campaign,
-        epoch,
-        streamingContext,
-        batchEvents,
+      // Test the capping logic by calling the private method
+      const result = (service as any).calculateSubEpochRewards(
+        subEpochData,
+        new Decimal('100000000000000000000'), // 100 tokens reward pool (would exceed limit)
+        mockCampaign,
+        campaignDistributedAmounts,
+        campaignTotalAmounts,
       );
 
-      // Verify CSV stream was called
-      expect(mockCsvStream.write).toHaveBeenCalled();
-
-      // Check that header was written
-      const calls = mockCsvStream.write.mock.calls;
-      expect(calls.length).toBeGreaterThan(0);
-
-      // First call should be the header (if not already written)
-      const headerCall = calls.find((call) => call[0].includes('strategy_id,epoch_start'));
-      expect(headerCall).toBeDefined();
-
-      // Should have at least one data row written
-      const dataRowCalls = calls.filter((call) => call[0].includes('strategy1') && !call[0].includes('strategy_id'));
-      expect(dataRowCalls.length).toBeGreaterThan(0);
+      // Should cap to remaining 50 tokens
+      expect(campaignDistributedAmounts.get('campaign-1')).toEqual(new Decimal('1000000000000000000000'));
     });
 
-    it('should not write to CSV stream when disabled', () => {
-      // Setup service with CSV disabled
-      const configServiceMock = {
-        get: jest.fn().mockReturnValue('0'),
-      };
+    it('should handle zero remaining rewards gracefully', () => {
+      const campaignDistributedAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens (full)
+      const campaignTotalAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens
 
-      const testService = new (MerklProcessorService as any)(
-        mockRepository,
-        mockCampaignService,
-        mockLastProcessedBlockService,
-        mockBlockService,
-        mockHistoricQuoteService,
-        mockStrategyCreatedEventService,
-        mockStrategyUpdatedEventService,
-        mockStrategyDeletedEventService,
-        mockVoucherTransferEventService,
-        configServiceMock,
-      );
-
-      expect((testService as any).csvExportEnabled).toBe(false);
-
-      // Create test data
-      const snapshot = {
-        timestamp: 1704081600,
-        targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-        invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-        order0TargetPrice: new Decimal('2'),
+      const subEpochData = {
+        timestamp: Date.now(),
+        order0TargetPrice: new Decimal(1),
+        order1TargetPrice: new Decimal(1),
+        targetSqrtPriceScaled: new Decimal(1),
+        invTargetSqrtPriceScaled: new Decimal(1),
         strategies: new Map([
           [
-            'strategy1',
+            'strategy-1',
             {
-              isDeleted: false,
-              liquidity0: new Decimal('1000000000000000000'),
-              liquidity1: new Decimal('2000000000000000000'),
-              order0_z: new Decimal('500000000000000000'),
-              order0_A: new Decimal('1000000000000000000000000'),
-              order0_B: new Decimal('1000000000000000000000000'),
-              order1_z: new Decimal('1000000000000000000'),
-              order1_A: new Decimal('1000000000000000000000000'),
-              order1_B: new Decimal('1000000000000000000000000'),
-              token0Address: '0x1234567890123456789012345678901234567890',
-              token1Address: '0x0987654321098765432109876543210987654321',
+              strategyId: 'strategy-1',
+              pairId: 1,
+              token0Address: mockToken0.address,
+              token1Address: mockToken1.address,
               token0Decimals: 18,
               token1Decimals: 18,
-              order0_A_compressed: '1000000000000000000000000',
-              order0_B_compressed: '1000000000000000000000000',
-              order0_z_compressed: '500000000000000000',
-              order1_A_compressed: '1000000000000000000000000',
-              order1_B_compressed: '1000000000000000000000000',
-              order1_z_compressed: '1000000000000000000',
-              lastEventTimestamp: 1704081600,
+              liquidity0: new Decimal('1000000000000000000'),
+              liquidity1: new Decimal('1000000000000000000'),
+              order0_A: new Decimal(1),
+              order0_B: new Decimal(1),
+              order0_z: new Decimal('1000000000000000000'),
+              order1_A: new Decimal(1),
+              order1_B: new Decimal(1),
+              order1_z: new Decimal('1000000000000000000'),
+              order0_A_compressed: new Decimal(1),
+              order0_B_compressed: new Decimal(1),
+              order0_z_compressed: new Decimal(1),
+              order1_A_compressed: new Decimal(1),
+              order1_B_compressed: new Decimal(1),
+              order1_z_compressed: new Decimal(1),
+              currentOwner: '0xowner',
+              creationWallet: '0xowner',
+              lastProcessedBlock: 1000000,
+              isDeleted: false,
+              lastEventTimestamp: Date.now(),
             },
           ],
         ]),
       };
 
-      const campaign = {
-        exchangeId: 'ethereum',
-        pair: {
-          token0: { address: '0x1234567890123456789012345678901234567890' },
-          token1: { address: '0x0987654321098765432109876543210987654321' },
-        },
-      };
-
-      const epoch = {
-        epochNumber: 1,
-        startTimestamp: new Date('2024-01-01T00:00:00Z'),
-        endTimestamp: new Date('2024-01-01T04:00:00Z'),
-        totalRewards: new Decimal('1000000000000000000000'),
-      };
-
-      // Mock CSV stream (but it should not be used since CSV is disabled)
-      const mockCsvStream = {
-        write: jest.fn(),
-        end: jest.fn(),
-      };
-
-      const streamingContext = {
-        csvStream: null, // No stream when disabled
-        csvFilename: null,
-        isHeaderWritten: false,
-        hasDataRows: false,
-        currentCampaign: campaign,
-        priceCache: null,
-      };
-
-      // Call the method
-      (testService as any).calculateSnapshotRewards(
-        snapshot,
-        new Decimal('1000000000000000000000'),
-        campaign,
-        epoch,
-        streamingContext,
+      const result = (service as any).calculateSubEpochRewards(
+        subEpochData,
+        new Decimal('10000000000000000000'), // 10 tokens reward pool
+        mockCampaign,
+        campaignDistributedAmounts,
+        campaignTotalAmounts,
       );
 
-      // Verify no CSV operations were performed
-      expect(mockCsvStream.write).not.toHaveBeenCalled();
-      expect(streamingContext.csvStream).toBeNull();
-    });
-
-    describe('Chronological Deduplication Edge Case', () => {
-      it('should track lastEventTimestamp correctly for batch overlap scenarios', () => {
-        // Setup service with CSV enabled to test lastEventTimestamp tracking
-        const configServiceMock = {
-          get: jest.fn().mockReturnValue('1'),
-        };
-
-        const testService = new (MerklProcessorService as any)(
-          mockRepository,
-          mockCampaignService,
-          mockLastProcessedBlockService,
-          mockBlockService,
-          mockHistoricQuoteService,
-          mockStrategyCreatedEventService,
-          mockStrategyUpdatedEventService,
-          mockStrategyDeletedEventService,
-          mockVoucherTransferEventService,
-          configServiceMock,
-        );
-
-        const strategyStates = new Map();
-        const strategyId = '8166776806102523123120990578362437075221';
-
-        // Mock events with different timestamps (the key edge case)
-        const oldEventTimestamp = 1719201537; // 2025-06-23 23:48:57 UTC
-        const newEventTimestamp = 1719212363; // 2025-06-24 02:39:23 UTC
-
-        const mockCreatedEvent = {
-          strategyId,
-          pair: { id: 1 },
-          block: { id: 100 },
-          timestamp: new Date(oldEventTimestamp * 1000),
-          owner: '0xowner',
-          token0: { address: '0x160345fc359604fc6e70e3c5facbde5f7a9342d8', decimals: 18 },
-          token1: { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18 },
-          order0: '{"y":"9266005737550638","A":"174117611052","B":"2372275757811","z":"9266005737550638"}',
-          order1: '{"y":"7454","A":"1268593044921808","B":"2213341231341874","z":"7454"}',
-          transactionIndex: 0,
-          logIndex: 0,
-        };
-
-        const mockUpdatedEvent = {
-          strategyId,
-          pair: { id: 1 },
-          block: { id: 200 },
-          timestamp: new Date(newEventTimestamp * 1000),
-          token0: { address: '0x160345fc359604fc6e70e3c5facbde5f7a9342d8', decimals: 18 },
-          token1: { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18 },
-          order0: '{"y":"10803879841941055","A":"380238059869","B":"2733666757101","z":"16756666277212365"}',
-          order1:
-            '{"y":"50845141778887027871","A":"1347034015463728","B":"2169051314344581","z":"50845141778887027871"}',
-          reason: 1,
-          transactionIndex: 0,
-          logIndex: 0,
-        };
-
-        // Process created event first (OLD state)
-        (testService as any).processCreatedEvent(mockCreatedEvent, strategyStates, oldEventTimestamp);
-
-        let strategy = strategyStates.get(strategyId);
-        expect(strategy).toBeDefined();
-        expect(strategy.lastEventTimestamp).toBe(oldEventTimestamp);
-        expect(strategy.liquidity0.toString()).toBe('9266005737550638'); // OLD state
-
-        // Process updated event (NEW state)
-        (testService as any).processUpdatedEvent(mockUpdatedEvent, strategyStates, newEventTimestamp);
-
-        strategy = strategyStates.get(strategyId);
-        expect(strategy.lastEventTimestamp).toBe(newEventTimestamp);
-        expect(strategy.liquidity0.toString()).toBe('10803879841941055'); // NEW state
-
-        // Test the critical edge case: What if we process the same strategy state
-        // for a CSV row that should use the OLD state timestamp?
-        // This simulates the batch overlap scenario where:
-        // - Batch 1 processes up to 23:48:57 and writes CSV rows using OLD state
-        // - Batch 2 processes up to 02:39:23 and writes CSV rows using NEW state
-        // - Both batches write entries for the same sub_epoch_timestamp (00:09:41)
-        // - Deduplication should keep the entry with EARLIEST lastEventTimestamp
-
-        // Create a copy of the strategy with OLD state timestamp
-        const strategyWithOldState = (testService as any).deepCloneStrategyState(strategy);
-        strategyWithOldState.lastEventTimestamp = oldEventTimestamp;
-        strategyWithOldState.liquidity0 = new (Decimal as any)('9266005737550638');
-
-        // Create a copy of the strategy with NEW state timestamp
-        const strategyWithNewState = (testService as any).deepCloneStrategyState(strategy);
-        strategyWithNewState.lastEventTimestamp = newEventTimestamp;
-        strategyWithNewState.liquidity0 = new (Decimal as any)('10803879841941055');
-
-        // Verify that both states have correct timestamps
-        expect(strategyWithOldState.lastEventTimestamp).toBe(oldEventTimestamp);
-        expect(strategyWithNewState.lastEventTimestamp).toBe(newEventTimestamp);
-
-        // The CSV deduplication script should keep the OLD state for early timestamps
-        // because it has the earlier lastEventTimestamp (chronologically correct)
-        expect(strategyWithOldState.lastEventTimestamp).toBeLessThan(strategyWithNewState.lastEventTimestamp);
-
-        // This test ensures that:
-        // 1. Events correctly update lastEventTimestamp
-        // 2. Different strategy states can be tracked with their event timestamps
-        // 3. The deduplication logic can distinguish between states from different batches
-        // 4. The chronologically correct state is preserved for each timestamp
-      });
-
-      it('should write lastEventTimestamp to CSV for deduplication', () => {
-        // Setup service with CSV enabled
-        const configServiceMock = {
-          get: jest.fn().mockReturnValue('1'),
-        };
-
-        const testService = new (MerklProcessorService as any)(
-          mockRepository,
-          mockCampaignService,
-          mockLastProcessedBlockService,
-          mockBlockService,
-          mockHistoricQuoteService,
-          mockStrategyCreatedEventService,
-          mockStrategyUpdatedEventService,
-          mockStrategyDeletedEventService,
-          mockVoucherTransferEventService,
-          configServiceMock,
-        );
-
-        // Mock CSV stream
-        const mockCsvStream = {
-          write: jest.fn(),
-          end: jest.fn(),
-        };
-
-        const campaign = {
-          id: 'test-campaign',
-          exchangeId: ExchangeId.OGSei,
-          pair: {
-            id: 1,
-            token0: { address: '0x160345fc359604fc6e70e3c5facbde5f7a9342d8' },
-            token1: { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee' },
-          },
-          startDate: new Date('2024-01-01T00:00:00Z'),
-          endDate: new Date('2024-01-02T00:00:00Z'),
-        };
-
-        const epoch = {
-          epochNumber: 55,
-          startTimestamp: new Date('2025-06-24T00:00:00.000Z'),
-          endTimestamp: new Date('2025-06-24T04:00:00.000Z'),
-        };
-
-        const snapshot = {
-          timestamp: 1719194981, // 2025-06-24T00:09:41.000Z
-          strategies: new Map([
-            [
-              '8166776806102523123120990578362437075221',
-              {
-                strategyId: '8166776806102523123120990578362437075221',
-                isDeleted: false,
-                liquidity0: new (Decimal as any)('9266005737550638'),
-                liquidity1: new (Decimal as any)('7454'),
-                token0Address: '0x160345fc359604fc6e70e3c5facbde5f7a9342d8',
-                token1Address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-                token0Decimals: 18,
-                token1Decimals: 18,
-                order0_A: new (Decimal as any)('174117611052'),
-                order0_B: new (Decimal as any)('2372275757811'),
-                order0_z: new (Decimal as any)('9266005737550638'),
-                order1_A: new (Decimal as any)('1268593044921808'),
-                order1_B: new (Decimal as any)('2213341231341874'),
-                order1_z: new (Decimal as any)('7454'),
-                order0_A_compressed: '174117611052',
-                order0_B_compressed: '2372275757811',
-                order0_z_compressed: '9266005737550638',
-                order1_A_compressed: '1268593044921808',
-                order1_B_compressed: '2213341231341874',
-                order1_z_compressed: '7454',
-                lastEventTimestamp: 1719201537, // OLD state timestamp - this is the key!
-              },
-            ],
-          ]),
-          targetSqrtPriceScaled: new (Decimal as any)('1000000000000000000'),
-          invTargetSqrtPriceScaled: new (Decimal as any)('1000000000000000000'),
-          order0TargetPrice: new (Decimal as any)('1.0'),
-        };
-
-        const streamingContext = {
-          csvStream: mockCsvStream,
-          csvFilename: 'test-reward-breakdown.csv',
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: campaign,
-          priceCache: {
-            rates: new Map([
-              ['0x160345fc359604fc6e70e3c5facbde5f7a9342d8', [{ timestamp: 1704081600, usd: 2276.0256774937725 }]],
-              ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', [{ timestamp: 1704081600, usd: 0.20767633786925 }]],
-            ]),
-            timeWindow: { start: 1704081600, end: 1704081600 },
-          },
-        };
-
-        // Call the method that writes CSV
-        (testService as any).calculateSnapshotRewards(
-          snapshot,
-          new (Decimal as any)('1000000000000000000000'),
-          campaign,
-          epoch,
-          streamingContext,
-        );
-
-        // Verify CSV stream was called
-        expect(mockCsvStream.write).toHaveBeenCalled();
-
-        // Check that header includes last_event_timestamp
-        const calls = mockCsvStream.write.mock.calls;
-        const headerCall = calls.find((call) => call[0].includes('strategy_id,epoch_start'));
-        expect(headerCall).toBeDefined();
-        expect(headerCall[0]).toContain('last_event_timestamp');
-
-        // Check that data row includes the lastEventTimestamp value
-        const dataRowCalls = calls.filter(
-          (call) => call[0].includes('8166776806102523123120990578362437075221') && !call[0].includes('strategy_id'),
-        );
-
-        if (dataRowCalls.length > 0) {
-          const dataRow = dataRowCalls[0][0];
-          // The lastEventTimestamp should be the last column (column 33)
-          expect(dataRow).toContain('"1719201537"'); // OLD state timestamp
-        } else {
-          // If no data rows, the strategy might not have eligible liquidity
-          // But the important part is that the header contains our new column
-          // This proves that the lastEventTimestamp field is being tracked and would be written
-          expect(headerCall[0]).toContain('last_event_timestamp');
-        }
-      });
-    });
-
-    describe('Comprehensive Edge Case Tests', () => {
-      // Test data setup
-      const baseStrategyId = '8166776806102523123120990578362437075221';
-      const baseSubEpochTimestamp = 1719640000;
-      const baseCampaignStartTimestamp = Math.floor(new Date('2024-01-01T00:00:00Z').getTime() / 1000);
-      const baseCampaignEndTimestamp = Math.floor(new Date('2024-01-02T00:00:00Z').getTime() / 1000);
-
-      describe('1. Batch Boundary Edge Cases', () => {
-        it('should handle cross-batch overlaps affecting same sub-epoch', () => {
-          // Scenario: Events from different batches affecting the same sub-epoch
-          // This tests the core issue that was fixed - multiple batches creating duplicate CSV entries
-
-          const strategyStates = new Map();
-          const subEpochTimestamp = baseSubEpochTimestamp;
-
-          // Batch 1 events (processed first)
-          const batch1Event1Timestamp = baseCampaignStartTimestamp + 3600; // 1 hour in
-          const batch1Event2Timestamp = baseCampaignStartTimestamp + 7200; // 2 hours in
-
-          // Batch 2 events (processed later, but contains earlier events)
-          const batch2Event1Timestamp = baseCampaignStartTimestamp + 1800; // 30 minutes in (EARLIER than batch 1)
-          const batch2Event2Timestamp = baseCampaignStartTimestamp + 9000; // 2.5 hours in (LATER than batch 1)
-
-          // Simulate strategy states from different batches
-          const stateFromBatch1 = {
-            isDeleted: false,
-            liquidity0: new Decimal('1000000000000000000'),
-            liquidity1: new Decimal('2000000000000000000'),
-            lastEventTimestamp: batch1Event2Timestamp, // Latest from batch 1
-          };
-
-          const stateFromBatch2 = {
-            isDeleted: false,
-            liquidity0: new Decimal('1500000000000000000'), // Different values
-            liquidity1: new Decimal('2500000000000000000'),
-            lastEventTimestamp: batch2Event2Timestamp, // Latest from batch 2 (should win)
-          };
-
-          // The key insight: batch 2 has the latest event, so its state should be kept
-          expect(batch2Event2Timestamp).toBeGreaterThan(batch1Event2Timestamp);
-          expect(stateFromBatch2.lastEventTimestamp).toBeGreaterThan(stateFromBatch1.lastEventTimestamp);
-
-          console.log(
-            `✅ Cross-batch overlap test: Batch 2 timestamp ${batch2Event2Timestamp} > Batch 1 timestamp ${batch1Event2Timestamp}`,
-          );
-        });
-
-        it('should handle same strategy in 3+ batches for same sub-epoch', () => {
-          // Scenario: Same strategy appears in multiple batch generations
-          const timestamps = [
-            baseCampaignStartTimestamp + 1000, // Batch 1: earliest
-            baseCampaignStartTimestamp + 2000, // Batch 2: middle
-            baseCampaignStartTimestamp + 3000, // Batch 3: latest (should win)
-          ];
-
-          const states = timestamps.map((ts, index) => ({
-            batchNumber: index + 1,
-            lastEventTimestamp: ts,
-            liquidity0: new Decimal(`${(index + 1) * 1000000000000000000}`), // Different values per batch
-            isDeleted: false,
-          }));
-
-          // Verify chronological ordering
-          for (let i = 1; i < timestamps.length; i++) {
-            expect(timestamps[i]).toBeGreaterThan(timestamps[i - 1]);
-          }
-
-          console.log(`✅ Multi-batch test: Latest batch (3) timestamp ${timestamps[2]} should win`);
-        });
-      });
-
-      describe('2. Timestamp Precision Edge Cases', () => {
-        it('should handle identical timestamps from different events', () => {
-          // Scenario: Multiple events with exactly the same timestamp
-          const identicalTimestamp = baseCampaignStartTimestamp + 3600;
-
-          const events = [
-            { type: 'created', timestamp: identicalTimestamp, data: 'EVENT_1' },
-            { type: 'updated', timestamp: identicalTimestamp, data: 'EVENT_2' },
-            { type: 'updated', timestamp: identicalTimestamp, data: 'EVENT_3' },
-          ];
-
-          // All events have identical timestamps - deduplication should keep one consistently
-          events.forEach((event) => {
-            expect(event.timestamp).toBe(identicalTimestamp);
-          });
-
-          console.log(`✅ Identical timestamps test: ${events.length} events at timestamp ${identicalTimestamp}`);
-        });
-
-        it('should handle microsecond precision differences', () => {
-          // Scenario: Events very close in time (same second, different milliseconds)
-          const baseTimestamp = baseCampaignStartTimestamp + 3600;
-          const microSecondDiff = 0.001; // 1 millisecond difference
-
-          const event1Timestamp = baseTimestamp;
-          const event2Timestamp = baseTimestamp; // Same second
-          const event3Timestamp = baseTimestamp + 1; // Next second
-
-          // Test that we can distinguish between very close timestamps
-          expect(event3Timestamp).toBeGreaterThan(event1Timestamp);
-          expect(event3Timestamp).toBeGreaterThan(event2Timestamp);
-
-          console.log(`✅ Microsecond precision test: ${event1Timestamp} vs ${event3Timestamp}`);
-        });
-
-        it('should handle clock skew scenarios', () => {
-          // Scenario: Events processed out of chronological order due to system clock differences
-          const correctOrder = [
-            baseCampaignStartTimestamp + 1000,
-            baseCampaignStartTimestamp + 2000,
-            baseCampaignStartTimestamp + 3000,
-          ];
-
-          const processedOrder = [
-            correctOrder[1], // Middle event processed first
-            correctOrder[2], // Latest event processed second
-            correctOrder[0], // Earliest event processed last
-          ];
-
-          // Verify the deduplication logic should use the latest timestamp regardless of processing order
-          const latestTimestamp = Math.max(...processedOrder);
-          expect(latestTimestamp).toBe(correctOrder[2]);
-
-          console.log(
-            `✅ Clock skew test: Latest timestamp ${latestTimestamp} should be kept regardless of processing order`,
-          );
-        });
-      });
-
-      describe('3. Sub-epoch Boundary Edge Cases', () => {
-        it('should handle events at epoch boundaries', () => {
-          // Scenario: Events right at epoch start/end boundaries
-          const epochStartTimestamp = baseCampaignStartTimestamp;
-          const epochEndTimestamp = baseCampaignStartTimestamp + 4 * 60 * 60; // 4 hours later
-
-          const boundaryEvents = [
-            { timestamp: epochStartTimestamp, position: 'epoch_start' },
-            { timestamp: epochStartTimestamp + 1, position: 'just_after_start' },
-            { timestamp: epochEndTimestamp - 1, position: 'just_before_end' },
-            { timestamp: epochEndTimestamp, position: 'epoch_end' },
-          ];
-
-          // All boundary events should be handled correctly
-          boundaryEvents.forEach((event, index) => {
-            expect(event.timestamp).toBeGreaterThanOrEqual(epochStartTimestamp);
-            expect(event.timestamp).toBeLessThanOrEqual(epochEndTimestamp);
-          });
-
-          console.log(`✅ Epoch boundary test: Events from ${epochStartTimestamp} to ${epochEndTimestamp}`);
-        });
-
-        it('should handle multiple sub-epochs affected by same event sequence', () => {
-          // Scenario: Single event sequence affecting multiple sub-epochs
-          const subEpoch1 = baseSubEpochTimestamp;
-          const subEpoch2 = baseSubEpochTimestamp + 240; // 4 minutes later (next sub-epoch)
-          const subEpoch3 = baseSubEpochTimestamp + 480; // 8 minutes later
-
-          const eventTimestamp = baseSubEpochTimestamp + 120; // Between sub-epochs
-
-          // Event affects multiple sub-epochs - each should have its own CSV entry
-          const affectedSubEpochs = [subEpoch1, subEpoch2, subEpoch3];
-
-          affectedSubEpochs.forEach((subEpoch) => {
-            // Each sub-epoch should get the same event timestamp for deduplication
-            expect(eventTimestamp).toBeGreaterThan(subEpoch1 - 240);
-            expect(eventTimestamp).toBeLessThan(subEpoch3 + 240);
-          });
-
-          console.log(
-            `✅ Multi sub-epoch test: Event at ${eventTimestamp} affects ${affectedSubEpochs.length} sub-epochs`,
-          );
-        });
-
-        it('should handle partial epochs when campaign ends mid-epoch', () => {
-          // Scenario: Campaign ending in the middle of an epoch
-          const epochDuration = 4 * 60 * 60; // 4 hours
-          const campaignDuration = epochDuration * 1.5; // 6 hours (1.5 epochs)
-
-          const campaignStartTimestamp = baseCampaignStartTimestamp;
-          const campaignEndTimestamp = campaignStartTimestamp + campaignDuration;
-          const partialEpochEndTimestamp = campaignEndTimestamp;
-
-          // Verify partial epoch handling
-          expect(partialEpochEndTimestamp).toBeLessThan(campaignStartTimestamp + 2 * epochDuration);
-          expect(partialEpochEndTimestamp).toBeGreaterThan(campaignStartTimestamp + epochDuration);
-
-          console.log(`✅ Partial epoch test: Campaign ends at ${campaignEndTimestamp}, mid-epoch`);
-        });
-      });
-
-      describe('4. Strategy Lifecycle Edge Cases', () => {
-        it('should handle full lifecycle within same sub-epoch', () => {
-          // Scenario: Create → Update → Delete → Transfer all within same sub-epoch
-          const subEpochStart = baseSubEpochTimestamp;
-          const subEpochEnd = baseSubEpochTimestamp + 240; // 4 minutes later
-
-          const lifecycleEvents = [
-            { type: 'created', timestamp: subEpochStart + 10, state: 'CREATED' },
-            { type: 'updated', timestamp: subEpochStart + 60, state: 'UPDATED' },
-            { type: 'deleted', timestamp: subEpochStart + 120, state: 'DELETED' },
-            { type: 'transfer', timestamp: subEpochStart + 180, state: 'TRANSFERRED' },
-          ];
-
-          // All events within same sub-epoch
-          lifecycleEvents.forEach((event) => {
-            expect(event.timestamp).toBeGreaterThanOrEqual(subEpochStart);
-            expect(event.timestamp).toBeLessThan(subEpochEnd);
-          });
-
-          // Latest event (transfer) should determine final state
-          const latestEvent = lifecycleEvents[lifecycleEvents.length - 1];
-          expect(latestEvent.type).toBe('transfer');
-
-          console.log(
-            `✅ Full lifecycle test: ${lifecycleEvents.length} events in sub-epoch, latest: ${latestEvent.state}`,
-          );
-        });
-
-        it('should handle rapid state changes within seconds', () => {
-          // Scenario: Multiple updates within a few seconds
-          const baseTimestamp = baseCampaignStartTimestamp + 3600;
-          const rapidUpdates = [
-            { timestamp: baseTimestamp, liquidity: '1000000000000000000' },
-            { timestamp: baseTimestamp + 1, liquidity: '1100000000000000000' },
-            { timestamp: baseTimestamp + 2, liquidity: '1200000000000000000' },
-            { timestamp: baseTimestamp + 3, liquidity: '1300000000000000000' },
-            { timestamp: baseTimestamp + 4, liquidity: '1400000000000000000' },
-          ];
-
-          // Verify chronological order
-          for (let i = 1; i < rapidUpdates.length; i++) {
-            expect(rapidUpdates[i].timestamp).toBeGreaterThan(rapidUpdates[i - 1].timestamp);
-          }
-
-          // Latest update should be kept
-          const latestUpdate = rapidUpdates[rapidUpdates.length - 1];
-          expect(latestUpdate.liquidity).toBe('1400000000000000000');
-
-          console.log(
-            `✅ Rapid updates test: ${rapidUpdates.length} updates in 5 seconds, latest: ${latestUpdate.liquidity}`,
-          );
-        });
-
-        it('should handle strategy resurrection (delete then recreate)', () => {
-          // Scenario: Strategy deleted then recreated with same ID
-          const deletionTimestamp = baseCampaignStartTimestamp + 3600;
-          const recreationTimestamp = baseCampaignStartTimestamp + 7200; // 1 hour later
-
-          const resurrectionEvents = [
-            { type: 'created', timestamp: baseCampaignStartTimestamp + 1800, state: 'ORIGINAL_CREATED' },
-            { type: 'deleted', timestamp: deletionTimestamp, state: 'DELETED' },
-            { type: 'created', timestamp: recreationTimestamp, state: 'RESURRECTED' }, // Same strategy ID, new creation
-          ];
-
-          // Verify chronological order
-          expect(deletionTimestamp).toBeGreaterThan(resurrectionEvents[0].timestamp);
-          expect(recreationTimestamp).toBeGreaterThan(deletionTimestamp);
-
-          // Latest event (resurrection) should determine state
-          const latestEvent = resurrectionEvents[resurrectionEvents.length - 1];
-          expect(latestEvent.state).toBe('RESURRECTED');
-
-          console.log(
-            `✅ Strategy resurrection test: Deleted at ${deletionTimestamp}, recreated at ${recreationTimestamp}`,
-          );
-        });
-      });
-
-      describe('5. Campaign Timing Edge Cases', () => {
-        it('should handle events at campaign boundaries', () => {
-          // Scenario: Events exactly at campaign start/end times
-          const campaignStartTimestamp = baseCampaignStartTimestamp;
-          const campaignEndTimestamp = baseCampaignEndTimestamp;
-
-          const boundaryEvents = [
-            { timestamp: campaignStartTimestamp, position: 'campaign_start' },
-            { timestamp: campaignStartTimestamp + 1, position: 'just_after_start' },
-            { timestamp: campaignEndTimestamp - 1, position: 'just_before_end' },
-            { timestamp: campaignEndTimestamp, position: 'campaign_end' },
-          ];
-
-          // All events should be within campaign boundaries
-          boundaryEvents.forEach((event) => {
-            expect(event.timestamp).toBeGreaterThanOrEqual(campaignStartTimestamp);
-            expect(event.timestamp).toBeLessThanOrEqual(campaignEndTimestamp);
-          });
-
-          console.log(`✅ Campaign boundary test: Events from ${campaignStartTimestamp} to ${campaignEndTimestamp}`);
-        });
-
-        it('should handle overlapping campaigns with same strategy', () => {
-          // Scenario: Same strategy participating in multiple overlapping campaigns
-          const campaign1Start = baseCampaignStartTimestamp;
-          const campaign1End = baseCampaignStartTimestamp + 24 * 60 * 60; // 1 day
-          const campaign2Start = baseCampaignStartTimestamp + 12 * 60 * 60; // 12 hours (overlaps)
-          const campaign2End = baseCampaignStartTimestamp + 36 * 60 * 60; // 1.5 days
-
-          // Verify overlap
-          expect(campaign2Start).toBeLessThan(campaign1End);
-          expect(campaign2Start).toBeGreaterThan(campaign1Start);
-
-          const overlapStart = Math.max(campaign1Start, campaign2Start);
-          const overlapEnd = Math.min(campaign1End, campaign2End);
-          const overlapDuration = overlapEnd - overlapStart;
-
-          expect(overlapDuration).toBeGreaterThan(0);
-
-          console.log(`✅ Overlapping campaigns test: Overlap duration ${overlapDuration} seconds`);
-        });
-
-        it('should handle historical vs real-time event processing', () => {
-          // Scenario: Old events processed after newer ones (backfill scenario)
-          const historicalEventTimestamp = baseCampaignStartTimestamp + 1800; // 30 minutes in
-          const realtimeEventTimestamp = baseCampaignStartTimestamp + 3600; // 1 hour in
-          const backfillEventTimestamp = baseCampaignStartTimestamp + 900; // 15 minutes in (processed last)
-
-          const processingOrder = [
-            { timestamp: realtimeEventTimestamp, type: 'realtime', data: 'REALTIME_STATE' },
-            { timestamp: historicalEventTimestamp, type: 'historical', data: 'HISTORICAL_STATE' },
-            { timestamp: backfillEventTimestamp, type: 'backfill', data: 'BACKFILL_STATE' },
-          ];
-
-          // Chronological order should be: backfill < historical < realtime
-          expect(backfillEventTimestamp).toBeLessThan(historicalEventTimestamp);
-          expect(historicalEventTimestamp).toBeLessThan(realtimeEventTimestamp);
-
-          // But realtime was processed first - deduplication should still use latest timestamp
-          const latestTimestamp = Math.max(...processingOrder.map((e) => e.timestamp));
-          expect(latestTimestamp).toBe(realtimeEventTimestamp);
-
-          console.log(`✅ Historical vs realtime test: Latest timestamp ${latestTimestamp} should be kept`);
-        });
+      // Should set all rewards to zero
+      expect(result.totalRewards.get('strategy-1')).toEqual(new Decimal(0));
+      expect(result.tokenRewards.get('strategy-1')).toEqual({
+        token0: new Decimal(0),
+        token1: new Decimal(0),
       });
     });
   });
 
-  describe('Snapshot Interval Generation', () => {
-    let mockConfigService: jest.Mocked<ConfigService>;
-
-    const mockCampaign = {
-      id: 'test-campaign-123',
-      blockchainType: BlockchainType.Ethereum,
-      exchangeId: ExchangeId.OGEthereum,
-    };
-
-    const mockEpoch = {
-      epochNumber: 5,
-      startTimestamp: new Date('2024-01-01T00:00:00Z'),
-      endTimestamp: new Date('2024-01-01T04:00:00Z'), // 4 hours later
-    };
-
-    const mockChronologicalEvents = [
-      { timestamp: 1000, event: { transactionHash: '0xabc123' } },
-      { timestamp: 2000, event: { transactionHash: '0xdef456' } },
-      { timestamp: 3000, event: { transactionHash: '0x789xyz' } },
-    ];
-
-    beforeEach(() => {
-      mockConfigService = {
-        get: jest.fn(),
-      } as any;
-
-      // Default mocks for required environment variables
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === 'MERKL_SNAPSHOT_SALT') {
-          return 'test-salt-12345'; // Default salt for tests
-        }
-        return undefined; // Default for other keys
-      });
-
-      // Replace the configService in the service instance
-      (service as any).configService = mockConfigService;
+  describe('Service Integration', () => {
+    it('should handle service dependency injection correctly', () => {
+      expect(service).toHaveProperty('campaignService');
+      expect(service).toHaveProperty('subEpochService');
+      expect(service).toHaveProperty('blockService');
+      expect(service).toHaveProperty('historicQuoteService');
     });
 
-    describe('getSnapshotIntervals', () => {
-      it('should use fixed seed when MERKL_SNAPSHOT_SEED is set', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(mockConfigService.get).toHaveBeenCalledWith('MERKL_SNAPSHOT_SEED');
-        expect(intervals).toBeDefined();
-        expect(Array.isArray(intervals)).toBe(true);
-        expect(intervals.length).toBeGreaterThan(0);
-        expect(intervals.every((i: number) => i >= 240 && i <= 360)).toBe(true);
-      });
-
-      it('should use transaction-based seed when MERKL_SNAPSHOT_SEED is not set', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(mockConfigService.get).toHaveBeenCalledWith('MERKL_SNAPSHOT_SEED');
-        expect(intervals).toBeDefined();
-        expect(Array.isArray(intervals)).toBe(true);
-        expect(intervals.length).toBeGreaterThan(0);
-        expect(intervals.every((i: number) => i >= 240 && i <= 360)).toBe(true);
-      });
-
-      it('should generate consistent intervals for same inputs', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-        const intervals2 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(intervals1).toEqual(intervals2);
-      });
-
-      it('should generate different intervals for different epochs', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const epoch1 = { ...mockEpoch, epochNumber: 1 };
-        const epoch2 = { ...mockEpoch, epochNumber: 2 };
-
-        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, epoch1, mockChronologicalEvents);
-        const intervals2 = (service as any).getSnapshotIntervals(mockCampaign, epoch2, mockChronologicalEvents);
-
-        expect(intervals1).not.toEqual(intervals2);
-      });
-
-      it('should generate intervals that sum to epoch duration', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-        const totalIntervalTime = intervals.reduce((sum: number, interval: number) => sum + interval, 0);
-        const expectedDuration = Math.floor(
-          (mockEpoch.endTimestamp.getTime() - mockEpoch.startTimestamp.getTime()) / 1000,
-        );
-
-        expect(Math.abs(totalIntervalTime - expectedDuration)).toBeLessThanOrEqual(1); // Allow 1 second tolerance
-      });
-    });
-
-    describe('generateEpochSeed', () => {
-      it('should generate consistent seed for same inputs', () => {
-        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(seed1).toBe(seed2);
-        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/); // Should be hex string
-      });
-
-      it('should generate different seeds for different campaigns', () => {
-        const campaign1 = { ...mockCampaign, id: 'campaign-1' };
-        const campaign2 = { ...mockCampaign, id: 'campaign-2' };
-
-        const seed1 = (service as any).generateEpochSeed(campaign1, mockEpoch, mockChronologicalEvents);
-        const seed2 = (service as any).generateEpochSeed(campaign2, mockEpoch, mockChronologicalEvents);
-
-        expect(seed1).not.toBe(seed2);
-      });
-
-      it('should generate different seeds for different epochs', () => {
-        const epoch1 = { ...mockEpoch, epochNumber: 1 };
-        const epoch2 = { ...mockEpoch, epochNumber: 2 };
-
-        const seed1 = (service as any).generateEpochSeed(mockCampaign, epoch1, mockChronologicalEvents);
-        const seed2 = (service as any).generateEpochSeed(mockCampaign, epoch2, mockChronologicalEvents);
-
-        expect(seed1).not.toBe(seed2);
-      });
-    });
-
-    describe('getLastTransactionHashFromSortedEvents', () => {
-      it('should find last transaction hash before epoch start', () => {
-        const epochWithMidStart = {
-          ...mockEpoch,
-          startTimestamp: new Date(2500 * 1000), // Convert to milliseconds - between 2000 and 3000 seconds
-        };
-
-        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
-          epochWithMidStart,
-          mockChronologicalEvents,
-        );
-
-        expect(txHash).toBe('0xdef456'); // Last hash before timestamp 2500
-      });
-
-      it('should find first available hash when epoch starts after all events', () => {
-        const epochWithLateStart = {
-          ...mockEpoch,
-          startTimestamp: new Date(5000 * 1000), // Convert to milliseconds - after all events
-        };
-
-        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
-          epochWithLateStart,
-          mockChronologicalEvents,
-        );
-
-        expect(txHash).toBe('0x789xyz'); // Latest hash available
-      });
-
-      it('should use first available event hash when no events before epoch start', () => {
-        const epochWithEarlyStart = {
-          ...mockEpoch,
-          startTimestamp: new Date(500 * 1000), // Convert to milliseconds - before any events
-        };
-
-        const txHash = (service as any).getLastTransactionHashFromSortedEvents(
-          epochWithEarlyStart,
-          mockChronologicalEvents,
-        );
-
-        expect(txHash).toBe('0xabc123'); // First available hash since none before epoch start
-      });
-
-      it('should throw error when no events exist at all', () => {
-        expect(() => (service as any).getLastTransactionHashFromSortedEvents(mockEpoch, [])).toThrow(
-          'No events found for epoch 5 - cannot generate seed',
-        );
-      });
-    });
-
-    describe('Integration with partitioner', () => {
-      it('should call partitionSingleEpoch with correct parameters', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        // Mock partitionSingleEpoch by importing it and spying on it
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const partitioner = require('./partitioner');
-        const partitionSpy = jest.spyOn(partitioner, 'partitionSingleEpoch');
-        partitionSpy.mockReturnValue([240, 300, 360, 280, 320]);
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(partitionSpy).toHaveBeenCalledWith(
-          14400, // 4 hours in seconds
-          240, // MIN_SNAPSHOT_INTERVAL
-          360, // MAX_SNAPSHOT_INTERVAL
-          '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-        );
-        expect(intervals).toEqual([240, 300, 360, 280, 320]);
-
-        partitionSpy.mockRestore();
-      });
-    });
-
-    describe('Environment variable behavior', () => {
-      it('should prioritize MERKL_SNAPSHOT_SEED over transaction-based seed', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals1 = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-        const intervals2 = (service as any).getSnapshotIntervals(
-          { ...mockCampaign, id: 'different-campaign' },
-          { ...mockEpoch, epochNumber: 999 },
-          [], // Different events
-        );
-
-        // Should be identical because using fixed seed
-        expect(intervals1).toEqual(intervals2);
-      });
-
-      it('should use transaction-based seed when env var is empty string', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return '';
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(intervals).toBeDefined();
-        expect(intervals.length).toBeGreaterThan(0);
-      });
-
-      it('should use transaction-based seed when env var is null', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return null;
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'test-salt-12345';
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(intervals).toBeDefined();
-        expect(intervals.length).toBeGreaterThan(0);
-      });
-
-      it('should throw error when MERKL_SNAPSHOT_SALT is missing', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return undefined; // Missing salt - should cause error
-          }
-          return undefined;
-        });
-
-        expect(() => (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents)).toThrow(
-          'MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation',
-        );
-      });
-
-      it('should throw error when MERKL_SNAPSHOT_SALT is empty string', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return undefined; // No fixed seed, so will use transaction-based
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return ''; // Empty salt - should cause error
-          }
-          return undefined;
-        });
-
-        expect(() => (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents)).toThrow(
-          'MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation',
-        );
-      });
-
-      it('should not require salt when MERKL_SNAPSHOT_SEED is provided', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SEED') {
-            return '0x123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef';
-          }
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return undefined; // Missing salt, but should not matter when fixed seed is provided
-          }
-          return undefined;
-        });
-
-        const intervals = (service as any).getSnapshotIntervals(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(intervals).toBeDefined();
-        expect(intervals.length).toBeGreaterThan(0);
-      });
-    });
-
-    describe('Salt-based seed generation', () => {
-      it('should generate different seeds with different salts', () => {
-        // First seed with salt1
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'salt1';
-          }
-          return undefined;
-        });
-        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        // Second seed with salt2
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'salt2';
-          }
-          return undefined;
-        });
-        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(seed1).not.toBe(seed2);
-        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/);
-        expect(seed2).toMatch(/^0x[a-f0-9]{64}$/);
-      });
-
-      it('should generate consistent seeds with same salt', () => {
-        mockConfigService.get.mockImplementation((key: string) => {
-          if (key === 'MERKL_SNAPSHOT_SALT') {
-            return 'consistent-salt';
-          }
-          return undefined;
-        });
-
-        const seed1 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-        const seed2 = (service as any).generateEpochSeed(mockCampaign, mockEpoch, mockChronologicalEvents);
-
-        expect(seed1).toBe(seed2);
-        expect(seed1).toMatch(/^0x[a-f0-9]{64}$/);
-      });
+    it('should validate deployment configuration', () => {
+      expect(mockDeployment.blockchainType).toBe(BlockchainType.Ethereum);
+      expect(mockDeployment.exchangeId).toBe(ExchangeId.OGEthereum);
+      expect(mockDeployment.startBlock).toBeGreaterThan(0);
     });
   });
 
-  describe('Weight-Based Reward Allocation', () => {
-    let testService: MerklProcessorService;
-    let mockCampaignWithWeights: Campaign;
+  describe('Error Handling', () => {
+    it('should handle campaign service errors gracefully', async () => {
+      mockCampaignService.getActiveCampaigns.mockRejectedValue(new Error('Campaign error'));
 
-    beforeEach(() => {
-      // Create service instance for testing
-      testService = new (MerklProcessorService as any)(
-        mockRepository,
-        mockCampaignService,
-        mockLastProcessedBlockService,
-        mockBlockService,
-        mockHistoricQuoteService,
-        mockStrategyCreatedEventService,
-        mockStrategyUpdatedEventService,
-        mockStrategyDeletedEventService,
-        mockVoucherTransferEventService,
-        { get: jest.fn().mockReturnValue('0') }, // CSV disabled
-      );
-
-      // Setup test campaign
-      mockCampaignWithWeights = {
-        ...mockCampaign,
-        exchangeId: ExchangeId.OGTac, // Use OGTac which has specific weightings
-        pair: {
-          ...mockPair,
-          token0: {
-            ...mockToken0,
-            address: '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // USDT - 2.0 weight
-          },
-          token1: {
-            ...mockToken1,
-            address: '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // TON - 0.5 weight
-          },
-        },
-      };
-    });
-
-    describe('calculateSnapshotRewards with weight-based allocation', () => {
-      it('should allocate rewards based on token weights (2.0 vs 0.5)', () => {
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'), // 1 token
-                liquidity1: new Decimal('1000000000000000000'), // 1 token
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'), // Full liquidity eligible
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'), // Full liquidity eligible
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000'); // 1000 tokens
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: mockCampaignWithWeights,
-          priceCache: null,
-        };
-
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          mockCampaignWithWeights,
-          epoch,
-          streamingContext,
-        );
-
-        // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
-        // Token0 should get: 1000 * 2.0 / 2.5 = 800 tokens
-        // Token1 should get: 1000 * 0.5 / 2.5 = 200 tokens
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // The strategy should get rewards from both tokens
-        // Since it has equal eligible liquidity on both sides, it gets all rewards
-        const expectedTotalReward = new Decimal('1000000000000000000000'); // 1000 tokens
-        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
-      });
-
-      it('should allocate 100% to token0 when token1 has zero weight', () => {
-        const campaignWithZeroWeight = {
-          ...mockCampaignWithWeights,
-          pair: {
-            ...mockCampaignWithWeights.pair,
-            token0: {
-              ...mockToken0,
-              address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight
-            },
-            token1: {
-              ...mockToken1,
-              address: '0x0000000000000000000000000000000000000000', // 0 weight (not in config)
-            },
-          },
-        };
-
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'),
-                liquidity1: new Decimal('1000000000000000000'),
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-                token1Address: '0x0000000000000000000000000000000000000000',
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: campaignWithZeroWeight,
-          priceCache: null,
-        };
-
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          campaignWithZeroWeight,
-          epoch,
-          streamingContext,
-        );
-
-        // Token0 weight: 2.0, Token1 weight: 0, Total weight: 2.0
-        // Token0 should get: 1000 * 2.0 / 2.0 = 1000 tokens (100%)
-        // Token1 should get: 1000 * 0 / 2.0 = 0 tokens (0%)
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // Strategy should only get token0 rewards (full 1000 tokens)
-        const expectedReward = new Decimal('1000000000000000000000');
-        expect(strategyReward.toString()).toBe(expectedReward.toString());
-      });
-
-      it('should return no rewards when both tokens have zero weight', () => {
-        const campaignWithZeroWeights = {
-          ...mockCampaignWithWeights,
-          exchangeId: ExchangeId.OGCoti, // Use OGCoti which has defaultWeighting: 0
-          pair: {
-            ...mockCampaignWithWeights.pair,
-            token0: {
-              ...mockToken0,
-              address: '0x0000000000000000000000000000000000000000', // 0 weight (default for OGCoti)
-            },
-            token1: {
-              ...mockToken1,
-              address: '0x0000000000000000000000000000000000000001', // 0 weight (default for OGCoti)
-            },
-          },
-        };
-
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'),
-                liquidity1: new Decimal('1000000000000000000'),
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: '0x0000000000000000000000000000000000000000',
-                token1Address: '0x0000000000000000000000000000000000000001',
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: campaignWithZeroWeights,
-          priceCache: null,
-        };
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          campaignWithZeroWeights,
-          epoch,
-          streamingContext,
-        );
-
-        // Both tokens have 0 weight, so no rewards should be distributed
-        expect(result.size).toBe(0);
-      });
-
-      it('should handle equal weights like the old 50/50 split', () => {
-        const campaignWithEqualWeights = {
-          ...mockCampaign,
-          exchangeId: ExchangeId.OGEthereum, // Default weighting: 1 for all tokens
-        };
-
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'),
-                liquidity1: new Decimal('1000000000000000000'),
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: mockToken0.address,
-                token1Address: mockToken1.address,
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: campaignWithEqualWeights,
-          priceCache: null,
-        };
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          campaignWithEqualWeights,
-          epoch,
-          streamingContext,
-        );
-
-        // Token0 weight: 1.0, Token1 weight: 1.0, Total weight: 2.0
-        // Token0 should get: 1000 * 1.0 / 2.0 = 500 tokens (50%)
-        // Token1 should get: 1000 * 1.0 / 2.0 = 500 tokens (50%)
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // Strategy gets rewards from both sides (total should be 1000)
-        const expectedTotalReward = new Decimal('1000000000000000000000');
-        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
-      });
-
-      it('should handle whitelisted asset weighting correctly', () => {
-        const campaignWithWhitelistedAsset = {
-          ...mockCampaignWithWeights,
-          pair: {
-            ...mockCampaignWithWeights.pair,
-            token0: {
-              ...mockToken0,
-              address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C', // 2.0 weight (specific)
-            },
-            token1: {
-              ...mockToken1,
-              address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1', // 0.5 weight (whitelisted)
-            },
-          },
-        };
-
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('2000000000000000000'), // 2 tokens
-                liquidity1: new Decimal('1000000000000000000'), // 1 token
-                order0_z: new Decimal('2000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: campaignWithWhitelistedAsset,
-          priceCache: null,
-        };
-
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          campaignWithWhitelistedAsset,
-          epoch,
-          streamingContext,
-        );
-
-        // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
-        // Token0 pool: 1000 * 2.0 / 2.5 = 800 tokens
-        // Token1 pool: 1000 * 0.5 / 2.5 = 200 tokens
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // Strategy should get full amount from both pools since it's the only strategy
-        const expectedTotalReward = new Decimal('1000000000000000000000');
-        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
-      });
-
-      it('should handle case where eligible liquidity is zero on one side', () => {
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'),
-                liquidity1: new Decimal('0'), // No liquidity on token1 side
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('0'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                token0Address: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-                token1Address: '0x7637C7838EC4Ec6b85080F28A678F8E234bB83D1',
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: mockCampaignWithWeights,
-          priceCache: null,
-        };
-
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          mockCampaignWithWeights,
-          epoch,
-          streamingContext,
-        );
-
-        // Token0: 2.0 weight, Token1: 0.5 weight, Total: 2.5
-        // Token0 pool: 1000 * 2.0 / 2.5 = 800 tokens (strategy gets all)
-        // Token1 pool: 1000 * 0.5 / 2.5 = 200 tokens (no eligible liquidity, so 0)
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // Strategy should only get token0 rewards (800 tokens)
-        const expectedReward = new Decimal('800000000000000000000');
-        expect(strategyReward.toString()).toBe(expectedReward.toString());
-      });
-
-      it('should work end-to-end with case-insensitive token addresses in config', () => {
-        // This test verifies that reward allocation works correctly even when:
-        // - Configuration has mixed case addresses
-        // - Strategy uses different case variations of the same addresses
-
-        const snapshot = {
-          timestamp: 1704081600,
-          targetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          invTargetSqrtPriceScaled: new Decimal('1000000000000000000000000'),
-          order0TargetPrice: new Decimal('2'),
-          strategies: new Map([
-            [
-              'strategy1',
-              {
-                isDeleted: false,
-                liquidity0: new Decimal('1000000000000000000'),
-                liquidity1: new Decimal('1000000000000000000'),
-                order0_z: new Decimal('1000000000000000000'),
-                order0_A: new Decimal('0'),
-                order0_B: new Decimal('2000000000000000000000000'),
-                order1_z: new Decimal('1000000000000000000'),
-                order1_A: new Decimal('0'),
-                order1_B: new Decimal('2000000000000000000000000'),
-                // Use lowercase addresses while config has mixed case
-                token0Address: '0xf1feebc4376c68b7003450ae66343ae59ab37d3c', // lowercase variant
-                token1Address: '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1', // lowercase variant
-              },
-            ],
-          ]),
-        };
-
-        const rewardPool = new Decimal('1000000000000000000000');
-        const epoch = {
-          epochNumber: 1,
-          startTimestamp: new Date('2024-01-01T00:00:00Z'),
-          endTimestamp: new Date('2024-01-01T04:00:00Z'),
-          totalRewards: rewardPool,
-        };
-        const streamingContext = {
-          csvStream: null,
-          csvFilename: null,
-          isHeaderWritten: false,
-          hasDataRows: false,
-          currentCampaign: mockCampaignWithWeights,
-          priceCache: null,
-        };
-
-        const result = (testService as any).calculateSnapshotRewards(
-          snapshot,
-          rewardPool,
-          mockCampaignWithWeights,
-          epoch,
-          streamingContext,
-        );
-
-        // Should still work correctly with case-insensitive matching
-        // Token0 weight: 2.0, Token1 weight: 0.5, Total weight: 2.5
-        // Token0 should get: 1000 * 2.0 / 2.5 = 800 tokens
-        // Token1 should get: 1000 * 0.5 / 2.5 = 200 tokens
-
-        expect(result.size).toBe(1);
-        const strategyReward = result.get('strategy1');
-        expect(strategyReward).toBeDefined();
-
-        // Strategy should get full amount from both pools (800 + 200 = 1000)
-        const expectedTotalReward = new Decimal('1000000000000000000000');
-        expect(strategyReward.toString()).toBe(expectedTotalReward.toString());
-      });
-    });
-
-    describe('getTokenWeighting method', () => {
-      it('should return correct specific weighting from config', () => {
-        const weight = (testService as any).getTokenWeighting(
-          '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // USDT - 2.0 weight
-          ExchangeId.OGTac,
-        );
-        expect(weight).toBe(2.0);
-      });
-
-      it('should return 0.5 for TON token', () => {
-        const weight = (testService as any).getTokenWeighting(
-          '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // TON - 0.5 weight
-          ExchangeId.OGTac,
-        );
-        expect(weight).toBe(0.5);
-      });
-
-      it('should return default weighting for unlisted tokens', () => {
-        const weight = (testService as any).getTokenWeighting(
-          '0x0000000000000000000000000000000000000000',
-          ExchangeId.OGTac,
-        );
-        expect(weight).toBe(0.5); // Default for OGTac
-      });
-
-      it('should return default weighting for OGEthereum', () => {
-        const weight = (testService as any).getTokenWeighting(
-          '0x0000000000000000000000000000000000000000',
-          ExchangeId.OGEthereum,
-        );
-        expect(weight).toBe(1); // Default for OGEthereum
-      });
-
-      it('should be case-insensitive for token addresses', () => {
-        // Test with different case variations of USDT address
-        const weightLower = (testService as any).getTokenWeighting(
-          '0xaf988c3f7cb2aceabb15f96b19388a259b6c438f', // all lowercase
-          ExchangeId.OGTac,
-        );
-        const weightUpper = (testService as any).getTokenWeighting(
-          '0xAF988C3F7CB2ACEABB15F96B19388A259B6C438F', // all uppercase
-          ExchangeId.OGTac,
-        );
-        const weightMixed = (testService as any).getTokenWeighting(
-          '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f', // mixed case (same as config)
-          ExchangeId.OGTac,
-        );
-        const weightDifferentMixed = (testService as any).getTokenWeighting(
-          '0xAf988c3F7cb2AceaBb15F96B19388A259b6c438F', // different mixed case
-          ExchangeId.OGTac,
-        );
-
-        // All should return the same weight regardless of case
-        expect(weightLower).toBe(2.0);
-        expect(weightUpper).toBe(2.0);
-        expect(weightMixed).toBe(2.0);
-        expect(weightDifferentMixed).toBe(2.0);
-      });
-
-      it('should be case-insensitive for TON token', () => {
-        // Test TON token with different case variations
-        const weightLower = (testService as any).getTokenWeighting(
-          '0xb76d91340f5ce3577f0a056d29f6e3eb4e88b140', // all lowercase
-          ExchangeId.OGTac,
-        );
-        const weightUpper = (testService as any).getTokenWeighting(
-          '0xB76D91340F5CE3577F0A056D29F6E3EB4E88B140', // all uppercase
-          ExchangeId.OGTac,
-        );
-        const weightMixed = (testService as any).getTokenWeighting(
-          '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140', // mixed case (same as config)
-          ExchangeId.OGTac,
-        );
-        const weightDifferentMixed = (testService as any).getTokenWeighting(
-          '0xB76d91340f5ce3577F0A056d29F6E3eb4e88b140', // different mixed case
-          ExchangeId.OGTac,
-        );
-
-        // All should return 0.5 (TON token weight) regardless of case
-        expect(weightLower).toBe(0.5);
-        expect(weightUpper).toBe(0.5);
-        expect(weightMixed).toBe(0.5);
-        expect(weightDifferentMixed).toBe(0.5);
-      });
-
-      it('should return 0 for unknown exchange ID', () => {
-        const weight = (testService as any).getTokenWeighting(
-          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-          'unknown-exchange' as any,
-        );
-        expect(weight).toBe(0);
-      });
+      await expect(service.update(1000100, mockDeployment)).rejects.toThrow('Campaign error');
     });
   });
 });
