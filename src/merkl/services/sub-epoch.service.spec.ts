@@ -19,6 +19,7 @@ describe('SubEpochService', () => {
       groupBy: jest.fn().mockReturnThis(),
       addGroupBy: jest.fn().mockReturnThis(),
       orderBy: jest.fn().mockReturnThis(),
+      addOrderBy: jest.fn().mockReturnThis(),
       getRawOne: jest.fn(),
       getRawMany: jest.fn(),
       getMany: jest.fn(),

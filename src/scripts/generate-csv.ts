@@ -50,6 +50,14 @@ interface ValidationResult {
       previousTimestamp: string;
       issue: string;
     }>;
+    invalidTimestampRelation: Array<{
+      row: number;
+      strategyId: string;
+      subEpoch: number;
+      subEpochTimestamp: string;
+      lastEventTimestamp: string;
+      issue: string;
+    }>;
   };
   recommendations: string[];
 }
@@ -123,7 +131,7 @@ class CsvGeneratorWithValidation {
     if (options.toSubEpoch)
       queryBuilder.andWhere('se.subEpochNumber <= :toSubEpoch', { toSubEpoch: options.toSubEpoch });
 
-    queryBuilder.orderBy('se.subEpochNumber', 'ASC');
+    queryBuilder.orderBy('se.subEpochNumber', 'ASC').addOrderBy('se.strategyId', 'ASC');
 
     const stream = createWriteStream(outputPath);
 
@@ -136,7 +144,7 @@ class CsvGeneratorWithValidation {
       'sub_epoch_timestamp',
       'token0_reward',
       'token1_reward',
-      'total_reward',
+      'sum_token0_token1_rewards',
       'liquidity0',
       'liquidity1',
       'token0_address',
@@ -243,6 +251,7 @@ class CsvGeneratorWithValidation {
       invalidData: [],
       invalidDates: [],
       timestampOrder: [],
+      invalidTimestampRelation: [],
     };
 
     const recommendations: string[] = [];
@@ -373,6 +382,16 @@ class CsvGeneratorWithValidation {
       this.validateDate(epochStart, 'epoch_start', rowIndex, issues.invalidDates);
       this.validateDate(subEpochTimestamp, 'sub_epoch_timestamp', rowIndex, issues.invalidDates);
       this.validateDate(lastEventTimestamp, 'last_event_timestamp', rowIndex, issues.invalidDates);
+
+      // Validate timestamp relationship: lastEventTimestamp should never be after subEpochTimestamp
+      this.validateTimestampRelation(
+        subEpochTimestamp,
+        lastEventTimestamp,
+        strategyId,
+        subEpochNum,
+        rowIndex,
+        issues.invalidTimestampRelation,
+      );
 
       // Update date range
       const epochStartDate = new Date(epochStart);
@@ -536,13 +555,17 @@ class CsvGeneratorWithValidation {
     if (issues.timestampOrder.length > 0) {
       recommendations.push('Check timestamp chronological ordering for sub-epochs');
     }
+    if (issues.invalidTimestampRelation.length > 0) {
+      recommendations.push('Review timestamp relationship: lastEventTimestamp should not be after subEpochTimestamp');
+    }
 
     const totalIssues =
       issues.gaps.length +
       issues.duplicates.length +
       issues.invalidData.length +
       issues.invalidDates.length +
-      issues.timestampOrder.length;
+      issues.timestampOrder.length +
+      issues.invalidTimestampRelation.length;
 
     const statistics: ValidationStatistics = {
       totalRows: dataLines.length,
@@ -666,6 +689,54 @@ class CsvGeneratorWithValidation {
     }
   }
 
+  private validateTimestampRelation(
+    subEpochTimestamp: string,
+    lastEventTimestamp: string,
+    strategyId: string,
+    subEpochNum: number,
+    row: number,
+    issues: Array<{
+      row: number;
+      strategyId: string;
+      subEpoch: number;
+      subEpochTimestamp: string;
+      lastEventTimestamp: string;
+      issue: string;
+    }>,
+  ) {
+    // Skip validation if either timestamp is null/undefined/invalid
+    if (
+      !subEpochTimestamp ||
+      !lastEventTimestamp ||
+      subEpochTimestamp === 'null' ||
+      subEpochTimestamp === 'undefined' ||
+      lastEventTimestamp === 'null' ||
+      lastEventTimestamp === 'undefined'
+    ) {
+      return;
+    }
+
+    const subEpochDate = new Date(subEpochTimestamp);
+    const lastEventDate = new Date(lastEventTimestamp);
+
+    // Skip if either date is invalid (will be caught by date validation)
+    if (isNaN(subEpochDate.getTime()) || isNaN(lastEventDate.getTime())) {
+      return;
+    }
+
+    // Check if lastEventTimestamp is after subEpochTimestamp
+    if (lastEventDate.getTime() > subEpochDate.getTime()) {
+      issues.push({
+        row,
+        strategyId,
+        subEpoch: subEpochNum,
+        subEpochTimestamp,
+        lastEventTimestamp,
+        issue: `LastEvent timestamp is after SubEpoch timestamp`,
+      });
+    }
+  }
+
   private logValidationResults(result: ValidationResult) {
     this.log('📋 Validation Results:');
     this.log(`   • Total rows: ${result.statistics.totalRows.toLocaleString()}`);
@@ -691,7 +762,8 @@ class CsvGeneratorWithValidation {
       result.issues.duplicates.length +
       result.issues.invalidData.length +
       result.issues.invalidDates.length +
-      result.issues.timestampOrder.length;
+      result.issues.timestampOrder.length +
+      result.issues.invalidTimestampRelation.length;
 
     if (result.isValid) {
       this.log('✅ Validation passed! No issues found.');
@@ -749,6 +821,39 @@ class CsvGeneratorWithValidation {
         });
         if (result.issues.timestampOrder.length > 5) {
           this.log(`     - ... and ${result.issues.timestampOrder.length - 5} more timestamp issues`);
+        }
+      }
+
+      if (result.issues.invalidTimestampRelation.length > 0) {
+        this.log(`   • ${result.issues.invalidTimestampRelation.length} invalid timestamp relation issues:`);
+        this.log('     ⚠️  LastEvent timestamp cannot be after SubEpoch timestamp');
+        this.log('');
+        result.issues.invalidTimestampRelation.slice(0, 5).forEach((relation) => {
+          const subEpochDate = new Date(relation.subEpochTimestamp);
+          const lastEventDate = new Date(relation.lastEventTimestamp);
+          const diffMs = lastEventDate.getTime() - subEpochDate.getTime();
+          const diffMinutes = Math.round(diffMs / (1000 * 60));
+          const diffHours = Math.round(diffMs / (1000 * 60 * 60));
+
+          let timeDiff = '';
+          if (diffMs < 60000) {
+            timeDiff = `${Math.round(diffMs / 1000)} seconds`;
+          } else if (diffMs < 3600000) {
+            timeDiff = `${diffMinutes} minutes`;
+          } else {
+            timeDiff = `${diffHours} hours`;
+          }
+
+          this.log(`     📍 Row ${relation.row}:`);
+          this.log(`        Strategy ID:        ${relation.strategyId}`);
+          this.log(`        Sub-Epoch:          ${relation.subEpoch}`);
+          this.log(`        SubEpoch Time:      ${relation.subEpochTimestamp}`);
+          this.log(`        LastEvent Time:     ${relation.lastEventTimestamp}`);
+          this.log(`        ❌ Problem:         LastEvent is ${timeDiff} AFTER SubEpoch (invalid)`);
+          this.log('');
+        });
+        if (result.issues.invalidTimestampRelation.length > 5) {
+          this.log(`     ... and ${result.issues.invalidTimestampRelation.length - 5} more timestamp relation issues`);
         }
       }
 

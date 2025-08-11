@@ -59,6 +59,15 @@ interface EpochInfo {
   totalRewards: Decimal;
 }
 
+interface EpochBatch {
+  epochInfo: EpochInfo;
+  campaign: Campaign;
+  // Unique identifier for sorting and tracking
+  globalEpochId: string;
+  startTimestampMs: number;
+  endTimestampMs: number;
+}
+
 interface SubEpochData {
   timestamp: number;
   order0TargetPrice: Decimal; // token1Usd/token0Usd for order0
@@ -88,11 +97,6 @@ interface TimestampedEvent {
 
 type StrategyStatesMap = Map<string, StrategyState>;
 
-interface CampaignContext {
-  campaign: Campaign;
-  strategyStates: StrategyStatesMap;
-}
-
 interface TokenWeightingConfig {
   tokenWeightings: Record<string, number>;
   whitelistedAssets: string[];
@@ -102,8 +106,6 @@ interface TokenWeightingConfig {
 @Injectable()
 export class MerklProcessorService {
   private readonly logger = new Logger(MerklProcessorService.name);
-  private readonly BATCH_SIZE = 100000; // Number of blocks per batch
-  private readonly SAVE_BATCH_SIZE = 1000; // Number of rewards to save at once
   private readonly MIN_SNAPSHOT_INTERVAL = 4 * 60; // 240 seconds
   private readonly MAX_SNAPSHOT_INTERVAL = 6 * 60; // 360 seconds
   private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
@@ -161,190 +163,244 @@ export class MerklProcessorService {
   ) {}
 
   async update(endBlock: number, deployment: Deployment): Promise<void> {
-    // 1. Get single global lastProcessedBlock for merkl
-    const globalKey = `${deployment.blockchainType}-${deployment.exchangeId}-merkl-global`;
-    const lastProcessedBlock = await this.lastProcessedBlockService.getOrInit(globalKey, deployment.startBlock);
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
 
     if (campaigns.length === 0) {
       this.logger.log(`No active campaigns found for ${deployment.blockchainType}-${deployment.exchangeId}`);
-      await this.lastProcessedBlockService.update(globalKey, endBlock);
       return;
     }
 
-    this.logger.log(`Processing merkl globally from block ${lastProcessedBlock} to ${endBlock}`);
+    this.logger.log(`Processing merkl with epoch-based batching up to block ${endBlock}`);
 
-    // 2. Initialize strategy states for all campaigns up to lastProcessedBlock
-    const campaignContexts: CampaignContext[] = [];
-    for (const campaign of campaigns) {
-      const strategyStates: StrategyStatesMap = new Map();
-      await this.initializeStrategyStates(lastProcessedBlock, deployment, campaign, strategyStates);
-
-      campaignContexts.push({
-        campaign,
-        strategyStates,
-      });
-    }
-
-    // 2.5. Create global price cache for consistent USD rates across all batches
-    const globalStartTimestamp = await this.getTimestampForBlock(lastProcessedBlock + 1, deployment);
+    // Calculate processing time range from earliest campaign start to end block
+    const earliestCampaignStart = Math.min(...campaigns.map((c) => c.startDate.getTime()));
+    const globalStartTimestamp = earliestCampaignStart;
     const globalEndTimestamp = await this.getTimestampForBlock(endBlock, deployment);
-    const activeCampaigns = campaignContexts.map((ctx) => ctx.campaign);
+
+    this.logger.log(
+      `Global processing range: ${new Date(globalStartTimestamp).toISOString()} to ${new Date(
+        globalEndTimestamp,
+      ).toISOString()}`,
+    );
+
+    // Create global price cache for consistent USD rates across all epoch batches
     const globalPriceCache = await this.createGlobalPriceCache(
-      activeCampaigns,
+      campaigns,
       globalStartTimestamp,
       globalEndTimestamp,
       deployment,
     );
 
-    // 3. Process blocks in batches globally
-    for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
-      const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
-
-      this.logger.log(`Processing global merkl batch ${batchStart} to ${batchEnd}`);
-
-      // 4. Fetch ALL events for this batch once (not per campaign)
-      const [createdEvents, updatedEvents, deletedEvents, transferEvents] = await Promise.all([
-        this.strategyCreatedEventService.get(batchStart, batchEnd, deployment),
-        this.strategyUpdatedEventService.get(batchStart, batchEnd, deployment),
-        this.strategyDeletedEventService.get(batchStart, batchEnd, deployment),
-        this.voucherTransferEventService.get(batchStart, batchEnd, deployment),
-      ]);
-
-      // 5. Process all campaigns using this batch of events
-      await this.processBatchForAllCampaigns(
-        campaignContexts,
-        { createdEvents, updatedEvents, deletedEvents, transferEvents },
-        batchStart,
-        batchEnd,
-        deployment,
-        globalPriceCache,
-      );
-
-      // 6. Update the global lastProcessedBlock after each batch
-      await this.lastProcessedBlockService.update(globalKey, batchEnd);
-    }
-
-    // 7. Post-processing: Mark campaigns inactive if we've processed past their end time
-    const endBlockTimestamp = await this.getTimestampForBlock(endBlock, deployment);
-    await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, endBlockTimestamp);
-  }
-
-  private async processBatchForAllCampaigns(
-    campaignContexts: CampaignContext[],
-    events: {
-      createdEvents: StrategyCreatedEvent[];
-      updatedEvents: StrategyUpdatedEvent[];
-      deletedEvents: StrategyDeletedEvent[];
-      transferEvents: VoucherTransferEvent[];
-    },
-    batchStart: number,
-    batchEnd: number,
-    deployment: Deployment,
-    globalPriceCache: PriceCache,
-  ): Promise<void> {
-    const batchStartTimestamp = await this.getTimestampForBlock(batchStart, deployment);
-    const batchEndTimestamp = await this.getTimestampForBlock(batchEnd, deployment);
-
-    // COLLECT ALL UNIQUE BLOCK IDs FROM ALL EVENTS
-    const allBlockIds = new Set<number>();
-    [...events.createdEvents, ...events.updatedEvents, ...events.deletedEvents, ...events.transferEvents].forEach(
-      (event) => allBlockIds.add(event.block.id),
+    // Calculate epochs to process (unprocessed + recent epochs for updates) and sort chronologically
+    const epochBatchesToProcess = await this.calculateEpochBatchesToProcess(
+      campaigns,
+      globalStartTimestamp,
+      globalEndTimestamp,
     );
 
-    // LOCAL VARIABLES - Query once per campaign before processing to track reward limits
-    const campaignDistributedAmounts = new Map<string, Decimal>(); // campaignId -> total distributed
-    const campaignTotalAmounts = new Map<string, Decimal>(); // campaignId -> campaign amount
+    this.logger.log(
+      `Found ${epochBatchesToProcess.length} epoch batches to process spanning ${new Date(
+        globalStartTimestamp,
+      ).toISOString()} to ${new Date(globalEndTimestamp).toISOString()}`,
+    );
 
-    for (const context of campaignContexts) {
-      const currentDistributed = await this.subEpochService.getTotalRewardsForCampaign(context.campaign.id);
-      const campaignAmount = new Decimal(context.campaign.rewardAmount);
-
-      campaignDistributedAmounts.set(context.campaign.id, currentDistributed);
-      campaignTotalAmounts.set(context.campaign.id, campaignAmount);
-
-      const remaining = campaignAmount.sub(currentDistributed);
-      this.logger.log(
-        `Campaign ${context.campaign.id}: Already distributed ${currentDistributed.toString()}, ` +
-          `Remaining ${remaining.toString()}`,
-      );
+    // Process epoch batches in chronological order
+    for (const epochBatch of epochBatchesToProcess) {
+      await this.processEpochBatch(epochBatch, deployment, globalPriceCache, endBlock);
     }
 
-    // Process each campaign with the same batch of events using global price cache
-    for (const context of campaignContexts) {
-      const campaignEndTimestamp = context.campaign.endDate.getTime();
-
-      // Skip campaign if entire batch is after campaign end
-      if (batchStartTimestamp >= campaignEndTimestamp) {
-        this.logger.warn(`Skipping campaign ${context.campaign.id} - batch starts after campaign end`);
-        continue;
-      }
-
-      // Filter events by campaign end time
-      const filterEventsByCampaignEnd = <T extends { timestamp: Date }>(eventList: T[]): T[] => {
-        return eventList.filter((event) => {
-          const eventTimestamp = event.timestamp.getTime();
-          return eventTimestamp < campaignEndTimestamp;
-        });
-      };
-      // Filter events for this campaign's pair AND campaign end time
-      const pairCreatedEvents = filterEventsByCampaignEnd(
-        events.createdEvents.filter((e) => e.pair.id === context.campaign.pair.id),
-      );
-      const pairUpdatedEvents = filterEventsByCampaignEnd(
-        events.updatedEvents.filter((e) => e.pair.id === context.campaign.pair.id),
-      );
-      const pairDeletedEvents = filterEventsByCampaignEnd(
-        events.deletedEvents.filter((e) => e.pair.id === context.campaign.pair.id),
-      );
-
-      // For transfer events, filter by strategies that belong to this pair AND campaign end time
-      const pairStrategies = Array.from(context.strategyStates.values()).filter(
-        (s) => s.pairId === context.campaign.pair.id,
-      );
-      const pairStrategyIds = new Set(pairStrategies.map((s) => s.strategyId));
-      const pairTransferEvents = filterEventsByCampaignEnd(
-        events.transferEvents.filter((e) => pairStrategyIds.has(e.strategyId)),
-      );
-
-      // Process epochs for this time range
-      await this.processEpochsInTimeRange(
-        context.campaign,
-        batchStartTimestamp,
-        batchEndTimestamp,
-        context.strategyStates,
-        globalPriceCache,
-        {
-          createdEvents: pairCreatedEvents,
-          updatedEvents: pairUpdatedEvents,
-          deletedEvents: pairDeletedEvents,
-          transferEvents: pairTransferEvents,
-        },
-        campaignDistributedAmounts,
-        campaignTotalAmounts,
-      );
-
-      // Update strategy states after epoch processing
-      this.updateStrategyStates(
-        pairCreatedEvents,
-        pairUpdatedEvents,
-        pairDeletedEvents,
-        pairTransferEvents,
-        context.strategyStates,
-      );
-    }
+    // Post-processing: Mark campaigns inactive if we've processed past their end time
+    await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, globalEndTimestamp);
   }
 
+  /**
+   * Calculate epoch batches to process across all campaigns
+   * Includes unprocessed epochs + recent epochs that may need updates from new events
+   */
+  private async calculateEpochBatchesToProcess(
+    campaigns: Campaign[],
+    globalStartTimestamp: number,
+    globalEndTimestamp: number,
+  ): Promise<EpochBatch[]> {
+    const epochBatches: EpochBatch[] = [];
+
+    // Calculate epochs for each campaign and filter out processed ones
+    for (const campaign of campaigns) {
+      const allEpochs = this.calculateEpochsInRange(campaign, globalStartTimestamp, globalEndTimestamp);
+
+      // Get last processed epoch for this campaign
+      const lastProcessedEpochNumber = await this.subEpochService.getLastProcessedEpochNumber(campaign.id);
+
+      // Allow reprocessing of recent epochs to handle new events that arrive for already processed time periods
+      // This ensures that if new events arrive for recent epochs, they get included in the calculations
+      const reprocessBuffer = 2; // Reprocess last 2 epochs to handle late-arriving events
+      const cutoffEpoch = Math.max(0, lastProcessedEpochNumber - reprocessBuffer);
+
+      // Filter to include recent epochs that might need updates + all unprocessed epochs
+      const epochsToProcess = allEpochs.filter((epoch) => epoch.epochNumber > cutoffEpoch);
+
+      this.logger.log(
+        `Campaign ${campaign.id}: ${allEpochs.length} total epochs, ${epochsToProcess.length} to process ` +
+          `(last processed: ${lastProcessedEpochNumber}, cutoff: ${cutoffEpoch}, buffer: ${reprocessBuffer})`,
+      );
+
+      for (const epoch of epochsToProcess) {
+        const globalEpochId = `${campaign.id}-epoch-${epoch.epochNumber}`;
+        const startTimestampMs = epoch.startTimestamp.getTime();
+        const endTimestampMs = epoch.endTimestamp.getTime();
+
+        epochBatches.push({
+          epochInfo: epoch,
+          campaign,
+          globalEpochId,
+          startTimestampMs,
+          endTimestampMs,
+        });
+      }
+    }
+
+    // Sort by start timestamp to ensure chronological processing
+    epochBatches.sort((a, b) => {
+      if (a.startTimestampMs !== b.startTimestampMs) {
+        return a.startTimestampMs - b.startTimestampMs;
+      }
+      // If same start time, sort by campaign ID for deterministic ordering
+      return a.campaign.id.localeCompare(b.campaign.id);
+    });
+
+    return epochBatches;
+  }
+
+  /**
+   * Process a single epoch batch with temporal isolation
+   * This is the core fix: each epoch gets fresh strategy states and only sees events within its timeframe
+   */
+  private async processEpochBatch(
+    epochBatch: EpochBatch,
+    deployment: Deployment,
+    globalPriceCache: PriceCache,
+    endBlock: number,
+  ): Promise<void> {
+    const { epochInfo, campaign, globalEpochId } = epochBatch;
+
+    this.logger.log(
+      `Processing epoch batch: ${globalEpochId} (${epochInfo.startTimestamp.toISOString()} to ${epochInfo.endTimestamp.toISOString()})`,
+    );
+
+    // CRITICAL: Initialize fresh strategy states for this epoch ONLY
+    // This prevents contamination from future events processed in other epochs
+    const strategyStates: StrategyStatesMap = new Map();
+    const epochStartTimestamp = epochInfo.startTimestamp.getTime();
+
+    // Initialize strategy states up to the BEGINNING of this epoch
+    await this.initializeStrategyStates(epochStartTimestamp, deployment, campaign, strategyStates);
+
+    // CRITICAL: Fetch ONLY events within this epoch's timeframe
+    // This prevents applying future events to past sub-epoch calculations
+    const epochEvents = await this.fetchEventsForEpochTimeframe(epochBatch, deployment, endBlock);
+
+    // Calculate distributed amounts for reward capping
+    const campaignDistributedAmounts = new Map<string, Decimal>();
+    const campaignTotalAmounts = new Map<string, Decimal>();
+
+    const currentDistributed = await this.subEpochService.getTotalRewardsForCampaign(campaign.id);
+    const campaignAmount = new Decimal(campaign.rewardAmount);
+
+    campaignDistributedAmounts.set(campaign.id, currentDistributed);
+    campaignTotalAmounts.set(campaign.id, campaignAmount);
+
+    // Process this single epoch with temporal isolation
+    await this.processEpoch(
+      campaign,
+      epochInfo,
+      strategyStates, // Fresh states, no contamination
+      globalPriceCache,
+      epochEvents, // Only events from this epoch's timeframe
+      campaignDistributedAmounts,
+      campaignTotalAmounts,
+    );
+
+    this.logger.log(`Completed epoch batch: ${globalEpochId}`);
+  }
+
+  /**
+   * Fetch events strictly within the epoch's timeframe to prevent temporal contamination
+   * MEMORY FIX: Only fetch events within epoch block range, not all events from deployment start
+   */
+  private async fetchEventsForEpochTimeframe(
+    epochBatch: EpochBatch,
+    deployment: Deployment,
+    endBlock: number,
+  ): Promise<BatchEvents> {
+    const { startTimestampMs, endTimestampMs } = epochBatch;
+
+    // Get exact block range for this epoch only to ensure all events are captured
+    // Find blocks that correspond to epoch start and end timestamps
+    const epochStartBlock = await this.getBlockForTimestamp(startTimestampMs, deployment, endBlock);
+    const epochEndBlock = await this.getBlockForTimestamp(endTimestampMs, deployment, endBlock);
+
+    this.logger.log(
+      `Fetching events for epoch from block ${epochStartBlock} to ${epochEndBlock} (${new Date(
+        startTimestampMs,
+      ).toISOString()} to ${new Date(endTimestampMs).toISOString()})`,
+    );
+
+    // Fetch events in the epoch's block range only
+    const [createdEvents, updatedEvents, deletedEvents, transferEvents] = await Promise.all([
+      this.strategyCreatedEventService.get(epochStartBlock, epochEndBlock, deployment),
+      this.strategyUpdatedEventService.get(epochStartBlock, epochEndBlock, deployment),
+      this.strategyDeletedEventService.get(epochStartBlock, epochEndBlock, deployment),
+      this.voucherTransferEventService.get(epochStartBlock, epochEndBlock, deployment),
+    ]);
+
+    // CRITICAL: Filter events by timestamp to ensure they fall within the epoch timeframe
+    // This is the key fix - only events within the epoch timeframe are processed
+    const filterByTimestamp = <T extends { timestamp: Date; pair?: { id: number } }>(events: T[]): T[] => {
+      return events.filter((event) => {
+        const eventTimestamp = event.timestamp.getTime();
+        const withinTimeframe = eventTimestamp >= startTimestampMs && eventTimestamp < endTimestampMs;
+        const correctPair = !event.pair || event.pair.id === epochBatch.campaign.pair.id;
+        return withinTimeframe && correctPair;
+      });
+    };
+
+    const filteredCreatedEvents = filterByTimestamp(createdEvents);
+    const filteredUpdatedEvents = filterByTimestamp(updatedEvents);
+    const filteredDeletedEvents = filterByTimestamp(deletedEvents);
+
+    // For transfer events, we need to check if they belong to strategies in this campaign's pair
+    const filteredTransferEvents = transferEvents.filter((event) => {
+      const eventTimestamp = event.timestamp.getTime();
+      return eventTimestamp >= startTimestampMs && eventTimestamp < endTimestampMs;
+      // Note: We'll further filter by strategy ownership in the epoch processing logic
+    });
+
+    this.logger.log(
+      `Filtered events: ${filteredCreatedEvents.length} created, ${filteredUpdatedEvents.length} updated, ${filteredDeletedEvents.length} deleted, ${filteredTransferEvents.length} transfers`,
+    );
+
+    return {
+      createdEvents: filteredCreatedEvents,
+      updatedEvents: filteredUpdatedEvents,
+      deletedEvents: filteredDeletedEvents,
+      transferEvents: filteredTransferEvents,
+    };
+  }
+
+  /**
+   * Initialize strategy states up to a specific timestamp for temporal accuracy
+   * This prevents including events that occurred after the specified timestamp
+   */
   private async initializeStrategyStates(
-    lastProcessedBlock: number,
+    maxTimestamp: number,
     deployment: Deployment,
     campaign: Campaign,
     strategyStates: StrategyStatesMap,
   ): Promise<void> {
-    this.logger.log(`Initializing strategy states up to block ${lastProcessedBlock}`);
+    this.logger.log(`Initializing strategy states up to timestamp ${new Date(maxTimestamp).toISOString()}`);
 
     // Get latest created/updated event per strategy for liquidity state with token data
-    // TODO: Replace with SubEpoch-based query
+    // Filter by timestamp only since we don't rely on block numbers for epoch-based processing
     const latestStrategyStates = await this.subEpochService.subEpochRepository.manager.query(
       `
       SELECT DISTINCT ON (strategy_id) 
@@ -379,10 +435,10 @@ export class MerklProcessorService {
         FROM "strategy-created-events" c
         LEFT JOIN tokens t0 ON c."token0Id" = t0.id  
         LEFT JOIN tokens t1 ON c."token1Id" = t1.id
-        WHERE c."blockId" <= $1 
-          AND c."blockchainType" = $2 
-          AND c."exchangeId" = $3
-          AND c."pairId" = $4
+        WHERE c.timestamp <= $4
+          AND c."blockchainType" = $1 
+          AND c."exchangeId" = $2
+          AND c."pairId" = $3
         UNION ALL
         SELECT 
           u."strategyId" as strategy_id, 
@@ -401,18 +457,17 @@ export class MerklProcessorService {
         FROM "strategy-updated-events" u
         LEFT JOIN tokens t0 ON u."token0Id" = t0.id  
         LEFT JOIN tokens t1 ON u."token1Id" = t1.id
-        WHERE u."blockId" <= $1 
-          AND u."blockchainType" = $2 
-          AND u."exchangeId" = $3
-          AND u."pairId" = $4
+        WHERE u.timestamp <= $4
+          AND u."blockchainType" = $1 
+          AND u."exchangeId" = $2
+          AND u."pairId" = $3
       ) combined
       ORDER BY strategy_id, block_id DESC, transaction_index DESC, log_index DESC
     `,
-      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId, campaign.pair.id],
+      [deployment.blockchainType, deployment.exchangeId, campaign.pair.id, new Date(maxTimestamp)],
     );
 
-    // Get latest transfer event per strategy for ownership
-    // First get strategy IDs for this pair from strategy events
+    // Get latest transfer event per strategy for ownership (with timestamp filter)
     const strategyIds = latestStrategyStates.map((s) => s.strategy_id);
 
     let latestOwnershipStates = [];
@@ -424,31 +479,30 @@ export class MerklProcessorService {
           "strategyId" as strategy_id, 
           "to" as current_owner
         FROM "voucher-transfer-events" 
-        WHERE "blockId" <= $1
-          AND "blockchainType" = $2 
-          AND "exchangeId" = $3
+        WHERE timestamp <= $3
+          AND "blockchainType" = $1 
+          AND "exchangeId" = $2
           AND "strategyId" IN (${placeholders})
         ORDER BY "strategyId", "blockId" DESC, "transactionIndex" DESC, "logIndex" DESC
       `,
-        [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId, ...strategyIds],
+        [deployment.blockchainType, deployment.exchangeId, new Date(maxTimestamp), ...strategyIds],
       );
     }
 
-    // Get list of deleted strategies
-    // TODO: Replace with SubEpoch-based query
+    // Get list of deleted strategies (with timestamp filter)
     const deletedStrategies = await this.subEpochService.subEpochRepository.manager.query(
       `
       SELECT DISTINCT "strategyId" as strategy_id 
       FROM "strategy-deleted-events" 
-      WHERE "blockId" <= $1
-        AND "blockchainType" = $2 
-        AND "exchangeId" = $3
-        AND "pairId" = $4
+      WHERE timestamp <= $4
+        AND "blockchainType" = $1 
+        AND "exchangeId" = $2
+        AND "pairId" = $3
     `,
-      [lastProcessedBlock, deployment.blockchainType, deployment.exchangeId, campaign.pair.id],
+      [deployment.blockchainType, deployment.exchangeId, campaign.pair.id, new Date(maxTimestamp)],
     );
 
-    // Build lookup maps
+    // Build lookup maps and strategy states (rest of the logic remains the same)
     const ownershipMap = new Map<string, string>();
     for (const ownership of latestOwnershipStates) {
       ownershipMap.set(ownership.strategy_id, ownership.current_owner);
@@ -491,12 +545,12 @@ export class MerklProcessorService {
         order1_A: this.decompressRateParameter(order1ForPair.A || '0'),
         order1_B: this.decompressRateParameter(order1ForPair.B || '0'),
         order1_z: new Decimal(order1ForPair.z || order1ForPair.y || 0),
-        order0_A_compressed: order0ForPair.A || '0',
-        order0_B_compressed: order0ForPair.B || '0',
-        order0_z_compressed: order0ForPair.z || order0ForPair.y || '0',
-        order1_A_compressed: order1ForPair.A || '0',
-        order1_B_compressed: order1ForPair.B || '0',
-        order1_z_compressed: order1ForPair.z || order1ForPair.y || '0',
+        order0_A_compressed: new Decimal(order0ForPair.A || '0'),
+        order0_B_compressed: new Decimal(order0ForPair.B || '0'),
+        order0_z_compressed: new Decimal(order0ForPair.z || order0ForPair.y || '0'),
+        order1_A_compressed: new Decimal(order1ForPair.A || '0'),
+        order1_B_compressed: new Decimal(order1ForPair.B || '0'),
+        order1_z_compressed: new Decimal(order1ForPair.z || order1ForPair.y || '0'),
         currentOwner: ownershipMap.get(strategyId) || strategyState.owner || '',
         creationWallet: strategyState.owner || '',
         lastProcessedBlock: strategyState.block_id,
@@ -508,46 +562,32 @@ export class MerklProcessorService {
       strategyStates.set(strategyId, state);
     }
 
-    this.logger.log(`Initialized ${strategyStates.size} strategy states`);
+    this.logger.log(
+      `Initialized ${strategyStates.size} strategy states up to timestamp ${new Date(maxTimestamp).toISOString()}`,
+    );
   }
 
-  private updateStrategyStates(
-    createdEvents: StrategyCreatedEvent[],
-    updatedEvents: StrategyUpdatedEvent[],
-    deletedEvents: StrategyDeletedEvent[],
-    transferEvents: VoucherTransferEvent[],
-    strategyStates: StrategyStatesMap,
-  ): void {
-    // Combine all events and sort chronologically
-    const allEvents = [
-      ...createdEvents.map((e) => ({ type: 'created' as const, event: e })),
-      ...updatedEvents.map((e) => ({ type: 'updated' as const, event: e })),
-      ...deletedEvents.map((e) => ({ type: 'deleted' as const, event: e })),
-      ...transferEvents.map((e) => ({ type: 'transfer' as const, event: e })),
-    ].sort((a, b) => {
-      if (a.event.block.id !== b.event.block.id) return a.event.block.id - b.event.block.id;
-      if (a.event.transactionIndex !== b.event.transactionIndex)
-        return a.event.transactionIndex - b.event.transactionIndex;
-      return a.event.logIndex - b.event.logIndex;
-    });
+  /**
+   * Get exact block number for a given timestamp using BlockService
+   * Returns the latest block where block.timestamp <= targetTimestamp
+   */
+  private async getBlockForTimestamp(timestamp: number, deployment: Deployment, maxBlock: number): Promise<number> {
+    try {
+      const targetDate = new Date(timestamp);
+      const block = await this.blockService.getBlockAtOrBeforeTimestamp(targetDate, deployment);
 
-    // Process events chronologically
-    for (const { type, event } of allEvents) {
-      const eventTimestamp = event.timestamp.getTime();
-      switch (type) {
-        case 'created':
-          this.processCreatedEvent(event, strategyStates, eventTimestamp);
-          break;
-        case 'updated':
-          this.processUpdatedEvent(event, strategyStates, eventTimestamp);
-          break;
-        case 'deleted':
-          this.processDeletedEvent(event, strategyStates, eventTimestamp);
-          break;
-        case 'transfer':
-          this.processTransferEvent(event, strategyStates, eventTimestamp);
-          break;
+      if (!block) {
+        this.logger.warn(`No block found for timestamp ${targetDate.toISOString()}, using deployment start block`);
+        return deployment.startBlock;
       }
+
+      // Ensure we don't exceed the maxBlock limit
+      const blockNumber = Math.min(block.id, maxBlock);
+
+      return blockNumber;
+    } catch (error) {
+      this.logger.warn(`Error finding block for timestamp ${timestamp}, using deployment start block: ${error}`);
+      return deployment.startBlock;
     }
   }
 
@@ -692,20 +732,20 @@ export class MerklProcessorService {
       token1Address: state.token1Address,
       token0Decimals: state.token0Decimals,
       token1Decimals: state.token1Decimals,
-      liquidity0: new Decimal(state.liquidity0.toString()), // Deep clone Decimal
-      liquidity1: new Decimal(state.liquidity1.toString()),
-      order0_A: new Decimal(state.order0_A.toString()),
-      order0_B: new Decimal(state.order0_B.toString()),
-      order0_z: new Decimal(state.order0_z.toString()),
-      order1_A: new Decimal(state.order1_A.toString()),
-      order1_B: new Decimal(state.order1_B.toString()),
-      order1_z: new Decimal(state.order1_z.toString()),
-      order0_A_compressed: state.order0_A_compressed,
-      order0_B_compressed: state.order0_B_compressed,
-      order0_z_compressed: state.order0_z_compressed,
-      order1_A_compressed: state.order1_A_compressed,
-      order1_B_compressed: state.order1_B_compressed,
-      order1_z_compressed: state.order1_z_compressed,
+      liquidity0: new Decimal(state.liquidity0.toFixed()), // Deep clone Decimal
+      liquidity1: new Decimal(state.liquidity1.toFixed()),
+      order0_A: new Decimal(state.order0_A.toFixed()),
+      order0_B: new Decimal(state.order0_B.toFixed()),
+      order0_z: new Decimal(state.order0_z.toFixed()),
+      order1_A: new Decimal(state.order1_A.toFixed()),
+      order1_B: new Decimal(state.order1_B.toFixed()),
+      order1_z: new Decimal(state.order1_z.toFixed()),
+      order0_A_compressed: new Decimal(state.order0_A_compressed.toFixed()),
+      order0_B_compressed: new Decimal(state.order0_B_compressed.toFixed()),
+      order0_z_compressed: new Decimal(state.order0_z_compressed.toFixed()),
+      order1_A_compressed: new Decimal(state.order1_A_compressed.toFixed()),
+      order1_B_compressed: new Decimal(state.order1_B_compressed.toFixed()),
+      order1_z_compressed: new Decimal(state.order1_z_compressed.toFixed()),
       currentOwner: state.currentOwner,
       creationWallet: state.creationWallet,
       lastProcessedBlock: state.lastProcessedBlock,
@@ -931,34 +971,34 @@ export class MerklProcessorService {
           subEpochTimestamp: new Date(subEpochData.timestamp),
 
           // All as strings for database storage
-          token0Reward: tokenRewards.token0.toString(),
-          token1Reward: tokenRewards.token1.toString(),
-          totalReward: totalStrategyReward.toString(),
-          liquidity0: strategy.liquidity0.toString(),
-          liquidity1: strategy.liquidity1.toString(),
+          token0Reward: tokenRewards.token0.toFixed(),
+          token1Reward: tokenRewards.token1.toFixed(),
+          totalReward: totalStrategyReward.toFixed(),
+          liquidity0: strategy.liquidity0.toFixed(),
+          liquidity1: strategy.liquidity1.toFixed(),
           token0Address: strategy.token0Address,
           token1Address: strategy.token1Address,
-          token0UsdRate: token0UsdRate.toString(),
-          token1UsdRate: token1UsdRate.toString(),
-          targetPrice: subEpochData.order0TargetPrice.toString(),
-          eligible0: eligible0.toString(),
-          eligible1: eligible1.toString(),
-          token0RewardZoneBoundary: token0RewardZoneBoundary.toString(),
-          token1RewardZoneBoundary: token1RewardZoneBoundary.toString(),
-          token0Weighting: token0Weighting.toString(),
-          token1Weighting: token1Weighting.toString(),
+          token0UsdRate: new Decimal(token0UsdRate).toFixed(),
+          token1UsdRate: new Decimal(token1UsdRate).toFixed(),
+          targetPrice: subEpochData.order0TargetPrice.toFixed(),
+          eligible0: eligible0.toFixed(),
+          eligible1: eligible1.toFixed(),
+          token0RewardZoneBoundary: token0RewardZoneBoundary.toFixed(),
+          token1RewardZoneBoundary: token1RewardZoneBoundary.toFixed(),
+          token0Weighting: token0Weighting.toFixed(),
+          token1Weighting: token1Weighting.toFixed(),
           token0Decimals: strategy.token0Decimals,
           token1Decimals: strategy.token1Decimals,
-          order0ACompressed: strategy.order0_A_compressed.toString(),
-          order0BCompressed: strategy.order0_B_compressed.toString(),
-          order0A: strategy.order0_A.toString(),
-          order0B: strategy.order0_B.toString(),
-          order0Z: strategy.order0_z.toString(),
-          order1ACompressed: strategy.order1_A_compressed.toString(),
-          order1BCompressed: strategy.order1_B_compressed.toString(),
-          order1A: strategy.order1_A.toString(),
-          order1B: strategy.order1_B.toString(),
-          order1Z: strategy.order1_z.toString(),
+          order0ACompressed: strategy.order0_A_compressed.toFixed(),
+          order0BCompressed: strategy.order0_B_compressed.toFixed(),
+          order0A: strategy.order0_A.toFixed(),
+          order0B: strategy.order0_B.toFixed(),
+          order0Z: strategy.order0_z.toFixed(),
+          order1ACompressed: strategy.order1_A_compressed.toFixed(),
+          order1BCompressed: strategy.order1_B_compressed.toFixed(),
+          order1A: strategy.order1_A.toFixed(),
+          order1B: strategy.order1_B.toFixed(),
+          order1Z: strategy.order1_z.toFixed(),
           lastEventTimestamp: new Date(strategy.lastEventTimestamp),
           lastProcessedBlock: currentBatchEndBlock,
           ownerAddress: strategy.currentOwner,
@@ -1463,10 +1503,40 @@ export class MerklProcessorService {
     deployment: Deployment,
   ): Promise<PriceCache> {
     // Collect all unique token addresses from campaigns
+    // Use both the pair addresses AND collect from actual strategy data to handle lexicographic reordering
     const uniqueTokenAddresses = new Set<string>();
+
     for (const campaign of campaigns) {
+      // Add campaign pair token addresses
       uniqueTokenAddresses.add(campaign.pair.token0.address);
       uniqueTokenAddresses.add(campaign.pair.token1.address);
+
+      // Also collect token addresses from strategy events to handle lexicographic reordering
+      try {
+        const strategyTokens = await this.subEpochService.subEpochRepository.manager.query(
+          `
+          SELECT DISTINCT 
+            t0.address as token0_address,
+            t1.address as token1_address
+          FROM "strategy-created-events" c
+          LEFT JOIN tokens t0 ON c."token0Id" = t0.id  
+          LEFT JOIN tokens t1 ON c."token1Id" = t1.id
+          WHERE c."blockchainType" = $1 
+            AND c."exchangeId" = $2
+            AND c."pairId" = $3
+        `,
+          [deployment.blockchainType, deployment.exchangeId, campaign.pair.id],
+        );
+
+        for (const strategyToken of strategyTokens) {
+          if (strategyToken.token0_address) uniqueTokenAddresses.add(strategyToken.token0_address);
+          if (strategyToken.token1_address) uniqueTokenAddresses.add(strategyToken.token1_address);
+        }
+      } catch (error) {
+        this.logger.warn(
+          `Could not fetch strategy token addresses for campaign ${campaign.id}, using pair tokens only`,
+        );
+      }
     }
 
     const tokenAddresses = Array.from(uniqueTokenAddresses);
@@ -1474,9 +1544,12 @@ export class MerklProcessorService {
     const endDate = new Date(endTimestamp).toISOString();
 
     this.logger.log(`Fetching global USD rates for ${tokenAddresses.length} tokens from ${startDate} to ${endDate}`);
+    this.logger.log(`Token addresses: ${tokenAddresses.join(', ')}`);
 
     // Fetch USD rates for entire timeframe
     const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, startDate, endDate);
+
+    this.logger.log(`Received ${rates.length} USD rate records from historic quote service`);
 
     // Build cache map - store ALL rates
     const cacheMap = new Map<string, Array<{ timestamp: number; usd: number }>>();
@@ -1509,8 +1582,12 @@ export class MerklProcessorService {
    * Get USD rate for a specific timestamp using deterministic closest lookup
    */
   private getUsdRateForTimestamp(priceCache: PriceCache, tokenAddress: string, targetTimestamp: number): number {
-    const tokenRates = priceCache.rates.get(tokenAddress.toLowerCase());
+    const normalizedAddress = tokenAddress.toLowerCase();
+    const tokenRates = priceCache.rates.get(normalizedAddress);
+
     if (!tokenRates || tokenRates.length === 0) {
+      this.logger.warn(`No USD rates found for token ${tokenAddress} (normalized: ${normalizedAddress})`);
+      this.logger.warn(`Available tokens in cache: ${Array.from(priceCache.rates.keys()).join(', ')}`);
       return 0;
     }
 

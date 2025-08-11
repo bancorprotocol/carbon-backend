@@ -51,6 +51,9 @@ export class CampaignService {
         isActive: true,
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: {
+        id: 'ASC', // Ensure deterministic ordering
+      },
     });
   }
 

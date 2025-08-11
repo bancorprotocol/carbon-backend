@@ -92,6 +92,7 @@ export class SubEpochService {
         .select(['se.strategyId', 'se.subEpochNumber'])
         .where('se.campaignId = :campaignId', { campaignId })
         .andWhere('se.subEpochTimestamp = :timestamp', { timestamp: new Date(timestamp) })
+        .orderBy('se.strategyId', 'ASC') // Ensure deterministic ordering
         .getMany();
 
       const existingStrategies = new Map(existingRecords.map((r) => [r.strategyId, r.subEpochNumber]));
@@ -212,6 +213,34 @@ export class SubEpochService {
     return new Decimal(result.total || '0');
   }
 
+  /**
+   * Get the highest processed epoch number for a campaign
+   * This is used for epoch-based processing tracking instead of lastProcessedBlock
+   */
+  async getLastProcessedEpochNumber(campaignId: string): Promise<number> {
+    const result = await this.subEpochRepository
+      .createQueryBuilder('se')
+      .select('MAX(se.epochNumber)', 'maxEpochNumber')
+      .where('se.campaignId = :campaignId', { campaignId })
+      .getRawOne();
+
+    return result.maxEpochNumber ? Number(result.maxEpochNumber) : 0;
+  }
+
+  /**
+   * Check if a specific epoch has been processed for a campaign
+   */
+  async isEpochProcessed(campaignId: string, epochNumber: number): Promise<boolean> {
+    const count = await this.subEpochRepository
+      .createQueryBuilder('se')
+      .select('COUNT(*)', 'count')
+      .where('se.campaignId = :campaignId', { campaignId })
+      .andWhere('se.epochNumber = :epochNumber', { epochNumber })
+      .getRawOne();
+
+    return Number(count.count) > 0;
+  }
+
   async getEpochRewards(
     campaignId: string,
     epochNumber?: number,
@@ -229,7 +258,9 @@ export class SubEpochService {
       .groupBy('se.epochNumber')
       .addGroupBy('se.strategyId')
       .addGroupBy('se.ownerAddress')
-      .orderBy('se.epochNumber', 'ASC');
+      .orderBy('se.epochNumber', 'ASC')
+      .addOrderBy('se.strategyId', 'ASC')
+      .addOrderBy('se.ownerAddress', 'ASC'); // Ensure deterministic ordering
 
     if (epochNumber !== undefined) {
       queryBuilder.andWhere('se.epochNumber = :epochNumber', { epochNumber });

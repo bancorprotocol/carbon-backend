@@ -183,6 +183,9 @@ describe('CampaignService', () => {
           isActive: true,
         },
         relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: {
+          id: 'ASC',
+        },
       });
       expect(result).toEqual(campaigns);
 
