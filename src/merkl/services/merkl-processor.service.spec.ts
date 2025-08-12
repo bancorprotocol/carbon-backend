@@ -554,4 +554,89 @@ describe('MerklProcessorService', () => {
       await expect(service.update(1000100, mockDeployment)).rejects.toThrow('Campaign error');
     });
   });
+
+  describe('Seed Generation', () => {
+    it('should generate deterministic seed without requiring events', () => {
+      // Access the private method for testing
+      const generateEpochSeed = (service as any).generateEpochSeed.bind(service);
+
+      const epoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2023-01-01T00:00:00Z'),
+        endTimestamp: new Date('2023-01-01T04:00:00Z'),
+      };
+
+      // Should not throw an error when no events are provided
+      const seed1 = generateEpochSeed(mockCampaign, epoch);
+      const seed2 = generateEpochSeed(mockCampaign, epoch);
+
+      // Should generate consistent seeds
+      expect(seed1).toBe(seed2);
+      expect(seed1).toMatch(/^0x[a-f0-9]{64}$/); // Should be a valid hex string
+    });
+
+    it('should generate different seeds for different campaigns', () => {
+      const generateEpochSeed = (service as any).generateEpochSeed.bind(service);
+
+      const epoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2023-01-01T00:00:00Z'),
+        endTimestamp: new Date('2023-01-01T04:00:00Z'),
+      };
+
+      const campaign2 = { ...mockCampaign, id: 2 };
+
+      const seed1 = generateEpochSeed(mockCampaign, epoch);
+      const seed2 = generateEpochSeed(campaign2, epoch);
+
+      expect(seed1).not.toBe(seed2);
+    });
+
+    it('should generate different seeds for different epoch numbers', () => {
+      const generateEpochSeed = (service as any).generateEpochSeed.bind(service);
+
+      const epoch1 = {
+        epochNumber: 1,
+        startTimestamp: new Date('2023-01-01T00:00:00Z'),
+        endTimestamp: new Date('2023-01-01T04:00:00Z'),
+      };
+
+      const epoch2 = {
+        epochNumber: 2,
+        startTimestamp: new Date('2023-01-01T04:00:00Z'),
+        endTimestamp: new Date('2023-01-01T08:00:00Z'),
+      };
+
+      const seed1 = generateEpochSeed(mockCampaign, epoch1);
+      const seed2 = generateEpochSeed(mockCampaign, epoch2);
+
+      expect(seed1).not.toBe(seed2);
+    });
+
+    it('should throw error when MERKL_SNAPSHOT_SALT is missing', () => {
+      // Mock config service to return undefined for salt
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'MERKL_SNAPSHOT_SALT') return undefined;
+        return undefined;
+      });
+
+      const generateEpochSeed = (service as any).generateEpochSeed.bind(service);
+
+      const epoch = {
+        epochNumber: 1,
+        startTimestamp: new Date('2023-01-01T00:00:00Z'),
+        endTimestamp: new Date('2023-01-01T04:00:00Z'),
+      };
+
+      expect(() => generateEpochSeed(mockCampaign, epoch)).toThrow(
+        'MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation',
+      );
+
+      // Restore the mock for other tests
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'MERKL_SNAPSHOT_SALT') return 'test-salt-for-testing';
+        return undefined;
+      });
+    });
+  });
 });

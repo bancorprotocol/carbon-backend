@@ -1207,79 +1207,35 @@ export class MerklProcessorService {
   }
 
   /**
-   * Generates a deterministic seed for epoch processing using the most recent transaction hash
-   * combined with a security salt to ensure reproducible but unpredictable randomness.
-   */
-  /**
-   * Generates a deterministic seed for epoch processing using transaction history.
+   * Generates a deterministic seed for epoch processing using campaign and epoch information.
+   * This ensures consistent snapshot intervals across multiple runs using only the salt,
+   * campaign ID, and epoch number for deterministic randomness.
    *
    * @param campaign - The campaign being processed
    * @param epoch - Epoch information for seed generation
-   * @param chronologicalEvents - Sorted events for transaction hash extraction
    * @returns Deterministic seed string for reproducible randomness
    */
-  private generateEpochSeed(campaign: Campaign, epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
+  private generateEpochSeed(campaign: Campaign, epoch: EpochInfo): string {
     const salt = this.configService.get<string>('MERKL_SNAPSHOT_SALT');
 
     if (!salt) {
       throw new Error('MERKL_SNAPSHOT_SALT environment variable is required for secure seed generation');
     }
 
-    const lastTxHash = this.getLastTransactionHashFromSortedEvents(epoch, chronologicalEvents);
-
-    const seedComponents = [salt, campaign.id, epoch.epochNumber.toString(), lastTxHash];
+    const seedComponents = [salt, campaign.id, epoch.epochNumber.toString()];
 
     return '0x' + createHash('sha256').update(seedComponents.join('|')).digest('hex');
   }
 
   /**
-   * Extracts the most recent transaction hash that occurred before the epoch start time.
-   * Provides fallback logic when no suitable events are available.
-   */
-  /**
-   * Extracts the most recent transaction hash before epoch start for seed generation.
-   *
-   * @param epoch - Epoch information for timing boundaries
-   * @param chronologicalEvents - Sorted events to search through
-   * @returns Transaction hash for seed generation
-   */
-  private getLastTransactionHashFromSortedEvents(epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
-    const epochStartTimestamp = epoch.startTimestamp.getTime();
-
-    // Search chronologically sorted events for the most recent one before epoch start
-    for (let i = chronologicalEvents.length - 1; i >= 0; i--) {
-      if (chronologicalEvents[i].timestamp < epochStartTimestamp) {
-        return chronologicalEvents[i].event.transactionHash;
-      }
-    }
-
-    // Use first available event hash when no events precede the epoch
-    // Common scenario for initial campaign epochs
-    if (chronologicalEvents.length > 0) {
-      return chronologicalEvents[0].event.transactionHash;
-    }
-
-    // Error case: no events available for seed generation
-    throw new Error(`No events found for epoch ${epoch.epochNumber} - cannot generate seed`);
-  }
-
-  /**
-   * Determines the time intervals for taking snapshots within an epoch.
-   * Uses either a fixed seed for testing or transaction-based seed for production.
-   */
-  /**
    * Determines snapshot intervals for sub-epoch generation within an epoch.
+   * Uses either a fixed seed for testing or deterministic seed for production.
    *
    * @param campaign - The campaign being processed
    * @param epoch - Epoch timing information
-   * @param chronologicalEvents - Events for seed generation
    * @returns Array of time intervals in seconds for snapshot generation
    */
-  private getSnapshotIntervals(
-    campaign: Campaign,
-    epoch: EpochInfo,
-    chronologicalEvents: TimestampedEvent[],
-  ): number[] {
+  private getSnapshotIntervals(campaign: Campaign, epoch: EpochInfo): number[] {
     const epochDurationMs = epoch.endTimestamp.getTime() - epoch.startTimestamp.getTime();
     const epochDurationSeconds = Math.floor(epochDurationMs / 1000); // Convert to seconds for partitioner
 
@@ -1294,8 +1250,8 @@ export class MerklProcessorService {
         merklSnapshotSeed,
       );
     } else {
-      // Production mode: generate seed from transaction history
-      const seed = this.generateEpochSeed(campaign, epoch, chronologicalEvents);
+      // Production mode: generate seed from campaign and epoch data
+      const seed = this.generateEpochSeed(campaign, epoch);
 
       return partitionSingleEpoch(epochDurationSeconds, this.MIN_SNAPSHOT_INTERVAL, this.MAX_SNAPSHOT_INTERVAL, seed);
     }
@@ -1324,7 +1280,7 @@ export class MerklProcessorService {
     const chronologicalEvents = this.sortBatchEventsChronologically(batchEvents);
 
     // Determine when to take snapshots throughout the epoch
-    const snapshotIntervals = this.getSnapshotIntervals(campaign, epoch, chronologicalEvents);
+    const snapshotIntervals = this.getSnapshotIntervals(campaign, epoch);
 
     // Set up variables for iterating through the epoch timeline
     const currentStrategyStates = this.deepCloneStrategyStates(strategyStates); // Deep clone to prevent input mutation
