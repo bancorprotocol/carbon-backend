@@ -12,7 +12,6 @@ import { StrategyCreatedEventModule } from '../events/strategy-created-event/str
 import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/strategy-updated-event.module';
 import { StrategyDeletedEventModule } from '../events/strategy-deleted-event/strategy-deleted-event.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
-import { MerklProcessorV2Service } from './services/merkl-processor-v2.service';
 
 @Module({
   imports: [
@@ -25,13 +24,7 @@ import { MerklProcessorV2Service } from './services/merkl-processor-v2.service';
     StrategyDeletedEventModule,
     VoucherTransferEventModule,
   ],
-  providers: [CampaignService, MerklProcessorService, SubEpochService, MerklProcessorV2Service],
-  exports: [
-    CampaignService,
-    MerklProcessorService,
-    SubEpochService,
-    TypeOrmModule.forFeature([Campaign, SubEpoch]),
-    MerklProcessorV2Service,
-  ],
+  providers: [CampaignService, MerklProcessorService, SubEpochService],
+  exports: [CampaignService, MerklProcessorService, SubEpochService, TypeOrmModule.forFeature([Campaign, SubEpoch])],
 })
 export class MerklModule {}

@@ -12,7 +12,7 @@ export class SubEpoch {
   id: number; // Auto-incrementing primary key
 
   @Column({ name: 'campaign_id' })
-  campaignId: string;
+  campaignId: number;
 
   // Strategy and campaign identification
   @Column({ name: 'strategy_id' })

@@ -203,7 +203,7 @@ export class SubEpochService {
     };
   }
 
-  async getTotalRewardsForCampaign(campaignId: string): Promise<Decimal> {
+  async getTotalRewardsForCampaign(campaignId: number): Promise<Decimal> {
     const result = await this.subEpochRepository
       .createQueryBuilder('se')
       .select('SUM(CAST(se.totalReward AS DECIMAL))', 'total')
@@ -217,7 +217,7 @@ export class SubEpochService {
    * Get the highest processed epoch number for a campaign
    * This is used for epoch-based processing tracking instead of lastProcessedBlock
    */
-  async getLastProcessedEpochNumber(campaignId: string): Promise<number> {
+  async getLastProcessedEpochNumber(campaignId: number): Promise<number> {
     const result = await this.subEpochRepository
       .createQueryBuilder('se')
       .select('MAX(se.epochNumber)', 'maxEpochNumber')
@@ -230,7 +230,7 @@ export class SubEpochService {
   /**
    * Check if a specific epoch has been processed for a campaign
    */
-  async isEpochProcessed(campaignId: string, epochNumber: number): Promise<boolean> {
+  async isEpochProcessed(campaignId: number, epochNumber: number): Promise<boolean> {
     const count = await this.subEpochRepository
       .createQueryBuilder('se')
       .select('COUNT(*)', 'count')
@@ -242,7 +242,7 @@ export class SubEpochService {
   }
 
   async getEpochRewards(
-    campaignId: string,
+    campaignId: number,
     epochNumber?: number,
     startTimestamp?: number,
   ): Promise<{ epochNumber: number; strategyId: string; owner: string; totalReward: Decimal; epochEnd: Date }[]> {

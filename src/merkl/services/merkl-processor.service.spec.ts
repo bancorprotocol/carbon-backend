@@ -79,7 +79,7 @@ describe('MerklProcessorService', () => {
   };
 
   const mockCampaign: Campaign = {
-    id: 'campaign-1',
+    id: 1,
     blockchainType: BlockchainType.Ethereum,
     exchangeId: ExchangeId.OGEthereum,
     pairId: 1,
@@ -88,7 +88,7 @@ describe('MerklProcessorService', () => {
     opportunityName: 'Test Campaign',
     isActive: true,
     startDate: new Date('2023-01-01T00:00:00Z'),
-    endDate: new Date('2023-01-02T00:00:00Z'),
+    endDate: new Date('2023-01-01T08:00:00Z'),
     rewardAmount: '1000000000000000000000', // 1000 tokens
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -111,6 +111,7 @@ describe('MerklProcessorService', () => {
       getTotalRewardsForCampaign: jest.fn(),
       saveSubEpochs: jest.fn(),
       getEpochRewards: jest.fn(),
+      getLastProcessedEpochNumber: jest.fn().mockResolvedValue(0),
       subEpochRepository: {
         manager: {
           query: jest.fn().mockResolvedValue([]),
@@ -269,16 +270,142 @@ describe('MerklProcessorService', () => {
       await service.update(1000100, mockDeployment);
 
       expect(mockCampaignService.getActiveCampaigns).toHaveBeenCalledWith(mockDeployment);
-      expect(mockLastProcessedBlockService.update).toHaveBeenCalledWith(
-        `${mockDeployment.blockchainType}-${mockDeployment.exchangeId}-merkl-global`,
-        1000100,
-      );
+      // When no campaigns exist, the service returns early and doesn't update last processed block
+      expect(mockLastProcessedBlockService.update).not.toHaveBeenCalled();
     });
 
     it('should initialize reward tracking for campaigns', async () => {
       mockCampaignService.getActiveCampaigns.mockResolvedValue([mockCampaign]);
       mockSubEpochService.getTotalRewardsForCampaign.mockResolvedValue(new Decimal('500000000000000000000'));
       mockSubEpochService.saveSubEpochs.mockResolvedValue(undefined);
+
+      // Mock the private getTimestampForBlock method
+      jest.spyOn(service as any, 'getTimestampForBlock').mockResolvedValue(Date.now());
+
+      // Mock event services to return some events so epochs can be generated
+      const mockCreatedEvent = {
+        id: '1',
+        blockchainType: 'ethereum' as any,
+        exchangeId: 'og-ethereum' as any,
+        strategyId: 'test-strategy',
+        timestamp: new Date('2023-01-01T01:00:00Z'),
+        transactionHash: '0x123',
+        pair: mockPair,
+        block: {
+          id: 1,
+          blockNumber: 1000000,
+          timestamp: new Date('2023-01-01T01:00:00Z'),
+          blockchainType: 'ethereum' as any,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        owner: '0x123',
+        token0: {
+          id: 1,
+          blockchainType: 'ethereum' as any,
+          exchangeId: 'og-ethereum' as any,
+          address: '0x123',
+          symbol: 'TOK0',
+          name: 'Token 0',
+          decimals: 18,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        token1: {
+          id: 2,
+          blockchainType: 'ethereum' as any,
+          exchangeId: 'og-ethereum' as any,
+          address: '0x456',
+          symbol: 'TOK1',
+          name: 'Token 1',
+          decimals: 18,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        order0: '{}',
+        order1: '{}',
+        transactionIndex: 0,
+        logIndex: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const mockUpdatedEvent = {
+        id: 1,
+        blockchainType: 'ethereum' as any,
+        exchangeId: 'og-ethereum' as any,
+        strategyId: 'test-strategy',
+        timestamp: new Date('2023-01-01T01:00:00Z'),
+        transactionHash: '0x123',
+        pair: mockPair,
+        block: {
+          id: 1,
+          blockNumber: 1000000,
+          timestamp: new Date('2023-01-01T01:00:00Z'),
+          blockchainType: 'ethereum' as any,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        reason: 1,
+        token0: {
+          id: 1,
+          blockchainType: 'ethereum' as any,
+          exchangeId: 'og-ethereum' as any,
+          address: '0x123',
+          symbol: 'TOK0',
+          name: 'Token 0',
+          decimals: 18,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        token1: {
+          id: 2,
+          blockchainType: 'ethereum' as any,
+          exchangeId: 'og-ethereum' as any,
+          address: '0x456',
+          symbol: 'TOK1',
+          name: 'Token 1',
+          decimals: 18,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+        order0: '{}',
+        order1: '{}',
+        transactionIndex: 0,
+        logIndex: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Create additional events for epoch 2 to cover the campaign duration
+      const mockCreatedEvent2 = {
+        ...mockCreatedEvent,
+        id: '2',
+        timestamp: new Date('2023-01-01T04:00:00Z'),
+        block: {
+          ...mockCreatedEvent.block,
+          id: 2,
+          blockNumber: 1000050,
+          timestamp: new Date('2023-01-01T04:00:00Z'),
+        },
+      };
+
+      const mockUpdatedEvent2 = {
+        ...mockUpdatedEvent,
+        id: 2,
+        timestamp: new Date('2023-01-01T04:00:00Z'),
+        block: {
+          ...mockUpdatedEvent.block,
+          id: 2,
+          blockNumber: 1000050,
+          timestamp: new Date('2023-01-01T04:00:00Z'),
+        },
+      };
+
+      mockStrategyCreatedEventService.get.mockResolvedValue([mockCreatedEvent, mockCreatedEvent2]);
+      mockStrategyUpdatedEventService.get.mockResolvedValue([mockUpdatedEvent, mockUpdatedEvent2]);
+      mockStrategyDeletedEventService.get.mockResolvedValue([]);
+      mockVoucherTransferEventService.get.mockResolvedValue([]);
 
       await service.update(1000100, mockDeployment);
 
@@ -288,8 +415,8 @@ describe('MerklProcessorService', () => {
 
   describe('Reward Capping Logic', () => {
     it('should enforce campaign reward limits', () => {
-      const campaignDistributedAmounts = new Map([['campaign-1', new Decimal('950000000000000000000')]]); // 950 tokens
-      const campaignTotalAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens
+      const campaignDistributedAmounts = new Map([[1, new Decimal('950000000000000000000')]]); // 950 tokens
+      const campaignTotalAmounts = new Map([[1, new Decimal('1000000000000000000000')]]); // 1000 tokens
 
       const subEpochData = {
         timestamp: Date.now(),
@@ -341,12 +468,12 @@ describe('MerklProcessorService', () => {
       );
 
       // Should cap to remaining 50 tokens
-      expect(campaignDistributedAmounts.get('campaign-1')).toEqual(new Decimal('1000000000000000000000'));
+      expect(campaignDistributedAmounts.get(1)).toEqual(new Decimal('1000000000000000000000'));
     });
 
     it('should handle zero remaining rewards gracefully', () => {
-      const campaignDistributedAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens (full)
-      const campaignTotalAmounts = new Map([['campaign-1', new Decimal('1000000000000000000000')]]); // 1000 tokens
+      const campaignDistributedAmounts = new Map([[1, new Decimal('1000000000000000000000')]]); // 1000 tokens (full)
+      const campaignTotalAmounts = new Map([[1, new Decimal('1000000000000000000000')]]); // 1000 tokens
 
       const subEpochData = {
         timestamp: Date.now(),

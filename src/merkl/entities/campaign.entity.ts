@@ -6,7 +6,6 @@ import {
   ManyToOne,
   PrimaryGeneratedColumn,
   Index,
-  Unique,
   JoinColumn,
 } from 'typeorm';
 import { Pair } from '../../pair/pair.entity';
@@ -15,7 +14,7 @@ import { BlockchainType, ExchangeId } from '../../deployment/deployment.service'
 @Entity({ name: 'merkl_campaigns' })
 export class Campaign {
   @PrimaryGeneratedColumn()
-  id: string;
+  id: number;
 
   @Column()
   @Index()

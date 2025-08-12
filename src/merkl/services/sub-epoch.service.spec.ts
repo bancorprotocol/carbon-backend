@@ -58,7 +58,7 @@ describe('SubEpochService', () => {
 
   describe('getTotalRewardsForCampaign', () => {
     it('should return total rewards for a campaign', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
       const expectedTotal = '1000000000000000000000'; // 1000 tokens
 
       mockQueryBuilder.getRawOne.mockResolvedValue({ total: expectedTotal });
@@ -71,7 +71,7 @@ describe('SubEpochService', () => {
     });
 
     it('should return zero when no rewards exist', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
 
       mockQueryBuilder.getRawOne.mockResolvedValue({ total: null });
 
@@ -81,7 +81,7 @@ describe('SubEpochService', () => {
     });
 
     it('should handle database errors gracefully', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
 
       mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Database error'));
 
@@ -92,7 +92,7 @@ describe('SubEpochService', () => {
   describe('saveSubEpochs', () => {
     const mockSubEpochs = [
       {
-        campaignId: 'campaign-1',
+        campaignId: 1,
         strategyId: 'strategy-1',
         epochNumber: 1,
         subEpochTimestamp: new Date('2023-01-01T01:00:00Z'),
@@ -103,7 +103,7 @@ describe('SubEpochService', () => {
         liquidity1: '1000000000000000000',
       },
       {
-        campaignId: 'campaign-1',
+        campaignId: 1,
         strategyId: 'strategy-2',
         epochNumber: 1,
         subEpochTimestamp: new Date('2023-01-01T01:00:00Z'),
@@ -171,7 +171,7 @@ describe('SubEpochService', () => {
 
   describe('getEpochRewards', () => {
     it('should return aggregated epoch rewards', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
       const epochNumber = 1;
 
       const mockRawResults = [
@@ -213,7 +213,7 @@ describe('SubEpochService', () => {
     });
 
     it('should return rewards for all epochs when epochNumber is not provided', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
 
       mockQueryBuilder.getRawMany.mockResolvedValue([]);
 
@@ -225,7 +225,7 @@ describe('SubEpochService', () => {
     });
 
     it('should handle null totalReward values', async () => {
-      const campaignId = 'campaign-1';
+      const campaignId = 1;
 
       const mockRawResults = [
         {
@@ -247,7 +247,7 @@ describe('SubEpochService', () => {
     it('should convert string values to Decimal objects', () => {
       const subEpoch: SubEpoch = {
         id: 1,
-        campaignId: 'campaign-1',
+        campaignId: 1,
         strategyId: 'strategy-1',
         epochNumber: 1,
         subEpochNumber: 1,
@@ -305,7 +305,7 @@ describe('SubEpochService', () => {
     it('should handle zero values correctly', () => {
       const subEpoch: SubEpoch = {
         id: 1,
-        campaignId: 'campaign-1',
+        campaignId: 1,
         strategyId: 'strategy-1',
         epochNumber: 1,
         subEpochNumber: 1,
@@ -358,7 +358,7 @@ describe('SubEpochService', () => {
     it('should handle very large numbers without precision loss', () => {
       const subEpoch: SubEpoch = {
         id: 1,
-        campaignId: 'campaign-1',
+        campaignId: 1,
         strategyId: 'strategy-1',
         epochNumber: 1,
         subEpochNumber: 1,
@@ -414,7 +414,7 @@ describe('SubEpochService', () => {
       it('should handle multiple campaigns with overlapping timestamps', async () => {
         const subEpochsMultipleCampaigns = [
           {
-            campaignId: 'campaign-1',
+            campaignId: 1,
             strategyId: 'strategy-1',
             epochNumber: 1,
             subEpochTimestamp: new Date('2023-01-01T01:00:00Z'),
@@ -425,7 +425,7 @@ describe('SubEpochService', () => {
             liquidity1: '1000000000000000000',
           },
           {
-            campaignId: 'campaign-2',
+            campaignId: 2,
             strategyId: 'strategy-1',
             epochNumber: 1,
             subEpochTimestamp: new Date('2023-01-01T01:00:00Z'),
@@ -455,7 +455,7 @@ describe('SubEpochService', () => {
       it('should handle chronological ordering with mixed timestamps', async () => {
         const subEpochsOutOfOrder = [
           {
-            campaignId: 'campaign-1',
+            campaignId: 1,
             strategyId: 'strategy-1',
             epochNumber: 1,
             subEpochTimestamp: new Date('2023-01-01T03:00:00Z'), // Later
@@ -466,7 +466,7 @@ describe('SubEpochService', () => {
             liquidity1: '3000000000000000000',
           },
           {
-            campaignId: 'campaign-1',
+            campaignId: 1,
             strategyId: 'strategy-2',
             epochNumber: 1,
             subEpochTimestamp: new Date('2023-01-01T01:00:00Z'), // Earlier
@@ -477,7 +477,7 @@ describe('SubEpochService', () => {
             liquidity1: '1000000000000000000',
           },
           {
-            campaignId: 'campaign-1',
+            campaignId: 1,
             strategyId: 'strategy-3',
             epochNumber: 1,
             subEpochTimestamp: new Date('2023-01-01T02:00:00Z'), // Middle
@@ -501,7 +501,7 @@ describe('SubEpochService', () => {
 
       it('should handle large batch sizes efficiently', async () => {
         const largeBatch = Array.from({ length: 5000 }, (_, i) => ({
-          campaignId: 'campaign-1',
+          campaignId: 1,
           strategyId: `strategy-${i}`,
           epochNumber: 1,
           subEpochTimestamp: new Date(`2023-01-01T01:${String(i % 60).padStart(2, '0')}:00Z`),
@@ -527,11 +527,11 @@ describe('SubEpochService', () => {
       it('should handle campaigns with no rewards', async () => {
         mockQueryBuilder.getRawMany.mockResolvedValue([]);
 
-        const result = await service.getEpochRewards('empty-campaign');
+        const result = await service.getEpochRewards(999);
 
         expect(result).toEqual([]);
         expect(mockQueryBuilder.where).toHaveBeenCalledWith('se.campaignId = :campaignId', {
-          campaignId: 'empty-campaign',
+          campaignId: 999,
         });
       });
 
@@ -551,7 +551,7 @@ describe('SubEpochService', () => {
 
         mockQueryBuilder.getRawMany.mockResolvedValue(mockRawResults);
 
-        const result = await service.getEpochRewards('multi-epoch-campaign');
+        const result = await service.getEpochRewards(998);
 
         expect(result).toHaveLength(2);
         expect(result[0].totalReward).toEqual(new Decimal('1500000000000000000000'));
@@ -569,7 +569,7 @@ describe('SubEpochService', () => {
 
         mockQueryBuilder.getRawMany.mockResolvedValue(mockRawResults);
 
-        const result = await service.getEpochRewards('whale-campaign');
+        const result = await service.getEpochRewards(997);
 
         expect(result[0].totalReward.toFixed()).toBe('999999999999999999999999999999999999999');
       });
@@ -579,7 +579,7 @@ describe('SubEpochService', () => {
       it('should handle campaigns with mixed positive and zero rewards', async () => {
         mockQueryBuilder.getRawOne.mockResolvedValue({ total: '1000000000000000000000' });
 
-        const result = await service.getTotalRewardsForCampaign('mixed-campaign');
+        const result = await service.getTotalRewardsForCampaign(996);
 
         expect(result).toEqual(new Decimal('1000000000000000000000'));
       });
@@ -587,11 +587,11 @@ describe('SubEpochService', () => {
       it('should handle database connection errors gracefully', async () => {
         mockQueryBuilder.getRawOne.mockRejectedValue(new Error('Connection timeout'));
 
-        await expect(service.getTotalRewardsForCampaign('failing-campaign')).rejects.toThrow('Connection timeout');
+        await expect(service.getTotalRewardsForCampaign(995)).rejects.toThrow('Connection timeout');
       });
 
       it('should handle SQL injection attempts safely', async () => {
-        const maliciousCampaignId = "'; DROP TABLE sub_epochs; --";
+        const maliciousCampaignId = 994; // Changed from string to number
 
         mockQueryBuilder.getRawOne.mockResolvedValue({ total: '0' });
 

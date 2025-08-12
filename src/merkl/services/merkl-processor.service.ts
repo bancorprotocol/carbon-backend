@@ -28,16 +28,16 @@ interface StrategyState {
   token1Address: string;
   token0Decimals: number;
   token1Decimals: number;
-  liquidity0: Decimal; // y0 value (raw)
-  liquidity1: Decimal; // y1 value (raw)
-  // A, B parameters for reward calculation (decompressed)
+  liquidity0: Decimal; // Available liquidity for token0 orders
+  liquidity1: Decimal; // Available liquidity for token1 orders
+  // Decompressed A, B parameters for price curve calculations
   order0_A: Decimal;
   order0_B: Decimal;
-  order0_z: Decimal; // capacity for order0
+  order0_z: Decimal; // Total capacity for token0 orders
   order1_A: Decimal;
   order1_B: Decimal;
-  order1_z: Decimal; // capacity for order1
-  // Compressed A, B, z values
+  order1_z: Decimal; // Total capacity for token1 orders
+  // Compressed format of price curve parameters for storage efficiency
   order0_A_compressed: Decimal;
   order0_B_compressed: Decimal;
   order0_z_compressed: Decimal;
@@ -48,8 +48,8 @@ interface StrategyState {
   creationWallet: string;
   lastProcessedBlock: number;
   isDeleted: boolean;
-  // Metadata for chronological deduplication
-  lastEventTimestamp: number; // Unix timestamp of the latest event that modified this strategy
+  // Temporal tracking for event ordering and deduplication
+  lastEventTimestamp: number; // Timestamp of the most recent event affecting this strategy
 }
 
 interface EpochInfo {
@@ -62,7 +62,7 @@ interface EpochInfo {
 interface EpochBatch {
   epochInfo: EpochInfo;
   campaign: Campaign;
-  // Unique identifier for sorting and tracking
+  // Unique identifier combining campaign and epoch for deterministic processing
   globalEpochId: string;
   startTimestampMs: number;
   endTimestampMs: number;
@@ -70,16 +70,16 @@ interface EpochBatch {
 
 interface SubEpochData {
   timestamp: number;
-  order0TargetPrice: Decimal; // token1Usd/token0Usd for order0
-  order1TargetPrice: Decimal; // token0Usd/token1Usd for order1
+  order0TargetPrice: Decimal; // Target price for token0->token1 orders (token1/token0)
+  order1TargetPrice: Decimal; // Target price for token1->token0 orders (token0/token1)
   targetSqrtPriceScaled: Decimal;
   invTargetSqrtPriceScaled: Decimal;
   strategies: Map<string, StrategyState>;
 }
 
 interface PriceCache {
-  rates: Map<string, Array<{ timestamp: number; usd: number }>>; // tokenAddress -> array of rates with timestamps
-  timeWindow: { start: number; end: number }; // Time window this cache covers
+  rates: Map<string, Array<{ timestamp: number; usd: number }>>; // Token address mapped to historical USD rates
+  timeWindow: { start: number; end: number }; // Time range covered by this price cache
 }
 
 interface BatchEvents {
@@ -103,44 +103,94 @@ interface TokenWeightingConfig {
   defaultWeighting: number;
 }
 
+/**
+ * MerklProcessorService
+ *
+ * Core service responsible for processing Merkl reward campaigns and distributing
+ * incentives to liquidity providers based on their strategy positions and market conditions.
+ *
+ * This service implements a sophisticated epoch-based reward distribution system that:
+ * - Processes campaigns in chronological epochs to ensure temporal consistency
+ * - Maintains strategy state isolation to prevent cross-contamination between time periods
+ * - Calculates reward eligibility based on liquidity proximity to market prices
+ * - Applies configurable token weightings to incentivize specific assets
+ * - Enforces campaign budget limits and proportional reward scaling
+ *
+ * Key Features:
+ * - Temporal isolation: Each epoch is processed independently with its own state snapshot
+ * - Price-based eligibility: Rewards are distributed based on how close liquidity is to market rates
+ * - Token weighting system: Different tokens receive different incentive multipliers
+ * - Budget enforcement: Automatic scaling to prevent over-distribution of campaign rewards
+ * - Deterministic processing: Reproducible results using transaction-based randomness
+ *
+ * @critical This service handles financial reward distribution and must maintain
+ * strict accuracy and consistency. All calculations are performed using high-precision
+ * Decimal arithmetic to prevent rounding errors.
+ *
+ * @author Carbon DeFi Team
+ * @version 2.0
+ */
 @Injectable()
 export class MerklProcessorService {
   private readonly logger = new Logger(MerklProcessorService.name);
-  private readonly MIN_SNAPSHOT_INTERVAL = 4 * 60; // 240 seconds
-  private readonly MAX_SNAPSHOT_INTERVAL = 6 * 60; // 360 seconds
-  private readonly EPOCH_DURATION = 4 * 60 * 60; // 4 hours in seconds
-  private readonly TOLERANCE_PERCENTAGE = 0.02; // 2%
+
+  /** Minimum time between sub-epoch snapshots (240 seconds) */
+  private readonly MIN_SNAPSHOT_INTERVAL = 4 * 60;
+
+  /** Maximum time between sub-epoch snapshots (360 seconds) */
+  private readonly MAX_SNAPSHOT_INTERVAL = 6 * 60;
+
+  /** Standard epoch duration for campaign processing (4 hours) */
+  private readonly EPOCH_DURATION = 4 * 60 * 60;
+
+  /** Price tolerance for reward eligibility (2% deviation from market price) */
+  private readonly TOLERANCE_PERCENTAGE = 0.02;
+
+  /** Scaling constant for price curve calculations (2^48) */
   private readonly SCALING_CONSTANT = new Decimal(2).pow(48);
 
-  // Token weighting configuration per deployment
+  /**
+   * Token incentive weighting configurations for each blockchain deployment.
+   *
+   * This configuration defines how rewards are distributed across different tokens
+   * to align incentives with protocol objectives and market conditions:
+   *
+   * - **tokenWeightings**: Specific multipliers for strategic tokens
+   * - **whitelistedAssets**: Approved tokens receiving standard weighting
+   * - **defaultWeighting**: Fallback weighting for unlisted tokens
+   *
+   * Higher weightings incentivize liquidity provision in specific tokens,
+   * while zero weightings effectively disable rewards for certain assets.
+   *
+   * @internal These weightings directly control reward distribution and should
+   * be carefully configured in consultation with protocol governance.
+   */
   private readonly DEPLOYMENT_TOKEN_WEIGHTINGS: Record<string, TokenWeightingConfig> = {
     // Ethereum mainnet
     [ExchangeId.OGEthereum]: {
       tokenWeightings: {
-        '0xdAC17F958D2ee523a2206206994597C13D831ec7': 0.7, // usdt
-        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 1.8, // eth
+        '0xdAC17F958D2ee523a2206206994597C13D831ec7': 0.7, // USDT
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 1.8, // ETH
       },
       whitelistedAssets: [],
-      defaultWeighting: 1, // Other assets get no incentives
+      defaultWeighting: 1, // Default weighting for unlisted tokens
     },
     [ExchangeId.OGSei]: {
       tokenWeightings: {
-        '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8': 1, // weth
-        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 99, // sei
+        '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8': 1, // WETH
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 99, // SEI
       },
       whitelistedAssets: [],
       defaultWeighting: 0,
     },
     [ExchangeId.OGTac]: {
       tokenWeightings: {
-        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 0.75, // tac
-        '0xB63B9f0eb4A6E6f191529D71d4D88cc8900Df2C9': 0.75, // wtac
-        '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f': 2, //usdt
-        '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140': 0.5, // ton
-        '0x61D66bC21fED820938021B06e9b2291f3FB91945': 1.25, // weth
+        '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE': 0.75, // TAC
+        '0xB63B9f0eb4A6E6f191529D71d4D88cc8900Df2C9': 0.75, // WTAC
+        '0xAF988C3f7CB2AceAbB15f96b19388a259b6C438f': 2, // USDT
+        '0xb76d91340F5CE3577f0a056D29f6e3Eb4E88B140': 0.5, // TON
+        '0x61D66bC21fED820938021B06e9b2291f3FB91945': 1.25, // WETH
         '0xAf368c91793CB22739386DFCbBb2F1A9e4bCBeBf': 1.25, // wstETH
-        // '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 2, // cbBTC
-        // '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 0.7, // lbBTC
         '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': 1, // cbBTC
         '0xecAc9C5F704e954931349Da37F60E39f515c11c1': 1, // lbBTC
       },
@@ -149,6 +199,20 @@ export class MerklProcessorService {
     },
   };
 
+  /**
+   * Initializes the MerklProcessorService with required dependencies.
+   *
+   * @param subEpochService - Service for managing sub-epoch data persistence
+   * @param campaignService - Service for campaign management and queries
+   * @param lastProcessedBlockService - Service for tracking processing progress
+   * @param blockService - Service for blockchain block data access
+   * @param historicQuoteService - Service for historical USD price data
+   * @param strategyCreatedEventService - Service for strategy creation events
+   * @param strategyUpdatedEventService - Service for strategy update events
+   * @param strategyDeletedEventService - Service for strategy deletion events
+   * @param voucherTransferEventService - Service for voucher transfer events
+   * @param configService - Configuration service for environment variables
+   */
   constructor(
     private subEpochService: SubEpochService,
     private campaignService: CampaignService,
@@ -162,6 +226,35 @@ export class MerklProcessorService {
     private configService: ConfigService,
   ) {}
 
+  /**
+   * Processes Merkl reward campaigns for the specified deployment up to the given block.
+   *
+   * This is the main entry point for reward processing. It orchestrates the entire
+   * reward calculation and distribution pipeline by:
+   *
+   * 1. Identifying active campaigns requiring processing
+   * 2. Building comprehensive price caches for consistent USD rate lookups
+   * 3. Calculating epoch batches that need processing (unprocessed + recent updates)
+   * 4. Processing each epoch batch in chronological order with temporal isolation
+   * 5. Updating campaign status for completed campaigns
+   *
+   * The method ensures temporal consistency by processing epochs chronologically
+   * and maintaining isolated state for each time period to prevent data contamination.
+   *
+   * @param endBlock - The latest block number to process up to
+   * @param deployment - The blockchain deployment configuration containing network details
+   *
+   * @throws {Error} When no active campaigns are found or processing fails
+   *
+   * @example
+   * ```typescript
+   * await merklProcessor.update(18500000, ethereumDeployment);
+   * ```
+   *
+   * @critical This method handles financial reward distribution and must complete
+   * successfully to ensure accurate reward calculations. Any failure should be
+   * investigated immediately.
+   */
   async update(endBlock: number, deployment: Deployment): Promise<void> {
     const campaigns = await this.campaignService.getActiveCampaigns(deployment);
 
@@ -172,7 +265,7 @@ export class MerklProcessorService {
 
     this.logger.log(`Processing merkl with epoch-based batching up to block ${endBlock}`);
 
-    // Calculate processing time range from earliest campaign start to end block
+    // Determine the time range to process based on active campaigns
     const earliestCampaignStart = Math.min(...campaigns.map((c) => c.startDate.getTime()));
     const globalStartTimestamp = earliestCampaignStart;
     const globalEndTimestamp = await this.getTimestampForBlock(endBlock, deployment);
@@ -183,7 +276,7 @@ export class MerklProcessorService {
       ).toISOString()}`,
     );
 
-    // Create global price cache for consistent USD rates across all epoch batches
+    // Build comprehensive price cache to ensure consistent USD rates across all processing
     const globalPriceCache = await this.createGlobalPriceCache(
       campaigns,
       globalStartTimestamp,
@@ -191,7 +284,7 @@ export class MerklProcessorService {
       deployment,
     );
 
-    // Calculate epochs to process (unprocessed + recent epochs for updates) and sort chronologically
+    // Identify epoch batches requiring processing and order them chronologically
     const epochBatchesToProcess = await this.calculateEpochBatchesToProcess(
       campaigns,
       globalStartTimestamp,
@@ -204,18 +297,35 @@ export class MerklProcessorService {
       ).toISOString()} to ${new Date(globalEndTimestamp).toISOString()}`,
     );
 
-    // Process epoch batches in chronological order
+    // Execute processing for each epoch batch in temporal sequence
     for (const epochBatch of epochBatchesToProcess) {
       await this.processEpochBatch(epochBatch, deployment, globalPriceCache, endBlock);
     }
 
-    // Post-processing: Mark campaigns inactive if we've processed past their end time
+    // Update campaign status for completed campaigns
     await this.campaignService.markProcessedCampaignsInactive(deployment, campaigns, globalEndTimestamp);
   }
 
   /**
-   * Calculate epoch batches to process across all campaigns
-   * Includes unprocessed epochs + recent epochs that may need updates from new events
+   * Calculates which epoch batches require processing across all active campaigns.
+   *
+   * This method implements intelligent epoch selection by:
+   * - Identifying all epochs within the global processing timeframe
+   * - Filtering out already processed epochs to avoid duplicate work
+   * - Including a buffer of recent epochs to handle late-arriving events
+   * - Sorting all selected epochs chronologically for deterministic processing
+   *
+   * The reprocessing buffer ensures that if new events arrive for recently processed
+   * time periods, those epochs will be recalculated to maintain accuracy.
+   *
+   * @param campaigns - List of active campaigns to process
+   * @param globalStartTimestamp - Earliest timestamp to consider for processing
+   * @param globalEndTimestamp - Latest timestamp to process up to
+   *
+   * @returns Promise resolving to chronologically sorted array of epoch batches requiring processing
+   *
+   * @internal This method is critical for determining processing scope and ensuring
+   * no epochs are missed while avoiding unnecessary duplicate processing.
    */
   private async calculateEpochBatchesToProcess(
     campaigns: Campaign[],
@@ -224,19 +334,19 @@ export class MerklProcessorService {
   ): Promise<EpochBatch[]> {
     const epochBatches: EpochBatch[] = [];
 
-    // Calculate epochs for each campaign and filter out processed ones
+    // Generate epochs for each campaign and identify those requiring processing
     for (const campaign of campaigns) {
       const allEpochs = this.calculateEpochsInRange(campaign, globalStartTimestamp, globalEndTimestamp);
 
-      // Get last processed epoch for this campaign
+      // Retrieve the most recently processed epoch number for this campaign
       const lastProcessedEpochNumber = await this.subEpochService.getLastProcessedEpochNumber(campaign.id);
 
-      // Allow reprocessing of recent epochs to handle new events that arrive for already processed time periods
-      // This ensures that if new events arrive for recent epochs, they get included in the calculations
-      const reprocessBuffer = 2; // Reprocess last 2 epochs to handle late-arriving events
+      // Include recent epochs for reprocessing to handle late-arriving events
+      // This ensures data consistency when events are received out of chronological order
+      const reprocessBuffer = 2; // Number of recent epochs to reprocess
       const cutoffEpoch = Math.max(0, lastProcessedEpochNumber - reprocessBuffer);
 
-      // Filter to include recent epochs that might need updates + all unprocessed epochs
+      // Select epochs that require processing (recent + unprocessed)
       const epochsToProcess = allEpochs.filter((epoch) => epoch.epochNumber > cutoffEpoch);
 
       this.logger.log(
@@ -264,16 +374,37 @@ export class MerklProcessorService {
       if (a.startTimestampMs !== b.startTimestampMs) {
         return a.startTimestampMs - b.startTimestampMs;
       }
-      // If same start time, sort by campaign ID for deterministic ordering
-      return a.campaign.id.localeCompare(b.campaign.id);
+      // Use campaign ID as tiebreaker for deterministic ordering
+      return a.campaign.id - b.campaign.id;
     });
 
     return epochBatches;
   }
 
   /**
-   * Process a single epoch batch with temporal isolation
-   * This is the core fix: each epoch gets fresh strategy states and only sees events within its timeframe
+   * Processes a single epoch batch with complete temporal isolation.
+   *
+   * This method is the core of the reward processing pipeline and implements
+   * strict temporal boundaries to ensure accurate calculations:
+   *
+   * 1. **State Initialization**: Creates fresh strategy states up to epoch start
+   * 2. **Event Filtering**: Retrieves only events within the epoch timeframe
+   * 3. **Budget Tracking**: Monitors campaign reward distribution limits
+   * 4. **Reward Processing**: Executes the epoch with isolated state and events
+   *
+   * Temporal isolation is critical - each epoch processes with its own snapshot
+   * of strategy states and events, preventing future events from affecting past
+   * reward calculations and ensuring reproducible results.
+   *
+   * @param epochBatch - The epoch batch configuration containing timing and campaign details
+   * @param deployment - Blockchain deployment configuration
+   * @param globalPriceCache - Pre-built cache of USD rates for the entire processing timeframe
+   * @param endBlock - Maximum block number to consider for event retrieval
+   *
+   * @throws {Error} When epoch processing fails or budget calculations are invalid
+   *
+   * @internal This method handles the financial core of reward distribution and must
+   * maintain perfect temporal isolation to ensure calculation accuracy.
    */
   private async processEpochBatch(
     epochBatch: EpochBatch,
@@ -287,21 +418,21 @@ export class MerklProcessorService {
       `Processing epoch batch: ${globalEpochId} (${epochInfo.startTimestamp.toISOString()} to ${epochInfo.endTimestamp.toISOString()})`,
     );
 
-    // CRITICAL: Initialize fresh strategy states for this epoch ONLY
-    // This prevents contamination from future events processed in other epochs
+    // Initialize clean strategy states specific to this epoch's timeframe
+    // Ensures temporal isolation and prevents data contamination
     const strategyStates: StrategyStatesMap = new Map();
     const epochStartTimestamp = epochInfo.startTimestamp.getTime();
 
-    // Initialize strategy states up to the BEGINNING of this epoch
+    // Build strategy states up to the start of this epoch
     await this.initializeStrategyStates(epochStartTimestamp, deployment, campaign, strategyStates);
 
-    // CRITICAL: Fetch ONLY events within this epoch's timeframe
-    // This prevents applying future events to past sub-epoch calculations
+    // Retrieve events that occurred within this epoch's time boundaries
+    // Maintains temporal accuracy for reward calculations
     const epochEvents = await this.fetchEventsForEpochTimeframe(epochBatch, deployment, endBlock);
 
-    // Calculate distributed amounts for reward capping
-    const campaignDistributedAmounts = new Map<string, Decimal>();
-    const campaignTotalAmounts = new Map<string, Decimal>();
+    // Track reward distribution to enforce campaign limits
+    const campaignDistributedAmounts = new Map<number, Decimal>();
+    const campaignTotalAmounts = new Map<number, Decimal>();
 
     const currentDistributed = await this.subEpochService.getTotalRewardsForCampaign(campaign.id);
     const campaignAmount = new Decimal(campaign.rewardAmount);
@@ -309,13 +440,13 @@ export class MerklProcessorService {
     campaignDistributedAmounts.set(campaign.id, currentDistributed);
     campaignTotalAmounts.set(campaign.id, campaignAmount);
 
-    // Process this single epoch with temporal isolation
+    // Execute epoch processing with isolated state and events
     await this.processEpoch(
       campaign,
       epochInfo,
-      strategyStates, // Fresh states, no contamination
+      strategyStates, // Temporally isolated strategy states
       globalPriceCache,
-      epochEvents, // Only events from this epoch's timeframe
+      epochEvents, // Events filtered to this epoch's timeframe
       campaignDistributedAmounts,
       campaignTotalAmounts,
     );
@@ -324,8 +455,8 @@ export class MerklProcessorService {
   }
 
   /**
-   * Fetch events strictly within the epoch's timeframe to prevent temporal contamination
-   * MEMORY FIX: Only fetch events within epoch block range, not all events from deployment start
+   * Retrieves events that occurred within the epoch's specific timeframe.
+   * Optimizes memory usage by fetching only events within the epoch's block range.
    */
   private async fetchEventsForEpochTimeframe(
     epochBatch: EpochBatch,
@@ -353,8 +484,8 @@ export class MerklProcessorService {
       this.voucherTransferEventService.get(epochStartBlock, epochEndBlock, deployment),
     ]);
 
-    // CRITICAL: Filter events by timestamp to ensure they fall within the epoch timeframe
-    // This is the key fix - only events within the epoch timeframe are processed
+    // Filter events by timestamp to ensure they fall within the epoch timeframe
+    // This maintains temporal accuracy for reward calculations
     const filterByTimestamp = <T extends { timestamp: Date; pair?: { id: number } }>(events: T[]): T[] => {
       return events.filter((event) => {
         const eventTimestamp = event.timestamp.getTime();
@@ -388,8 +519,12 @@ export class MerklProcessorService {
   }
 
   /**
-   * Initialize strategy states up to a specific timestamp for temporal accuracy
-   * This prevents including events that occurred after the specified timestamp
+   * Initializes strategy states up to a specific timestamp for temporal accuracy.
+   *
+   * @param maxTimestamp - Maximum timestamp to consider for state initialization
+   * @param deployment - Blockchain deployment configuration
+   * @param campaign - Campaign to initialize strategies for
+   * @param strategyStates - Map to populate with initialized strategy states
    */
   private async initializeStrategyStates(
     maxTimestamp: number,
@@ -568,8 +703,12 @@ export class MerklProcessorService {
   }
 
   /**
-   * Get exact block number for a given timestamp using BlockService
-   * Returns the latest block where block.timestamp <= targetTimestamp
+   * Finds the block number that corresponds to a specific timestamp.
+   *
+   * @param timestamp - Target timestamp to find block for
+   * @param deployment - Blockchain deployment configuration
+   * @param maxBlock - Maximum block number to consider
+   * @returns Promise resolving to block number at or before the timestamp
    */
   private async getBlockForTimestamp(timestamp: number, deployment: Deployment, maxBlock: number): Promise<number> {
     try {
@@ -591,6 +730,25 @@ export class MerklProcessorService {
     }
   }
 
+  /**
+   * Processes a strategy creation event and updates the strategy states map.
+   *
+   * This method handles the initialization of a new strategy by:
+   * - Extracting order parameters from the event data
+   * - Applying lexicographic token ordering for consistent pair representation
+   * - Decompressing price curve parameters for calculations
+   * - Creating a complete StrategyState record with all required fields
+   *
+   * The created strategy state includes both compressed and decompressed versions
+   * of price parameters to optimize for both storage and calculation efficiency.
+   *
+   * @param event - The strategy creation event containing order and token data
+   * @param strategyStates - Map of current strategy states to update
+   * @param eventTimestamp - Unix timestamp of the event for temporal tracking
+   *
+   * @internal This method must correctly handle token ordering and parameter
+   * decompression to ensure accurate strategy state initialization.
+   */
   private processCreatedEvent(
     event: StrategyCreatedEvent,
     strategyStates: StrategyStatesMap,
@@ -599,7 +757,7 @@ export class MerklProcessorService {
     const order0 = JSON.parse(event.order0);
     const order1 = JSON.parse(event.order1);
 
-    // Handle lexicographic token ordering
+    // Ensure consistent token ordering within the pair
     const token0Address = event.token0.address.toLowerCase();
     const token1Address = event.token1.address.toLowerCase();
     const isToken0Smaller = token0Address <= token1Address;
@@ -627,12 +785,12 @@ export class MerklProcessorService {
       order1_A: this.decompressRateParameter(order1ForPair.A || '0'),
       order1_B: this.decompressRateParameter(order1ForPair.B || '0'),
       order1_z: new Decimal(order1ForPair.z || order1ForPair.y || 0),
-      order0_A_compressed: order0ForPair.A || '0',
-      order0_B_compressed: order0ForPair.B || '0',
-      order0_z_compressed: order0ForPair.z || order0ForPair.y || '0',
-      order1_A_compressed: order1ForPair.A || '0',
-      order1_B_compressed: order1ForPair.B || '0',
-      order1_z_compressed: order1ForPair.z || order1ForPair.y || '0',
+      order0_A_compressed: new Decimal(order0ForPair.A || '0'),
+      order0_B_compressed: new Decimal(order0ForPair.B || '0'),
+      order0_z_compressed: new Decimal(order0ForPair.z || order0ForPair.y || '0'),
+      order1_A_compressed: new Decimal(order1ForPair.A || '0'),
+      order1_B_compressed: new Decimal(order1ForPair.B || '0'),
+      order1_z_compressed: new Decimal(order1ForPair.z || order1ForPair.y || '0'),
       currentOwner: event.owner,
       creationWallet: event.owner,
       lastProcessedBlock: event.block.id,
@@ -643,6 +801,20 @@ export class MerklProcessorService {
     strategyStates.set(event.strategyId, state);
   }
 
+  /**
+   * Processes a strategy update event and modifies existing strategy state.
+   *
+   * This method updates an existing strategy's liquidity and price curve parameters
+   * when a strategy is modified on-chain. It preserves the strategy's identity
+   * (creation wallet, strategy ID) while updating all variable parameters.
+   *
+   * @param event - The strategy update event containing new order parameters
+   * @param strategyStates - Map of current strategy states to update
+   * @param eventTimestamp - Unix timestamp of the event for temporal tracking
+   *
+   * @internal Updates must maintain consistency with the original strategy's
+   * token ordering and preserve all non-order-related state.
+   */
   private processUpdatedEvent(
     event: StrategyUpdatedEvent,
     strategyStates: StrategyStatesMap,
@@ -651,7 +823,7 @@ export class MerklProcessorService {
     const existingState = strategyStates.get(event.strategyId);
     if (!existingState) return;
 
-    // Handle lexicographic token ordering
+    // Apply consistent token ordering for the pair
     const token0Address = event.token0.address.toLowerCase();
     const token1Address = event.token1.address.toLowerCase();
     const isToken0Smaller = token0Address <= token1Address;
@@ -680,6 +852,22 @@ export class MerklProcessorService {
     existingState.lastEventTimestamp = eventTimestamp;
   }
 
+  /**
+   * Processes a strategy deletion event and marks the strategy as inactive.
+   *
+   * When a strategy is deleted on-chain, this method:
+   * - Sets the deletion flag to prevent future reward calculations
+   * - Zeros out all liquidity values to reflect the strategy's inactive state
+   * - Resets all price curve parameters to zero
+   * - Preserves historical data for audit purposes
+   *
+   * @param event - The strategy deletion event
+   * @param strategyStates - Map of current strategy states to update
+   * @param eventTimestamp - Unix timestamp of the event for temporal tracking
+   *
+   * @internal Deleted strategies should not receive rewards but their historical
+   * data must be preserved for accurate reward calculations in past epochs.
+   */
   private processDeletedEvent(
     event: StrategyDeletedEvent,
     strategyStates: StrategyStatesMap,
@@ -701,6 +889,13 @@ export class MerklProcessorService {
     existingState.lastEventTimestamp = eventTimestamp;
   }
 
+  /**
+   * Processes a voucher transfer event to update strategy ownership.
+   *
+   * @param event - The voucher transfer event containing new owner information
+   * @param strategyStates - Map of current strategy states to update
+   * @param eventTimestamp - Unix timestamp of the event for temporal tracking
+   */
   private processTransferEvent(
     event: VoucherTransferEvent,
     strategyStates: StrategyStatesMap,
@@ -714,6 +909,25 @@ export class MerklProcessorService {
     existingState.lastEventTimestamp = eventTimestamp;
   }
 
+  /**
+   * Decompresses a rate parameter from its storage-optimized format.
+   *
+   * Carbon's price curve parameters are stored in compressed format to optimize
+   * storage space. This method converts them back to their working precision:
+   *
+   * **Compression Format**: `compressed = mantissa + (exponent * SCALING_CONSTANT)`
+   * **Decompression**: `value = mantissa * (2 ^ exponent)`
+   *
+   * The compression scheme allows storing large price ranges efficiently while
+   * maintaining sufficient precision for reward calculations.
+   *
+   * @param compressedValue - The compressed parameter as a string
+   *
+   * @returns Decompressed Decimal value ready for mathematical operations
+   *
+   * @internal This method must maintain perfect precision to ensure accurate
+   * price curve calculations and reward eligibility determinations.
+   */
   private decompressRateParameter(compressedValue: string): Decimal {
     const compressed = new Decimal(compressedValue || '0');
     const mantissa = compressed.mod(this.SCALING_CONSTANT);
@@ -722,7 +936,10 @@ export class MerklProcessorService {
   }
 
   /**
-   * Deep clone a single StrategyState object to prevent reference sharing
+   * Creates a deep copy of a StrategyState to prevent reference sharing.
+   *
+   * @param state - The strategy state to clone
+   * @returns Deep copy with new Decimal instances for temporal isolation
    */
   private deepCloneStrategyState(state: StrategyState): StrategyState {
     return {
@@ -755,7 +972,10 @@ export class MerklProcessorService {
   }
 
   /**
-   * Deep clone a Map of StrategyState objects to prevent reference sharing
+   * Creates a deep copy of the entire strategy states map.
+   *
+   * @param states - The strategy states map to clone
+   * @returns New map with deep-copied strategy states
    */
   private deepCloneStrategyStates(states: StrategyStatesMap): StrategyStatesMap {
     const cloned = new Map<string, StrategyState>();
@@ -765,49 +985,14 @@ export class MerklProcessorService {
     return cloned;
   }
 
-  private async processEpochsInTimeRange(
-    campaign: Campaign,
-    startTimestamp: number,
-    endTimestamp: number,
-    strategyStates: StrategyStatesMap,
-    priceCache: PriceCache,
-    batchEvents: BatchEvents,
-    campaignDistributedAmounts: Map<string, Decimal>,
-    campaignTotalAmounts: Map<string, Decimal>,
-  ): Promise<void> {
-    // Skip if start timestamp is after campaign end
-    const campaignEndTimestamp = campaign.endDate.getTime();
-    if (startTimestamp >= campaignEndTimestamp) {
-      this.logger.warn(`Skipping epoch processing for campaign ${campaign.id} - time range starts after campaign end`);
-      return;
-    }
-
-    const epochs = this.calculateEpochsInRange(campaign, startTimestamp, endTimestamp);
-
-    // Validate epoch integrity before processing
-    const isEpochIntegrityValid = this.validateEpochIntegrity(campaign, epochs);
-    if (!isEpochIntegrityValid) {
-      this.logger.error(
-        `Skipping epoch processing for campaign ${campaign.id} due to epoch integrity validation failure`,
-      );
-      return; // Skip processing all epochs for this campaign
-    }
-
-    for (const epoch of epochs) {
-      // Clone strategy states for this epoch
-      const epochStrategyStates = this.deepCloneStrategyStates(strategyStates);
-      await this.processEpoch(
-        campaign,
-        epoch,
-        epochStrategyStates,
-        priceCache,
-        batchEvents,
-        campaignDistributedAmounts,
-        campaignTotalAmounts,
-      );
-    }
-  }
-
+  /**
+   * Calculates all epochs within a given time range for a campaign.
+   *
+   * @param campaign - The campaign to calculate epochs for
+   * @param startTimestamp - Start of the time range to consider
+   * @param endTimestamp - End of the time range to consider
+   * @returns Array of epoch information objects with timing and reward details
+   */
   private calculateEpochsInRange(campaign: Campaign, startTimestamp: number, endTimestamp: number): EpochInfo[] {
     const epochs: EpochInfo[] = [];
 
@@ -867,25 +1052,36 @@ export class MerklProcessorService {
     return epochs;
   }
 
+  /**
+   * Processes a single epoch by generating sub-epochs and calculating rewards.
+   *
+   * @param campaign - The campaign being processed
+   * @param epoch - Epoch timing and reward information
+   * @param strategyStates - Current strategy states for this epoch
+   * @param priceCache - USD price data for the processing timeframe
+   * @param batchEvents - Events that occurred during this epoch
+   * @param campaignDistributedAmounts - Tracking of distributed rewards per campaign
+   * @param campaignTotalAmounts - Total budget available per campaign
+   */
   private async processEpoch(
     campaign: Campaign,
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
-    campaignDistributedAmounts: Map<string, Decimal>,
-    campaignTotalAmounts: Map<string, Decimal>,
+    campaignDistributedAmounts: Map<number, Decimal>,
+    campaignTotalAmounts: Map<number, Decimal>,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
-    // Validate weighting configuration exists
+    // Ensure token weighting configuration is available for this deployment
     const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[campaign.exchangeId];
     if (!config) {
       this.logger.error(`No weighting configuration found for exchangeId: ${campaign.exchangeId}, skipping epoch`);
       return;
     }
 
-    // Check if pair tokens have any weighting
+    // Verify that the token pair has configured reward weightings
     const token0Weighting = this.getTokenWeighting(campaign.pair.token0.address, campaign.exchangeId);
     const token1Weighting = this.getTokenWeighting(campaign.pair.token1.address, campaign.exchangeId);
 
@@ -893,10 +1089,10 @@ export class MerklProcessorService {
       this.logger.warn(
         `Both tokens in pair ${campaign.pair.token0.address}/${campaign.pair.token1.address} have zero weighting - no rewards will be distributed`,
       );
-      // Continue processing but expect no rewards
+      // Process epoch but no rewards will be distributed
     }
 
-    // Generate sub-epochs for this epoch
+    // Create time-based snapshots within the epoch for reward calculation
     const subEpochs = this.generateSubEpochsForEpoch(epoch, strategyStates, campaign, priceCache, batchEvents);
 
     if (subEpochs.length === 0) return;
@@ -920,14 +1116,13 @@ export class MerklProcessorService {
         campaignTotalAmounts,
       );
 
-      // Convert to SubEpoch entities
+      // Transform reward calculations into database entities
       for (const [strategyId, strategy] of subEpochData.strategies) {
         if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
           continue;
         }
 
-        // The strategy from subEpochData.strategies already contains the correct point-in-time state
-        // as calculated by generateSubEpochsForEpoch through event replay
+        // Strategy state reflects the exact point-in-time conditions during this sub-epoch
 
         const totalStrategyReward = rewardResults.totalRewards.get(strategyId) || new Decimal(0);
         const tokenRewards = rewardResults.tokenRewards.get(strategyId) || {
@@ -935,7 +1130,7 @@ export class MerklProcessorService {
           token1: new Decimal(0),
         };
 
-        // Calculate all values using the point-in-time strategy state
+        // Compute reward eligibility based on strategy state at this specific time
         const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
         const eligible0 = this.calculateEligibleLiquidity(
           strategy.liquidity0,
@@ -958,19 +1153,19 @@ export class MerklProcessorService {
         const token0RewardZoneBoundary = toleranceFactor.mul(subEpochData.targetSqrtPriceScaled);
         const token1RewardZoneBoundary = toleranceFactor.mul(subEpochData.invTargetSqrtPriceScaled);
 
-        // Get USD rates using point-in-time strategy
+        // Retrieve USD exchange rates for the sub-epoch timestamp
         const token0UsdRate = this.getUsdRateForTimestamp(priceCache, strategy.token0Address, subEpochData.timestamp);
         const token1UsdRate = this.getUsdRateForTimestamp(priceCache, strategy.token1Address, subEpochData.timestamp);
 
         subEpochsToSave.push({
           strategyId,
           campaignId: campaign.id,
-          // subEpochNumber will be assigned by SubEpochService in chronological order
+          // SubEpochService will assign sequential numbers during save operation
           epochNumber: epoch.epochNumber,
           epochStart: epoch.startTimestamp,
           subEpochTimestamp: new Date(subEpochData.timestamp),
 
-          // All as strings for database storage
+          // Convert all numeric values to strings for precise database storage
           token0Reward: tokenRewards.token0.toFixed(),
           token1Reward: tokenRewards.token1.toFixed(),
           totalReward: totalStrategyReward.toFixed(),
@@ -985,8 +1180,8 @@ export class MerklProcessorService {
           eligible1: eligible1.toFixed(),
           token0RewardZoneBoundary: token0RewardZoneBoundary.toFixed(),
           token1RewardZoneBoundary: token1RewardZoneBoundary.toFixed(),
-          token0Weighting: token0Weighting.toFixed(),
-          token1Weighting: token1Weighting.toFixed(),
+          token0Weighting: token0Weighting.toString(),
+          token1Weighting: token1Weighting.toString(),
           token0Decimals: strategy.token0Decimals,
           token1Decimals: strategy.token1Decimals,
           order0ACompressed: strategy.order0_A_compressed.toFixed(),
@@ -1006,13 +1201,22 @@ export class MerklProcessorService {
       }
     }
 
-    // Save sub-epochs (service will assign chronological subEpochNumbers)
+    // Persist sub-epoch data with automatic sequential numbering
     await this.subEpochService.saveSubEpochs(subEpochsToSave);
     this.logger.log(`Saved ${subEpochsToSave.length} sub-epoch records for epoch ${epoch.epochNumber}`);
   }
 
   /**
-   * Generate epoch seed using last transaction hash from already-sorted events with mandatory salt
+   * Generates a deterministic seed for epoch processing using the most recent transaction hash
+   * combined with a security salt to ensure reproducible but unpredictable randomness.
+   */
+  /**
+   * Generates a deterministic seed for epoch processing using transaction history.
+   *
+   * @param campaign - The campaign being processed
+   * @param epoch - Epoch information for seed generation
+   * @param chronologicalEvents - Sorted events for transaction hash extraction
+   * @returns Deterministic seed string for reproducible randomness
    */
   private generateEpochSeed(campaign: Campaign, epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
     const salt = this.configService.get<string>('MERKL_SNAPSHOT_SALT');
@@ -1029,31 +1233,47 @@ export class MerklProcessorService {
   }
 
   /**
-   * Get the most recent transaction hash from already-sorted events before epoch start
-   * Falls back to campaign ID if no events exist before epoch start
+   * Extracts the most recent transaction hash that occurred before the epoch start time.
+   * Provides fallback logic when no suitable events are available.
+   */
+  /**
+   * Extracts the most recent transaction hash before epoch start for seed generation.
+   *
+   * @param epoch - Epoch information for timing boundaries
+   * @param chronologicalEvents - Sorted events to search through
+   * @returns Transaction hash for seed generation
    */
   private getLastTransactionHashFromSortedEvents(epoch: EpochInfo, chronologicalEvents: TimestampedEvent[]): string {
     const epochStartTimestamp = epoch.startTimestamp.getTime();
 
-    // Iterate backwards through already-sorted events to find last one before epoch start
+    // Search chronologically sorted events for the most recent one before epoch start
     for (let i = chronologicalEvents.length - 1; i >= 0; i--) {
       if (chronologicalEvents[i].timestamp < epochStartTimestamp) {
         return chronologicalEvents[i].event.transactionHash;
       }
     }
 
-    // Fallback: if no events before epoch start, use the first available event hash
-    // This can happen for the first epoch of a campaign
+    // Use first available event hash when no events precede the epoch
+    // Common scenario for initial campaign epochs
     if (chronologicalEvents.length > 0) {
       return chronologicalEvents[0].event.transactionHash;
     }
 
-    // Ultimate fallback: if no events at all, throw error (this should be very rare)
+    // Error case: no events available for seed generation
     throw new Error(`No events found for epoch ${epoch.epochNumber} - cannot generate seed`);
   }
 
   /**
-   * Get snapshot intervals using environment-appropriate method
+   * Determines the time intervals for taking snapshots within an epoch.
+   * Uses either a fixed seed for testing or transaction-based seed for production.
+   */
+  /**
+   * Determines snapshot intervals for sub-epoch generation within an epoch.
+   *
+   * @param campaign - The campaign being processed
+   * @param epoch - Epoch timing information
+   * @param chronologicalEvents - Events for seed generation
+   * @returns Array of time intervals in seconds for snapshot generation
    */
   private getSnapshotIntervals(
     campaign: Campaign,
@@ -1063,7 +1283,7 @@ export class MerklProcessorService {
     const epochDurationMs = epoch.endTimestamp.getTime() - epoch.startTimestamp.getTime();
     const epochDurationSeconds = Math.floor(epochDurationMs / 1000); // Convert to seconds for partitioner
 
-    // Check for MERKL_SNAPSHOT_SEED environment variable
+    // Detect if a fixed seed is configured for deterministic testing
     const merklSnapshotSeed = this.configService.get<string>('MERKL_SNAPSHOT_SEED');
 
     if (merklSnapshotSeed) {
@@ -1074,13 +1294,23 @@ export class MerklProcessorService {
         merklSnapshotSeed,
       );
     } else {
-      // Production mode: use transaction-based seed
+      // Production mode: generate seed from transaction history
       const seed = this.generateEpochSeed(campaign, epoch, chronologicalEvents);
 
       return partitionSingleEpoch(epochDurationSeconds, this.MIN_SNAPSHOT_INTERVAL, this.MAX_SNAPSHOT_INTERVAL, seed);
     }
   }
 
+  /**
+   * Generates sub-epoch snapshots throughout an epoch for reward calculations.
+   *
+   * @param epoch - Epoch timing and information
+   * @param strategyStates - Initial strategy states for the epoch
+   * @param campaign - Campaign configuration
+   * @param priceCache - USD price data for target price calculations
+   * @param batchEvents - Events to replay during snapshot generation
+   * @returns Array of sub-epoch snapshots with strategy states and prices
+   */
   private generateSubEpochsForEpoch(
     epoch: EpochInfo,
     strategyStates: StrategyStatesMap,
@@ -1090,13 +1320,13 @@ export class MerklProcessorService {
   ): SubEpochData[] {
     const subEpochs: SubEpochData[] = [];
 
-    // Step 1: Get all batch events in chronological order
+    // Organize all events in temporal sequence for accurate state replay
     const chronologicalEvents = this.sortBatchEventsChronologically(batchEvents);
 
-    // Step 2: Get snapshot intervals using partitioner
+    // Determine when to take snapshots throughout the epoch
     const snapshotIntervals = this.getSnapshotIntervals(campaign, epoch, chronologicalEvents);
 
-    // Step 3: Initialize snapshot generation variables
+    // Set up variables for iterating through the epoch timeline
     const currentStrategyStates = this.deepCloneStrategyStates(strategyStates); // Deep clone to prevent input mutation
     let eventIndex = 0;
     let currentTime = epoch.startTimestamp.getTime();
@@ -1104,8 +1334,8 @@ export class MerklProcessorService {
     const epochEndTimestamp = epoch.endTimestamp.getTime();
     const campaignEndTimestamp = campaign.endDate.getTime();
 
-    // Step 4: Apply events that occurred before epoch start
-    // Only apply events from within this campaign's timeframe, not arbitrary historical events
+    // Initialize strategy states by applying relevant historical events
+    // Limited to events within the campaign's active timeframe
     const campaignStartTimestamp = campaign.startDate.getTime();
     while (
       eventIndex < chronologicalEvents.length &&
@@ -1116,15 +1346,15 @@ export class MerklProcessorService {
       eventIndex++;
     }
 
-    // Step 5: Generate snapshots using partitioner intervals
+    // Create snapshots at predetermined intervals throughout the epoch
     let intervalIndex = 0;
     while (currentTime < epochEndTimestamp && intervalIndex < snapshotIntervals.length) {
-      // Skip snapshots after campaign end
+      // Avoid processing beyond the campaign's end time
       if (currentTime >= campaignEndTimestamp) {
         break;
       }
 
-      // Apply any events that occurred at or before this snapshot timestamp
+      // Update strategy states with events up to the current snapshot time
       while (
         eventIndex < chronologicalEvents.length &&
         chronologicalEvents[eventIndex].timestamp <= currentTime &&
@@ -1134,7 +1364,7 @@ export class MerklProcessorService {
         eventIndex++;
       }
 
-      // Get target prices using campaign pair tokens
+      // Calculate target exchange rates for reward eligibility
       const targetPrices = this.getTargetPricesAtTime(currentTime, campaign, priceCache);
       if (targetPrices === null) {
         currentTime += snapshotIntervals[intervalIndex];
@@ -1142,11 +1372,11 @@ export class MerklProcessorService {
         continue;
       }
 
-      // Use campaign pair token decimals
+      // Apply correct decimal precision for the token pair
       const token0Decimals = campaign.pair.token0.decimals;
       const token1Decimals = campaign.pair.token1.decimals;
 
-      // Generate sub-epoch with current state
+      // Create snapshot with current strategy states and price data
       subEpochs.push({
         timestamp: currentTime,
         order0TargetPrice: targetPrices.order0TargetPrice,
@@ -1164,7 +1394,7 @@ export class MerklProcessorService {
         strategies: this.deepCloneStrategyStates(currentStrategyStates),
       });
 
-      // Advance to next snapshot using partitioner interval (convert seconds to milliseconds)
+      // Move to the next scheduled snapshot time
       currentTime += snapshotIntervals[intervalIndex] * 1000;
       intervalIndex++;
     }
@@ -1172,12 +1402,43 @@ export class MerklProcessorService {
     return subEpochs;
   }
 
+  /**
+   * Calculates reward distribution for a single sub-epoch snapshot.
+   *
+   * This method implements the core reward distribution algorithm:
+   *
+   * **Phase 1: Eligibility Calculation**
+   * - Determines how much liquidity from each strategy qualifies for rewards
+   * - Applies proximity-based eligibility (closer to market price = more rewards)
+   * - Applies token-specific weighting multipliers
+   *
+   * **Phase 2: Reward Distribution**
+   * - Splits reward pool between token0 and token1 based on their weightings
+   * - Distributes each token's rewards proportionally to eligible liquidity
+   * - Enforces campaign budget limits with proportional scaling if needed
+   *
+   * **Budget Enforcement**
+   * - Tracks total distributed amounts to prevent over-allocation
+   * - Applies proportional scaling when rewards would exceed remaining budget
+   * - Updates campaign distribution tracking for future epoch processing
+   *
+   * @param subEpoch - Snapshot data containing strategy states and market prices
+   * @param rewardPool - Total rewards available for distribution in this sub-epoch
+   * @param campaign - Campaign configuration including token weightings
+   * @param campaignDistributedAmounts - Running total of rewards distributed per campaign
+   * @param campaignTotalAmounts - Total budget available per campaign
+   *
+   * @returns Object containing total rewards per strategy and breakdown by token
+   *
+   * @internal This method performs the financial core of reward calculation and must
+   * maintain mathematical precision to ensure fair and accurate distribution.
+   */
   private calculateSubEpochRewards(
     subEpoch: SubEpochData,
     rewardPool: Decimal,
     campaign: Campaign,
-    campaignDistributedAmounts: Map<string, Decimal>,
-    campaignTotalAmounts: Map<string, Decimal>,
+    campaignDistributedAmounts: Map<number, Decimal>,
+    campaignTotalAmounts: Map<number, Decimal>,
   ): { totalRewards: Map<string, Decimal>; tokenRewards: Map<string, { token0: Decimal; token1: Decimal }> } {
     const rewards = new Map<string, Decimal>();
     const toleranceFactor = new Decimal(1 - this.TOLERANCE_PERCENTAGE).sqrt();
@@ -1187,7 +1448,7 @@ export class MerklProcessorService {
     const strategyWeightedEligibility0 = new Map<string, Decimal>();
     const strategyWeightedEligibility1 = new Map<string, Decimal>();
 
-    // PHASE 1: Calculate eligibility and weightings
+    // Calculate reward eligibility for each strategy based on liquidity and token weightings
     for (const [strategyId, strategy] of subEpoch.strategies) {
       if (strategy.isDeleted || (strategy.liquidity0.eq(0) && strategy.liquidity1.eq(0))) {
         continue;
@@ -1196,7 +1457,7 @@ export class MerklProcessorService {
       const token0Weighting = this.getTokenWeighting(strategy.token0Address, campaign.exchangeId);
       const token1Weighting = this.getTokenWeighting(strategy.token1Address, campaign.exchangeId);
 
-      // Calculate eligible liquidity
+      // Determine how much liquidity qualifies for rewards based on price proximity
       const eligible0 = this.calculateEligibleLiquidity(
         strategy.liquidity0,
         strategy.order0_z,
@@ -1215,7 +1476,7 @@ export class MerklProcessorService {
         toleranceFactor,
       );
 
-      // Apply weighting for reward calculation
+      // Apply token-specific multipliers to eligible liquidity
       if (eligible0.gt(0) && token0Weighting > 0) {
         const weightedEligible0 = eligible0.mul(token0Weighting);
         strategyWeightedEligibility0.set(strategyId, weightedEligible0);
@@ -1229,7 +1490,7 @@ export class MerklProcessorService {
       }
     }
 
-    // Calculate weight-based reward pool allocation
+    // Distribute the reward pool between token0 and token1 based on their weightings
     const token0Weighting = this.getTokenWeighting(campaign.pair.token0.address, campaign.exchangeId);
     const token1Weighting = this.getTokenWeighting(campaign.pair.token1.address, campaign.exchangeId);
     const totalWeight = token0Weighting + token1Weighting;
@@ -1242,15 +1503,15 @@ export class MerklProcessorService {
       token1RewardPool = rewardPool.mul(token1Weighting).div(totalWeight);
     }
 
-    // Handle edge cases
+    // Return empty results when no strategies are eligible for rewards
     if (totalWeightedEligible0.eq(0) && totalWeightedEligible1.eq(0)) {
       return { totalRewards: rewards, tokenRewards: new Map() };
     }
 
-    // PHASE 2: Distribute rewards AND write CSV rows immediately
+    // Distribute rewards proportionally based on weighted eligible liquidity
     const strategyRewards = new Map<string, { token0: Decimal; token1: Decimal }>();
 
-    // Distribute token0 rewards
+    // Allocate token0 portion of rewards to eligible strategies
     if (totalWeightedEligible0.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility0) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible0);
@@ -1262,7 +1523,7 @@ export class MerklProcessorService {
       }
     }
 
-    // Distribute token1 rewards
+    // Allocate token1 portion of rewards to eligible strategies
     if (totalWeightedEligible1.gt(0)) {
       for (const [strategyId, weightedEligibleLiquidity] of strategyWeightedEligibility1) {
         const rewardShare = weightedEligibleLiquidity.div(totalWeightedEligible1);
@@ -1274,18 +1535,18 @@ export class MerklProcessorService {
       }
     }
 
-    // REWARD CAPPING LOGIC - Ensure campaign limits are never exceeded
+    // Enforce campaign budget limits to prevent over-distribution
     const currentDistributed = campaignDistributedAmounts.get(campaign.id) as Decimal;
     const campaignTotal = campaignTotalAmounts.get(campaign.id) as Decimal;
     const remaining = campaignTotal.sub(currentDistributed);
 
-    // Calculate total rewards to distribute this sub-epoch
+    // Sum up all rewards scheduled for distribution
     let totalRewardsToDistribute = new Decimal(0);
     for (const reward of rewards.values()) {
       totalRewardsToDistribute = totalRewardsToDistribute.add(reward);
     }
 
-    // Cap if would exceed remaining
+    // Apply proportional scaling if rewards exceed remaining budget
     if (totalRewardsToDistribute.gt(remaining)) {
       this.logger.warn(
         `Campaign ${campaign.id}: Capping rewards from ${totalRewardsToDistribute.toString()} ` +
@@ -1293,14 +1554,14 @@ export class MerklProcessorService {
       );
 
       if (remaining.gt(0)) {
-        // Proportionally reduce all rewards
+        // Scale down all rewards to fit within remaining budget
         const scaleFactor = remaining.div(totalRewardsToDistribute);
 
         for (const [strategyId, reward] of rewards) {
           const scaledReward = reward.mul(scaleFactor);
           rewards.set(strategyId, scaledReward);
 
-          // Also scale token rewards
+          // Apply the same scaling to individual token reward components
           const tokenReward = strategyRewards.get(strategyId);
           if (tokenReward) {
             strategyRewards.set(strategyId, {
@@ -1311,7 +1572,7 @@ export class MerklProcessorService {
         }
         totalRewardsToDistribute = remaining;
       } else {
-        // No remaining rewards - zero everything
+        // Set all rewards to zero when budget is exhausted
         for (const [strategyId] of rewards) {
           rewards.set(strategyId, new Decimal(0));
           strategyRewards.set(strategyId, { token0: new Decimal(0), token1: new Decimal(0) });
@@ -1320,72 +1581,38 @@ export class MerklProcessorService {
       }
     }
 
-    // Update the distributed amount for this campaign
+    // Track the total amount distributed to enforce future budget limits
     campaignDistributedAmounts.set(campaign.id, currentDistributed.add(totalRewardsToDistribute));
 
     return { totalRewards: rewards, tokenRewards: strategyRewards };
   }
 
   /**
-   * Extract all events related to a specific strategy from batch events
+   * Calculates how much liquidity from a strategy order is eligible for rewards.
+   *
+   * This method implements the proximity-based eligibility algorithm where liquidity
+   * closer to the market price receives higher rewards. The calculation considers:
+   *
+   * - **Price Proximity**: Orders closer to market price are more eligible
+   * - **Tolerance Zone**: Defines the price range where rewards are distributed
+   * - **Linear Scaling**: Eligibility decreases linearly as price moves away from market
+   * - **Boundary Conditions**: Handles edge cases where orders are outside reward zones
+   *
+   * The algorithm uses the strategy's price curve parameters (A, B) to determine
+   * how much of the available liquidity (y) falls within the reward-eligible price range.
+   *
+   * @param y - Available liquidity in the order
+   * @param z - Total capacity of the order (for proportional calculations)
+   * @param A - Price curve parameter A (decompressed)
+   * @param B - Price curve parameter B (decompressed)
+   * @param targetSqrtPriceScaled - Market price scaled by token decimals and scaling constant
+   * @param toleranceFactor - Multiplier defining the reward eligibility zone around market price
+   *
+   * @returns Decimal amount of liquidity eligible for rewards (0 <= result <= y)
+   *
+   * @internal This calculation is fundamental to fair reward distribution and must
+   * handle all edge cases correctly to prevent over or under-rewarding strategies.
    */
-  private getStrategyEventsFromBatch(
-    strategyId: string,
-    batchEvents: BatchEvents,
-  ): Array<{ timestamp: number; blockId: number; transactionIndex: number; logIndex: number }> {
-    const events: Array<{ timestamp: number; blockId: number; transactionIndex: number; logIndex: number }> = [];
-
-    // Add created events
-    batchEvents.createdEvents
-      .filter((event) => event.strategyId === strategyId)
-      .forEach((event) =>
-        events.push({
-          timestamp: event.timestamp.getTime(),
-          blockId: event.block.id,
-          transactionIndex: event.transactionIndex,
-          logIndex: event.logIndex,
-        }),
-      );
-
-    // Add updated events
-    batchEvents.updatedEvents
-      .filter((event) => event.strategyId === strategyId)
-      .forEach((event) =>
-        events.push({
-          timestamp: event.timestamp.getTime(),
-          blockId: event.block.id,
-          transactionIndex: event.transactionIndex,
-          logIndex: event.logIndex,
-        }),
-      );
-
-    // Add deleted events
-    batchEvents.deletedEvents
-      .filter((event) => event.strategyId === strategyId)
-      .forEach((event) =>
-        events.push({
-          timestamp: event.timestamp.getTime(),
-          blockId: event.block.id,
-          transactionIndex: event.transactionIndex,
-          logIndex: event.logIndex,
-        }),
-      );
-
-    // Add transfer events
-    batchEvents.transferEvents
-      .filter((event) => event.strategyId === strategyId)
-      .forEach((event) =>
-        events.push({
-          timestamp: event.timestamp.getTime(),
-          blockId: event.block.id,
-          transactionIndex: event.transactionIndex,
-          logIndex: event.logIndex,
-        }),
-      );
-
-    return events;
-  }
-
   private calculateEligibleLiquidity(
     y: Decimal,
     z: Decimal,
@@ -1405,7 +1632,7 @@ export class MerklProcessorService {
       return new Decimal(0);
     }
 
-    // Add check for A == 0 to prevent division by zero
+    // Handle edge case where price curve parameter A is zero
     if (A.eq(0)) {
       return new Decimal(0);
     }
@@ -1417,8 +1644,16 @@ export class MerklProcessorService {
     return Decimal.max(eligibleLiquidity, 0);
   }
 
+  /**
+   * Calculates scaled square root price accounting for token decimals.
+   *
+   * @param targetPrice - The target price to scale
+   * @param baseDecimals - Decimal places of the base token
+   * @param quoteDecimals - Decimal places of the quote token
+   * @returns Scaled square root price for eligibility calculations
+   */
   private calculateTargetSqrtPriceScaled(targetPrice: Decimal, baseDecimals: number, quoteDecimals: number): Decimal {
-    // Calculate adjusted price and return scaled square root
+    // Compute scaled square root price accounting for token decimals
     const baseDecimalsFactor = new Decimal(10).pow(baseDecimals);
     const quoteDecimalsFactor = new Decimal(10).pow(quoteDecimals);
     const adjustedPrice = targetPrice.mul(baseDecimalsFactor).div(quoteDecimalsFactor);
@@ -1428,73 +1663,74 @@ export class MerklProcessorService {
     return result;
   }
 
+  /**
+   * Calculates scaled square root of inverse price accounting for token decimals.
+   *
+   * @param targetPrice - The target price to invert and scale
+   * @param baseDecimals - Decimal places of the base token
+   * @param quoteDecimals - Decimal places of the quote token
+   * @returns Scaled square root of inverse price for eligibility calculations
+   */
   private calculateInvTargetSqrtPriceScaled(
     targetPrice: Decimal,
     baseDecimals: number,
     quoteDecimals: number,
   ): Decimal {
-    // Calculate adjusted price and return scaled inverse square root
+    // Compute scaled square root of inverse price accounting for token decimals
     const baseDecimalsFactor = new Decimal(10).pow(baseDecimals);
     const quoteDecimalsFactor = new Decimal(10).pow(quoteDecimals);
     const adjustedPrice = targetPrice.mul(quoteDecimalsFactor).div(baseDecimalsFactor);
     const sqrtAdjustedPrice = adjustedPrice.sqrt();
-    // const invSqrtAdjustedPrice = new Decimal(1).div(sqrtAdjustedPrice);
+    // Note: Direct calculation without taking reciprocal for efficiency
     const result = sqrtAdjustedPrice.mul(this.SCALING_CONSTANT);
 
     return result;
   }
 
+  /**
+   * Retrieves the timestamp for a specific block number.
+   *
+   * @param blockNumber - The block number to get timestamp for
+   * @param deployment - Blockchain deployment configuration
+   * @returns Promise resolving to block timestamp in milliseconds
+   */
   private async getTimestampForBlock(blockNumber: number, deployment: Deployment): Promise<number> {
     const block = await this.blockService.getBlock(blockNumber, deployment);
     return block.timestamp.getTime();
   }
 
   /**
-   * Validates epoch integrity - no overlaps and no gaps between consecutive epochs
-   * Only validates the epochs that are actually being processed, not the entire campaign
-   */
-  private validateEpochIntegrity(campaign: Campaign, epochs: EpochInfo[]): boolean {
-    try {
-      // If no epochs, nothing to validate
-      if (epochs.length === 0) {
-        return true;
-      }
-
-      // Check for overlaps/gaps between consecutive epochs
-      for (let i = 1; i < epochs.length; i++) {
-        const prevEpochEnd = epochs[i - 1].endTimestamp.getTime();
-        const currentEpochStart = epochs[i].startTimestamp.getTime();
-
-        if (currentEpochStart !== prevEpochEnd) {
-          this.logger.error(
-            `Epoch overlap/gap detected for campaign ${campaign.id}: ` +
-              `epoch_${epochs[i - 1].epochNumber} ends at ${prevEpochEnd}, ` +
-              `epoch_${epochs[i].epochNumber} starts at ${currentEpochStart}`,
-          );
-          return false;
-        }
-      }
-
-      // Validate that individual epochs have positive duration
-      for (const epoch of epochs) {
-        const epochDuration = epoch.endTimestamp.getTime() - epoch.startTimestamp.getTime();
-        if (epochDuration <= 0) {
-          this.logger.error(
-            `Invalid epoch duration for campaign ${campaign.id}, epoch ${epoch.epochNumber}: ${epochDuration}`,
-          );
-          return false;
-        }
-      }
-
-      return true;
-    } catch (error) {
-      this.logger.error(`Error validating epoch integrity for campaign ${campaign.id}:`, error);
-      return false;
-    }
-  }
-
-  /**
-   * Create global price cache covering entire processing timeframe for consistent USD rates
+   * Builds a comprehensive USD price cache for the entire processing timeframe.
+   *
+   * This method creates a global price cache that ensures consistent USD exchange rates
+   * across all epoch calculations, which is critical for fair reward distribution:
+   *
+   * **Token Collection**:
+   * - Gathers all unique token addresses from campaign pairs
+   * - Includes tokens from actual strategy events to handle address variations
+   * - Handles lexicographic token ordering differences
+   *
+   * **Price Retrieval**:
+   * - Fetches historical USD rates for the complete processing timeframe
+   * - Organizes rates by token address for efficient lookup
+   * - Sorts rates chronologically for optimal time-based queries
+   *
+   * **Consistency Guarantee**:
+   * - All epochs use the same price data source for deterministic results
+   * - Eliminates price inconsistencies that could arise from separate API calls
+   * - Provides foundation for accurate reward-to-USD conversions
+   *
+   * @param campaigns - Active campaigns requiring price data
+   * @param startTimestamp - Earliest timestamp requiring price data
+   * @param endTimestamp - Latest timestamp requiring price data
+   * @param deployment - Blockchain deployment for token queries
+   *
+   * @returns Promise resolving to price cache with organized USD rate data
+   *
+   * @throws {Error} When price data retrieval fails or token addresses are invalid
+   *
+   * @internal Price consistency is critical for fair reward distribution across
+   * different time periods and must be maintained throughout processing.
    */
   private async createGlobalPriceCache(
     campaigns: Campaign[],
@@ -1502,16 +1738,16 @@ export class MerklProcessorService {
     endTimestamp: number,
     deployment: Deployment,
   ): Promise<PriceCache> {
-    // Collect all unique token addresses from campaigns
-    // Use both the pair addresses AND collect from actual strategy data to handle lexicographic reordering
+    // Gather all token addresses that will be needed for price lookups
+    // Includes both pair tokens and strategy tokens to handle address variations
     const uniqueTokenAddresses = new Set<string>();
 
     for (const campaign of campaigns) {
-      // Add campaign pair token addresses
+      // Include the primary token pair for this campaign
       uniqueTokenAddresses.add(campaign.pair.token0.address);
       uniqueTokenAddresses.add(campaign.pair.token1.address);
 
-      // Also collect token addresses from strategy events to handle lexicographic reordering
+      // Include tokens from actual strategies to handle address ordering variations
       try {
         const strategyTokens = await this.subEpochService.subEpochRepository.manager.query(
           `
@@ -1546,12 +1782,12 @@ export class MerklProcessorService {
     this.logger.log(`Fetching global USD rates for ${tokenAddresses.length} tokens from ${startDate} to ${endDate}`);
     this.logger.log(`Token addresses: ${tokenAddresses.join(', ')}`);
 
-    // Fetch USD rates for entire timeframe
+    // Retrieve historical USD exchange rates for all required tokens
     const rates = await this.historicQuoteService.getUsdRates(deployment, tokenAddresses, startDate, endDate);
 
     this.logger.log(`Received ${rates.length} USD rate records from historic quote service`);
 
-    // Build cache map - store ALL rates
+    // Organize rates by token address for efficient lookup
     const cacheMap = new Map<string, Array<{ timestamp: number; usd: number }>>();
     for (const rate of rates) {
       const tokenAddress = rate.address.toLowerCase();
@@ -1567,7 +1803,7 @@ export class MerklProcessorService {
       }
     }
 
-    // Sort rates by timestamp for efficient closest lookup
+    // Order rates chronologically for optimal time-based queries
     for (const [, tokenRates] of cacheMap.entries()) {
       tokenRates.sort((a, b) => a.timestamp - b.timestamp);
     }
@@ -1579,7 +1815,12 @@ export class MerklProcessorService {
   }
 
   /**
-   * Get USD rate for a specific timestamp using deterministic closest lookup
+   * Retrieves the USD exchange rate for a token at a specific point in time.
+   *
+   * @param priceCache - Price cache containing historical USD rates
+   * @param tokenAddress - Contract address of the token
+   * @param targetTimestamp - Timestamp to get rate for
+   * @returns USD exchange rate at the specified time
    */
   private getUsdRateForTimestamp(priceCache: PriceCache, tokenAddress: string, targetTimestamp: number): number {
     const normalizedAddress = tokenAddress.toLowerCase();
@@ -1591,7 +1832,7 @@ export class MerklProcessorService {
       return 0;
     }
 
-    // Find rate with timestamp closest to target (DETERMINISTIC)
+    // Locate the rate entry with timestamp nearest to the target time
     let closest = tokenRates[0];
     let minDiff = Math.abs(closest.timestamp - targetTimestamp);
 
@@ -1606,12 +1847,20 @@ export class MerklProcessorService {
     return closest.usd;
   }
 
+  /**
+   * Calculates target prices for both order directions at a specific time.
+   *
+   * @param timestamp - The timestamp to calculate prices for
+   * @param campaign - Campaign containing token pair information
+   * @param priceCache - Price cache for USD rate lookups
+   * @returns Target prices for both orders, or null if rates unavailable
+   */
   private getTargetPricesAtTime(
     timestamp: number,
     campaign: Campaign,
     priceCache: PriceCache,
   ): { order0TargetPrice: Decimal; order1TargetPrice: Decimal } | null {
-    // Get token addresses and USD rates using deterministic lookup
+    // Retrieve current USD exchange rates for both tokens in the pair
     const token0Address = campaign.pair.token0.address;
     const token1Address = campaign.pair.token1.address;
     const token0Rate = this.getUsdRateForTimestamp(priceCache, token0Address, timestamp);
@@ -1624,17 +1873,23 @@ export class MerklProcessorService {
       return null; // Skip snapshot when rates are missing
     }
 
-    // Return both target prices
+    // Provide target prices for both order directions
     return {
-      order0TargetPrice: new Decimal(token1Rate).div(token0Rate), // token1Usd/token0Usd for order0
-      order1TargetPrice: new Decimal(token0Rate).div(token1Rate), // token0Usd/token1Usd for order1
+      order0TargetPrice: new Decimal(token1Rate).div(token0Rate), // Price for token0->token1 orders
+      order1TargetPrice: new Decimal(token0Rate).div(token1Rate), // Price for token1->token0 orders
     };
   }
 
+  /**
+   * Sorts all batch events chronologically with deterministic tiebreaking.
+   *
+   * @param batchEvents - Collection of events from different types
+   * @returns Chronologically sorted array of timestamped events
+   */
   private sortBatchEventsChronologically(batchEvents: BatchEvents): TimestampedEvent[] {
     const events: TimestampedEvent[] = [];
 
-    // Convert all event types to timestamped events
+    // Normalize all event types into a common timestamped format
     const addEvents = (eventList: any[], type: string) => {
       eventList.forEach((event) => {
         const timestamp = event.timestamp.getTime();
@@ -1647,15 +1902,21 @@ export class MerklProcessorService {
     addEvents(batchEvents.deletedEvents, 'deleted');
     addEvents(batchEvents.transferEvents, 'transfer');
 
-    // Sort chronologically with transaction/log index tiebreakers
+    // Order events chronologically with deterministic tiebreaking
     return events.sort((a, b) => {
-      if (a.timestamp !== b.timestamp) return a.timestamp - b.timestamp;
+      if (a.event.block.id !== b.event.block.id) return a.event.block.id - b.event.block.id;
       if (a.event.transactionIndex !== b.event.transactionIndex)
         return a.event.transactionIndex - b.event.transactionIndex;
       return a.event.logIndex - b.event.logIndex;
     });
   }
 
+  /**
+   * Applies a single event to the strategy states map based on event type.
+   *
+   * @param event - The timestamped event to apply
+   * @param strategyStates - Map of strategy states to update
+   */
   private applyEventToStrategyStates(event: TimestampedEvent, strategyStates: StrategyStatesMap): void {
     switch (event.type) {
       case 'created':
@@ -1673,6 +1934,39 @@ export class MerklProcessorService {
     }
   }
 
+  /**
+   * Retrieves the reward weighting multiplier for a specific token on a deployment.
+   *
+   * This method implements the token incentive system that allows different tokens
+   * to receive different reward multipliers based on strategic priorities:
+   *
+   * **Weighting Hierarchy**:
+   * 1. **Specific Weightings**: Explicitly configured multipliers for key tokens
+   * 2. **Whitelisted Assets**: Standard weighting (0.5) for approved tokens
+   * 3. **Default Weighting**: Fallback weighting for unlisted tokens
+   *
+   * **Use Cases**:
+   * - Incentivize specific assets (e.g., higher weighting for stablecoins)
+   * - Discourage certain tokens (e.g., zero weighting for unsupported assets)
+   * - Provide balanced incentives for approved token sets
+   *
+   * The weighting system enables fine-grained control over reward distribution
+   * to align incentives with protocol objectives and market conditions.
+   *
+   * @param tokenAddress - Contract address of the token (case-insensitive)
+   * @param exchangeId - Deployment identifier to determine weighting configuration
+   *
+   * @returns Numeric weighting multiplier (0 = no rewards, >1 = bonus rewards)
+   *
+   * @example
+   * ```typescript
+   * // USDT on Ethereum might return 0.7
+   * const weighting = getTokenWeighting('0xdAC17F958D2ee523a2206206994597C13D831ec7', ExchangeId.OGEthereum);
+   * ```
+   *
+   * @internal Token weightings directly affect reward distribution amounts and should
+   * be carefully configured to maintain balanced incentive structures.
+   */
   private getTokenWeighting(tokenAddress: string, exchangeId: ExchangeId): number {
     const config = this.DEPLOYMENT_TOKEN_WEIGHTINGS[exchangeId];
     if (!config) {
@@ -1682,21 +1976,21 @@ export class MerklProcessorService {
 
     const normalizedAddress = tokenAddress.toLowerCase();
 
-    // Check specific weightings first (case-insensitive)
+    // Look up token-specific weighting configuration
     for (const [configAddress, weighting] of Object.entries(config.tokenWeightings)) {
       if (configAddress.toLowerCase() === normalizedAddress) {
         return weighting;
       }
     }
 
-    // Check if it's a whitelisted asset (case-insensitive)
+    // Apply standard weighting for whitelisted tokens
     for (const whitelistedAddress of config.whitelistedAssets) {
       if (whitelistedAddress.toLowerCase() === normalizedAddress) {
         return 0.5;
       }
     }
 
-    // Use default weighting (typically 0 for no incentives)
+    // Apply default weighting for unlisted tokens
     return config.defaultWeighting;
   }
 }
