@@ -451,8 +451,8 @@ INSERT INTO merkl_campaigns (
     'ethereum',
     'ethereum',
     123,
-    '1000', -- 1000 tokens
-    '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', -- UNI token
+    '1000', -- 1000 USDT tokens
+    '0xdAC17F958D2ee523a2206206994597C13D831ec7', -- USDT token
     '2024-01-01 00:00:00',
     '2024-01-31 23:59:59',
     'Ethereum Liquidity Incentives',
