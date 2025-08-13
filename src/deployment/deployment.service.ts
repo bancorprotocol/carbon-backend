@@ -57,6 +57,7 @@ export interface Deployment {
   mapEthereumTokens?: {
     [deploymentTokenAddress: string]: string;
   };
+  pricingIgnoreList?: string[];
   contracts: {
     [contractName: string]: {
       address: string;
@@ -147,6 +148,11 @@ export class DeploymentService {
         mapEthereumTokens: {
           '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d': '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d', // governer self mapping
         },
+        pricingIgnoreList: [
+          '0x44d13160094b45f39b712843d887939027513129',
+          '0x251ee69eB945B79fb991B268690f1A43eD2A859d',
+          '0x3cda61B56278842876e7fDD56123d83DBAFAe16C',
+        ],
       },
       {
         exchangeId: ExchangeId.OGSei,
@@ -753,5 +759,20 @@ export class DeploymentService {
       acc[key.toLowerCase()] = value.toLowerCase();
       return acc;
     }, {});
+  }
+
+  /**
+   * Checks if a token address should be ignored from pricing operations
+   * @param deployment - The deployment configuration
+   * @param tokenAddress - The token address to check (case-insensitive)
+   * @returns true if the token should be ignored from pricing
+   */
+  isTokenIgnoredFromPricing(deployment: Deployment, tokenAddress: string): boolean {
+    if (!deployment.pricingIgnoreList || deployment.pricingIgnoreList.length === 0) {
+      return false;
+    }
+
+    const lowercaseAddress = tokenAddress.toLowerCase();
+    return deployment.pricingIgnoreList.some((ignoredAddress) => ignoredAddress.toLowerCase() === lowercaseAddress);
   }
 }
