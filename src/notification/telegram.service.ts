@@ -202,17 +202,17 @@ Sell ${token0.symbol} Budget: ${await this.formatAmount(order0.y, token0, usdRat
 
     const sourceUsdAmount = sourceUsdRate
       ? this.amountUSD(event.sourceAmount, 1, sourceUsdRate.toString(), sourceToken)
-      : 'N/A';
+      : null;
     const targetUsdAmount = targetUsdRate
       ? this.amountUSD(event.targetAmount, 1, targetUsdRate.toString(), targetToken)
-      : 'N/A';
+      : null;
 
     return `<b>Strategies Filled - ${deployment.notifications.title}</b>
     
 From: 
-${sourceTokenAmount} ${sourceToken.symbol} (≈${sourceUsdAmount})
+${sourceTokenAmount} ${sourceToken.symbol}${sourceUsdAmount ? ` (≈${sourceUsdAmount})` : ''}
 To: 
-${targetTokenAmount} ${targetToken.symbol} (≈${targetUsdAmount})
+${targetTokenAmount} ${targetToken.symbol}${targetUsdAmount ? ` (≈${targetUsdAmount})` : ''}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
 ⛓️ Tx hash: <a href="${deployment.notifications.explorerUrl}${event.transactionHash}">View</a>`;
@@ -302,8 +302,8 @@ Auction price was reset for: ${token.symbol}
     return `🌀 <b>Carbon Vortex 2.0</b> 🌀
 
 Tokens traded
-Received: ${sourceTokenAmount} ${sourceToken.symbol} (${sourceUsdAmount ? `$${sourceUsdAmount}` : 'N/A'})
-For: ${targetTokenAmount} ${targetToken.symbol} (${targetUsdAmount ? `$${targetUsdAmount}` : 'N/A'})
+Received: ${sourceTokenAmount} ${sourceToken.symbol}${sourceUsdAmount ? ` ($${sourceUsdAmount})` : ''}
+For: ${targetTokenAmount} ${targetToken.symbol}${targetUsdAmount ? ` ($${targetUsdAmount})` : ''}
 Average Rate: ${this.printNumber(rate, 6)} ${targetToken.symbol} per ${sourceToken.symbol}
 
 🗓️ ${new Date(event.timestamp).toLocaleString()}
