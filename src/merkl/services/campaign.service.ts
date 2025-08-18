@@ -51,6 +51,9 @@ export class CampaignService {
         isActive: true,
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: {
+        id: 'ASC', // Ensure deterministic ordering
+      },
     });
   }
 
@@ -68,7 +71,7 @@ export class CampaignService {
     });
   }
 
-  async updateCampaignStatus(id: string, isActive: boolean): Promise<Campaign> {
+  async updateCampaignStatus(id: number, isActive: boolean): Promise<Campaign> {
     await this.campaignRepository.update(id, { isActive });
     return this.campaignRepository.findOne({ where: { id }, relations: ['pair'] });
   }
@@ -80,7 +83,7 @@ export class CampaignService {
   ): Promise<void> {
     // Only mark campaigns inactive if we've processed past their end time
     const expiredCampaigns = campaigns.filter((campaign) => {
-      const campaignEndTimestamp = Math.floor(campaign.endDate.getTime() / 1000);
+      const campaignEndTimestamp = campaign.endDate.getTime();
       return processedUpToTimestamp >= campaignEndTimestamp;
     });
 

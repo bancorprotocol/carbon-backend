@@ -183,6 +183,9 @@ describe('CampaignService', () => {
           isActive: true,
         },
         relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: {
+          id: 'ASC',
+        },
       });
       expect(result).toEqual(campaigns);
 
@@ -271,11 +274,11 @@ describe('CampaignService', () => {
       mockRepository.findOne.mockResolvedValue(campaign);
       mockRepository.update.mockResolvedValue({ affected: 1 });
 
-      const result = await service.updateCampaignStatus('1', false);
+      const result = await service.updateCampaignStatus(1, false);
 
-      expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: false });
+      expect(mockRepository.update).toHaveBeenCalledWith(1, { isActive: false });
       expect(mockRepository.findOne).toHaveBeenCalledWith({
-        where: { id: '1' },
+        where: { id: 1 },
         relations: ['pair'],
       });
 
@@ -641,42 +644,97 @@ describe('CampaignService', () => {
       it('should mark campaigns inactive only if processed up to their end time', async () => {
         const campaigns = [
           {
-            id: '1',
+            id: 1,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 1,
+            pair: {} as any,
+            rewardAmount: '1000',
+            rewardTokenAddress: '0x123',
+            startDate: new Date('2023-01-01T00:00:00.000Z'),
             endDate: new Date('2023-01-01T12:00:00.000Z'), // Unix: 1672574400
+            opportunityName: 'Test',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
           {
-            id: '2',
+            id: 2,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 2,
+            pair: {} as any,
+            rewardAmount: '2000',
+            rewardTokenAddress: '0x456',
+            startDate: new Date('2023-01-02T00:00:00.000Z'),
             endDate: new Date('2023-01-02T12:00:00.000Z'), // Unix: 1672660800
+            opportunityName: 'Test 2',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
           {
-            id: '3',
+            id: 3,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 3,
+            pair: {} as any,
+            rewardAmount: '3000',
+            rewardTokenAddress: '0x789',
+            startDate: new Date('2023-01-03T00:00:00.000Z'),
             endDate: new Date('2023-01-03T12:00:00.000Z'), // Unix: 1672747200
+            opportunityName: 'Test 3',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
         ] as Campaign[];
 
-        // Processed up to 2023-01-02 14:00:00 (Unix: 1672668000)
-        const processedUpToTimestamp = Math.floor(new Date('2023-01-02T14:00:00.000Z').getTime() / 1000);
+        // Processed up to 2023-01-02 14:00:00 (Unix: 1672668000000 in milliseconds)
+        const processedUpToTimestamp = new Date('2023-01-02T14:00:00.000Z').getTime();
 
         await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
 
         // Should mark campaigns 1 and 2 as inactive (ended before processed timestamp)
-        expect(mockRepository.update).toHaveBeenCalledWith(['1', '2'], { isActive: false });
+        expect(mockRepository.update).toHaveBeenCalledWith([1, 2], { isActive: false });
       });
 
       it('should not mark campaigns inactive if not processed past their end time', async () => {
         const campaigns = [
           {
-            id: '1',
+            id: 1,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 1,
+            pair: {} as any,
+            rewardAmount: '1000',
+            rewardTokenAddress: '0x123',
+            startDate: new Date('2023-01-02T00:00:00.000Z'),
             endDate: new Date('2023-01-02T12:00:00.000Z'), // Unix: 1672660800
+            opportunityName: 'Test',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
           {
-            id: '2',
+            id: 2,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 2,
+            pair: {} as any,
+            rewardAmount: '2000',
+            rewardTokenAddress: '0x456',
+            startDate: new Date('2023-01-03T00:00:00.000Z'),
             endDate: new Date('2023-01-03T12:00:00.000Z'), // Unix: 1672747200
+            opportunityName: 'Test 2',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
         ] as Campaign[];
 
-        // Processed only up to 2023-01-01 12:00:00 (Unix: 1672574400)
-        const processedUpToTimestamp = Math.floor(new Date('2023-01-01T12:00:00.000Z').getTime() / 1000);
+        // Processed only up to 2023-01-01 12:00:00 (Unix: 1672574400000 in milliseconds)
+        const processedUpToTimestamp = new Date('2023-01-01T12:00:00.000Z').getTime();
 
         await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
 
@@ -685,7 +743,7 @@ describe('CampaignService', () => {
       });
 
       it('should handle empty campaigns array', async () => {
-        const processedUpToTimestamp = Math.floor(new Date().getTime() / 1000);
+        const processedUpToTimestamp = new Date().getTime();
 
         await service.markProcessedCampaignsInactive(deployment as any, [], processedUpToTimestamp);
 
@@ -695,18 +753,29 @@ describe('CampaignService', () => {
       it('should handle campaigns that end exactly at processed timestamp', async () => {
         const campaigns = [
           {
-            id: '1',
+            id: 1,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 1,
+            pair: {} as any,
+            rewardAmount: '1000',
+            rewardTokenAddress: '0x123',
+            startDate: new Date('2023-01-01T00:00:00.000Z'),
             endDate: new Date('2023-01-01T12:00:00.000Z'), // Unix: 1672574400
+            opportunityName: 'Test',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
         ] as Campaign[];
 
         // Processed exactly to campaign end time
-        const processedUpToTimestamp = 1672574400;
+        const processedUpToTimestamp = new Date('2023-01-01T12:00:00.000Z').getTime();
 
         await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
 
         // Should mark campaign as inactive (processed >= end time)
-        expect(mockRepository.update).toHaveBeenCalledWith(['1'], { isActive: false });
+        expect(mockRepository.update).toHaveBeenCalledWith([1], { isActive: false });
       });
 
       it('should log the number of campaigns marked inactive', async () => {
@@ -714,16 +783,38 @@ describe('CampaignService', () => {
 
         const campaigns = [
           {
-            id: '1',
+            id: 1,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 1,
+            pair: {} as any,
+            rewardAmount: '1000',
+            rewardTokenAddress: '0x123',
+            startDate: new Date('2023-01-01T00:00:00.000Z'),
             endDate: new Date('2023-01-01T12:00:00.000Z'),
+            opportunityName: 'Test',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
           {
-            id: '2',
+            id: 2,
+            blockchainType: 'ethereum' as any,
+            exchangeId: 'og-ethereum' as any,
+            pairId: 2,
+            pair: {} as any,
+            rewardAmount: '2000',
+            rewardTokenAddress: '0x456',
+            startDate: new Date('2023-01-01T00:00:00.000Z'),
             endDate: new Date('2023-01-01T14:00:00.000Z'),
+            opportunityName: 'Test 2',
+            isActive: true,
+            createdAt: new Date(),
+            updatedAt: new Date(),
           },
         ] as Campaign[];
 
-        const processedUpToTimestamp = Math.floor(new Date('2023-01-01T16:00:00.000Z').getTime() / 1000);
+        const processedUpToTimestamp = new Date('2023-01-01T16:00:00.000Z').getTime();
 
         await service.markProcessedCampaignsInactive(deployment as any, campaigns, processedUpToTimestamp);
 
@@ -870,11 +961,11 @@ describe('CampaignService', () => {
 
         mockRepository.findOne.mockResolvedValue(mockCampaign);
 
-        const result = await service.updateCampaignStatus('1', false);
+        const result = await service.updateCampaignStatus(1, false);
 
-        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: false });
+        expect(mockRepository.update).toHaveBeenCalledWith(1, { isActive: false });
         expect(mockRepository.findOne).toHaveBeenCalledWith({
-          where: { id: '1' },
+          where: { id: 1 },
           relations: ['pair'],
         });
         expect(result).toEqual(mockCampaign);
@@ -898,9 +989,9 @@ describe('CampaignService', () => {
 
         mockRepository.findOne.mockResolvedValue(mockCampaign);
 
-        const result = await service.updateCampaignStatus('1', true);
+        const result = await service.updateCampaignStatus(1, true);
 
-        expect(mockRepository.update).toHaveBeenCalledWith('1', { isActive: true });
+        expect(mockRepository.update).toHaveBeenCalledWith(1, { isActive: true });
         expect(result).toEqual(mockCampaign);
       });
 
@@ -922,7 +1013,7 @@ describe('CampaignService', () => {
 
         mockRepository.findOne.mockResolvedValue(mockCampaign);
 
-        const result = await service.updateCampaignStatus('1', true);
+        const result = await service.updateCampaignStatus(1, true);
 
         expect(result.rewardAmount).toBe('123456789012345678901234567890');
 
