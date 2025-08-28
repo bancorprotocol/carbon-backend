@@ -124,7 +124,18 @@ export class QuoteService implements OnModuleInit {
     }
 
     try {
-      const tokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
+      const allTokens = await this.tokenService.getTokensByBlockchainType(deployment.blockchainType);
+
+      // Filter out tokens that should be ignored from pricing
+      const tokens = allTokens.filter(
+        (token) => !this.deploymentService.isTokenIgnoredFromPricing(deployment, token.address),
+      );
+
+      if (tokens.length === 0) {
+        this.logger.log(`No tokens to price for ${deployment.blockchainType} after applying ignore list`);
+        return;
+      }
+
       const addresses = tokens.map((t) => t.address);
 
       let newPrices;
@@ -719,7 +730,7 @@ export class QuoteService implements OnModuleInit {
       });
 
       const quoteValues = validEntries
-        .map(([address, quote]) => {
+        .map(([, quote]) => {
           return `('${quote.token.id}', '${quote.usd}', '${quote.blockchainType}')`;
         })
         .join(',');

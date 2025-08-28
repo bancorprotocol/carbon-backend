@@ -53,6 +53,13 @@ describe('HistoricQuoteService', () => {
     getDeploymentByExchangeId: jest.fn(),
     getDeployments: jest.fn(),
     getLowercaseTokenMap: jest.fn(),
+    isTokenIgnoredFromPricing: jest.fn().mockImplementation((deployment, tokenAddress: string) => {
+      if (!deployment.pricingIgnoreList || deployment.pricingIgnoreList.length === 0) {
+        return false;
+      }
+      const lowercaseAddress = tokenAddress.toLowerCase();
+      return deployment.pricingIgnoreList.some((ignoredAddress) => ignoredAddress.toLowerCase() === lowercaseAddress);
+    }),
   };
 
   beforeEach(async () => {
@@ -1540,7 +1547,7 @@ describe('HistoricQuoteService', () => {
         blockchainType: BlockchainType.Ethereum,
       };
 
-      await expect(service.addQuote(quote)).rejects.toThrow(`Error adding historical quote for address 0xErrorToken`);
+      await expect(service.addQuote(quote)).rejects.toThrow('Database error');
       expect(mockRepository.create).toHaveBeenCalled();
       expect(mockRepository.save).toHaveBeenCalled();
     });
@@ -2158,6 +2165,324 @@ describe('HistoricQuoteService', () => {
       // The implementation appears to not return tokens that are mapped to Ethereum but don't have data there,
       // even if they have data in the original blockchain. So we should expect the token to be missing.
       expect(result[originalToken.toLowerCase()]).toBeUndefined();
+    });
+  });
+
+  describe('pricing ignore list functionality', () => {
+    const createMockDeployment = (
+      blockchainType: BlockchainType,
+      pricingIgnoreList?: string[],
+      mapEthereumTokens?: Record<string, string>,
+    ) => ({
+      exchangeId: ExchangeId.OGEthereum,
+      blockchainType,
+      rpcEndpoint: 'http://example.com',
+      harvestEventsBatchSize: 100,
+      harvestConcurrency: 1,
+      multicallAddress: '0xmulticall',
+      gasToken: { name: 'Ether', symbol: 'ETH', address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE' },
+      startBlock: 0,
+      contracts: {},
+      pricingIgnoreList,
+      mapEthereumTokens,
+    });
+
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    describe('getUsdRates with pricing ignore list', () => {
+      it('should filter out ignored tokens from address list', async () => {
+        const ignoredToken = '0xignoredtoken';
+        const allowedToken = '0xallowedtoken';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, [ignoredToken]);
+
+        const addresses = [ignoredToken, allowedToken];
+        const start = '2023-01-01';
+        const end = '2023-01-31';
+
+        // Mock the result for the allowed token only
+        const mockedRates = [
+          {
+            day: '2023-01-01T00:00:00.000Z',
+            address: allowedToken.toLowerCase(),
+            usd: '100.5',
+            provider: 'codex',
+          },
+        ];
+
+        mockRepository.query.mockResolvedValue(mockedRates);
+
+        const result = await service.getUsdRates(deployment, addresses, start, end);
+
+        // Verify only the allowed token is in the result
+        expect(result.length).toBe(1);
+        expect(result[0].address).toBe(allowedToken.toLowerCase());
+        expect(result.find((r) => r.address === ignoredToken.toLowerCase())).toBeUndefined();
+      });
+
+      it('should return empty array when all tokens are ignored', async () => {
+        const token1 = '0xtoken1';
+        const token2 = '0xtoken2';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, [token1, token2]);
+
+        const addresses = [token1, token2];
+        const start = '2023-01-01';
+        const end = '2023-01-31';
+
+        const result = await service.getUsdRates(deployment, addresses, start, end);
+
+        // Verify empty result when all tokens are ignored
+        expect(result).toEqual([]);
+        expect(mockRepository.query).not.toHaveBeenCalled();
+      });
+
+      it('should handle case where no tokens are ignored', async () => {
+        const token1 = '0xtoken1';
+        const token2 = '0xtoken2';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, []); // Empty ignore list
+
+        const addresses = [token1, token2];
+        const start = '2023-01-01';
+        const end = '2023-01-31';
+
+        const mockedRates = [
+          {
+            day: '2023-01-01T00:00:00.000Z',
+            address: token1.toLowerCase(),
+            usd: '100.5',
+            provider: 'codex',
+          },
+          {
+            day: '2023-01-01T00:00:00.000Z',
+            address: token2.toLowerCase(),
+            usd: '200.75',
+            provider: 'codex',
+          },
+        ];
+
+        mockRepository.query.mockResolvedValue(mockedRates);
+
+        const result = await service.getUsdRates(deployment, addresses, start, end);
+
+        // Verify both tokens are in the result
+        expect(result.length).toBe(2);
+        expect(result.find((r) => r.address === token1.toLowerCase())).toBeDefined();
+        expect(result.find((r) => r.address === token2.toLowerCase())).toBeDefined();
+      });
+
+      it('should handle case-insensitive matching', async () => {
+        const ignoredToken = '0xIgNoReD'; // Mixed case
+        const allowedToken = '0xallowed';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, ['0xignored']); // Lowercase
+
+        const addresses = [ignoredToken, allowedToken];
+        const start = '2023-01-01';
+        const end = '2023-01-31';
+
+        const mockedRates = [
+          {
+            day: '2023-01-01T00:00:00.000Z',
+            address: allowedToken.toLowerCase(),
+            usd: '100.5',
+            provider: 'codex',
+          },
+        ];
+
+        mockRepository.query.mockResolvedValue(mockedRates);
+
+        const result = await service.getUsdRates(deployment, addresses, start, end);
+
+        // Verify mixed case token was properly ignored
+        expect(result.length).toBe(1);
+        expect(result[0].address).toBe(allowedToken.toLowerCase());
+      });
+    });
+
+    describe('addQuote with pricing ignore list', () => {
+      it('should skip quotes for ignored tokens and return null', async () => {
+        const ignoredToken = '0xignoredtoken';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, [ignoredToken]);
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+
+        const quote = {
+          tokenAddress: ignoredToken,
+          usd: '100.5',
+          blockchainType: BlockchainType.Ethereum,
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'test-provider',
+        };
+
+        const result = await service.addQuote(quote);
+
+        expect(result).toBeNull();
+        expect(mockRepository.create).not.toHaveBeenCalled();
+        expect(mockRepository.save).not.toHaveBeenCalled();
+      });
+
+      it('should allow quotes for non-ignored tokens', async () => {
+        const allowedToken = '0xallowedtoken';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, ['0xignoredtoken']);
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+        mockRepository.create.mockImplementation((data) => data);
+        mockRepository.save.mockImplementation((data) => Promise.resolve(data));
+
+        const quote = {
+          tokenAddress: allowedToken,
+          usd: '100.5',
+          blockchainType: BlockchainType.Ethereum,
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'test-provider',
+        };
+
+        const result = await service.addQuote(quote);
+
+        expect(mockRepository.create).toHaveBeenCalledWith({
+          ...quote,
+          tokenAddress: allowedToken.toLowerCase(),
+          timestamp: quote.timestamp,
+          provider: 'test-provider',
+        });
+        expect(mockRepository.save).toHaveBeenCalled();
+        expect(result).toEqual(
+          expect.objectContaining({
+            tokenAddress: allowedToken.toLowerCase(),
+            usd: '100.5',
+          }),
+        );
+      });
+
+      it('should handle case where pricingIgnoreList is undefined', async () => {
+        const token = '0xtoken';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, undefined); // No ignore list
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+        mockRepository.create.mockImplementation((data) => data);
+        mockRepository.save.mockImplementation((data) => Promise.resolve(data));
+
+        const quote = {
+          tokenAddress: token,
+          usd: '100.5',
+          blockchainType: BlockchainType.Ethereum,
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'test-provider',
+        };
+
+        const result = await service.addQuote(quote);
+
+        expect(mockRepository.create).toHaveBeenCalled();
+        expect(mockRepository.save).toHaveBeenCalled();
+        expect(result).toEqual(
+          expect.objectContaining({
+            tokenAddress: token.toLowerCase(),
+            usd: '100.5',
+          }),
+        );
+      });
+    });
+
+    describe('updateCoinMarketCapQuotes with pricing ignore list', () => {
+      it('should filter out quotes for ignored tokens', async () => {
+        const ignoredToken = '0xignoredtoken';
+        const allowedToken = '0xallowedtoken';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, [ignoredToken]);
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+
+        const allQuotes = [
+          { tokenAddress: ignoredToken, usd: '100', provider: 'coinmarketcap' },
+          { tokenAddress: allowedToken, usd: '200', provider: 'coinmarketcap' },
+        ];
+
+        mockCoinMarketCapService.getLatestQuotes.mockResolvedValue(allQuotes);
+        mockRepository.query.mockResolvedValue([]); // No existing quotes
+        mockRepository.create.mockImplementation((data) => data);
+        mockRepository.save.mockResolvedValue([]);
+
+        await (service as any).updateCoinMarketCapQuotes();
+
+        // Verify only the allowed token was processed
+        expect(mockRepository.create).toHaveBeenCalledTimes(1);
+        expect(mockRepository.create).toHaveBeenCalledWith(
+          expect.objectContaining({
+            tokenAddress: allowedToken,
+            blockchainType: BlockchainType.Ethereum,
+          }),
+        );
+
+        // Verify ignored token was not processed
+        const createCalls = mockRepository.create.mock.calls;
+        expect(createCalls.find((call) => call[0].tokenAddress === ignoredToken)).toBeUndefined();
+      });
+
+      it('should skip update when all tokens are ignored', async () => {
+        const token1 = '0xtoken1';
+        const token2 = '0xtoken2';
+        const deployment = createMockDeployment(BlockchainType.Ethereum, [token1, token2]);
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+
+        const allQuotes = [
+          { tokenAddress: token1, usd: '100', provider: 'coinmarketcap' },
+          { tokenAddress: token2, usd: '200', provider: 'coinmarketcap' },
+        ];
+
+        mockCoinMarketCapService.getLatestQuotes.mockResolvedValue(allQuotes);
+
+        await (service as any).updateCoinMarketCapQuotes();
+
+        // Verify no quotes were created
+        expect(mockRepository.create).not.toHaveBeenCalled();
+        expect(mockRepository.save).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('updateCodexQuotes with pricing ignore list', () => {
+      it('should filter out addresses for ignored tokens', async () => {
+        const ignoredToken = '0xignoredtoken';
+        const allowedToken = '0xallowedtoken';
+        const deployment = createMockDeployment(BlockchainType.Sei, [ignoredToken]);
+
+        const allAddresses = [ignoredToken, allowedToken];
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+        mockCodexService.getAllTokenAddresses.mockResolvedValue(allAddresses);
+        mockCodexService.getLatestPrices.mockResolvedValue({
+          [allowedToken]: { usd: '100', provider: 'codex' },
+        });
+        mockRepository.query.mockResolvedValue([]); // No existing quotes
+        mockRepository.create.mockImplementation((data) => data);
+        mockRepository.save.mockResolvedValue([]);
+
+        await (service as any).updateCodexQuotes(BlockchainType.Sei);
+
+        // Verify getLatestPrices was called only with allowed token
+        expect(mockCodexService.getLatestPrices).toHaveBeenCalledWith(deployment, [allowedToken]);
+
+        // Verify the call didn't include the ignored token
+        const latestPricesCall = mockCodexService.getLatestPrices.mock.calls[0];
+        expect(latestPricesCall[1]).not.toContain(ignoredToken);
+      });
+
+      it('should skip update when all addresses are ignored', async () => {
+        const token1 = '0xtoken1';
+        const token2 = '0xtoken2';
+        const deployment = createMockDeployment(BlockchainType.Sei, [token1, token2]);
+
+        const allAddresses = [token1, token2];
+
+        mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(deployment);
+        mockCodexService.getAllTokenAddresses.mockResolvedValue(allAddresses);
+
+        await (service as any).updateCodexQuotes(BlockchainType.Sei);
+
+        // Verify getLatestPrices was not called
+        expect(mockCodexService.getLatestPrices).not.toHaveBeenCalled();
+        expect(mockRepository.create).not.toHaveBeenCalled();
+        expect(mockRepository.save).not.toHaveBeenCalled();
+      });
     });
   });
 });
