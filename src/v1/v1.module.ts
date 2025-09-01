@@ -11,6 +11,7 @@ import { GeckoTerminalModule } from './gecko-terminal/gecko-terminal.module';
 import { ActivityModule } from './activity/activity.module';
 import { StateModule } from './state/state.module';
 import { MerklModule } from './merkl/merkl.module';
+import { WalletPairBalanceV1Module } from './wallet-pair-balance/wallet-pair-balance.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { MerklModule } from './merkl/merkl.module';
     ActivityModule,
     StateModule,
     MerklModule,
+    WalletPairBalanceV1Module,
   ],
   controllers: [V1Controller],
 })

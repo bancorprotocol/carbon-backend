@@ -25,6 +25,7 @@ import { CodexModule } from './codex/codex.module';
 import { SubdomainCacheInterceptor } from './cache.interceptor';
 import { CarbonPriceModule } from './carbon-price/carbon-price.module';
 import { MerklModule } from './merkl/merkl.module';
+import { WalletPairBalanceModule } from './wallet-pair-balance/wallet-pair-balance.module';
 
 @Module({
   imports: [
@@ -110,6 +111,7 @@ import { MerklModule } from './merkl/merkl.module';
     CodexModule,
     CarbonPriceModule,
     MerklModule,
+    WalletPairBalanceModule,
   ],
 
   providers: [
