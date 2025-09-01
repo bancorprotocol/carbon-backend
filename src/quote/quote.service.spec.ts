@@ -52,6 +52,13 @@ describe('QuoteService', () => {
         return acc;
       }, {});
     }),
+    isTokenIgnoredFromPricing: jest.fn().mockImplementation((deployment: Deployment, tokenAddress: string) => {
+      if (!deployment.pricingIgnoreList || deployment.pricingIgnoreList.length === 0) {
+        return false;
+      }
+      const lowercaseAddress = tokenAddress.toLowerCase();
+      return deployment.pricingIgnoreList.some((ignoredAddress) => ignoredAddress.toLowerCase() === lowercaseAddress);
+    }),
   };
 
   const mockCodexService = {
@@ -66,6 +73,7 @@ describe('QuoteService', () => {
   const createMockDeployment = (
     blockchainType: BlockchainType,
     mapEthereumTokens?: Record<string, string>,
+    pricingIgnoreList?: string[],
   ): Deployment => ({
     exchangeId: ExchangeId.OGSei,
     blockchainType,
@@ -81,6 +89,7 @@ describe('QuoteService', () => {
     },
     contracts: {},
     mapEthereumTokens,
+    pricingIgnoreList,
   });
 
   beforeEach(async () => {
@@ -710,6 +719,7 @@ describe('QuoteService', () => {
       // Mock other calls needed for the test
       mockCoinGeckoService.getLatestPrices.mockResolvedValue({});
       mockCoinGeckoService.getLatestGasTokenPrice.mockResolvedValue({});
+      mockCodexService.getLatestPrices.mockResolvedValue({});
       mockQuoteRepository.createQueryBuilder.mockReturnValue({
         leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
@@ -724,8 +734,9 @@ describe('QuoteService', () => {
       // Should still process each deployment
       expect(mockTokenService.getTokensByBlockchainType).toHaveBeenCalledTimes(2);
 
-      // Should call getLatestPrices with the right args for each deployment
-      expect(mockCoinGeckoService.getLatestPrices).toHaveBeenCalledWith([], ethereumDeployment);
+      // Since no tokens are returned, getLatestPrices should not be called
+      expect(mockCoinGeckoService.getLatestPrices).not.toHaveBeenCalled();
+      expect(mockCodexService.getLatestPrices).not.toHaveBeenCalled();
     });
 
     it('should fetch Ethereum prices first when mappings exist', async () => {
@@ -1202,6 +1213,274 @@ describe('QuoteService', () => {
 
       // Should use the Ethereum quote's price but original token's ID
       expect(result).toContain("('1', '100.0', 'sei-network')");
+    });
+  });
+
+  describe('pollForDeployment with pricing ignore list', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue([]);
+      mockCoinGeckoService.getLatestPrices.mockResolvedValue({});
+      mockCoinGeckoService.getLatestGasTokenPrice.mockResolvedValue({});
+      mockCodexService.getLatestPrices.mockResolvedValue({});
+    });
+
+    it('should filter out tokens in pricing ignore list', async () => {
+      const ignoredTokenAddress = '0xignoredtoken';
+      const allowedTokenAddress = '0xallowedtoken';
+
+      const tokens = [
+        {
+          id: 1,
+          address: ignoredTokenAddress,
+          name: 'Ignored Token',
+          symbol: 'IGN',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+        {
+          id: 2,
+          address: allowedTokenAddress,
+          name: 'Allowed Token',
+          symbol: 'ALW',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(
+        BlockchainType.Sei,
+        undefined,
+        [ignoredTokenAddress], // Ignore list contains the first token
+      );
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [allowedTokenAddress]: { usd: '100', provider: 'codex' },
+      });
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that getLatestPrices was called only with the allowed token
+      expect(mockCodexService.getLatestPrices).toHaveBeenCalledWith(
+        deployment,
+        [allowedTokenAddress], // Should only contain the allowed token
+      );
+
+      // Verify that getLatestPrices was not called with the ignored token
+      const latestPricesCall = mockCodexService.getLatestPrices.mock.calls[0];
+      expect(latestPricesCall[1]).not.toContain(ignoredTokenAddress);
+    });
+
+    it('should handle case where all tokens are in ignore list', async () => {
+      const token1Address = '0xtoken1';
+      const token2Address = '0xtoken2';
+
+      const tokens = [
+        {
+          id: 1,
+          address: token1Address,
+          name: 'Token 1',
+          symbol: 'TK1',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+        {
+          id: 2,
+          address: token2Address,
+          name: 'Token 2',
+          symbol: 'TK2',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(
+        BlockchainType.Sei,
+        undefined,
+        [token1Address, token2Address], // Ignore both tokens
+      );
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that getLatestPrices was not called since all tokens are ignored
+      expect(mockCodexService.getLatestPrices).not.toHaveBeenCalled();
+    });
+
+    it('should handle case where no tokens are in ignore list', async () => {
+      const token1Address = '0xtoken1';
+      const token2Address = '0xtoken2';
+
+      const tokens = [
+        {
+          id: 1,
+          address: token1Address,
+          name: 'Token 1',
+          symbol: 'TK1',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+        {
+          id: 2,
+          address: token2Address,
+          name: 'Token 2',
+          symbol: 'TK2',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(
+        BlockchainType.Sei,
+        undefined,
+        [], // Empty ignore list
+      );
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [token1Address]: { usd: '100', provider: 'codex' },
+        [token2Address]: { usd: '200', provider: 'codex' },
+      });
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that getLatestPrices was called with all tokens
+      expect(mockCodexService.getLatestPrices).toHaveBeenCalledWith(deployment, [token1Address, token2Address]);
+    });
+
+    it('should handle case where pricingIgnoreList is undefined', async () => {
+      const token1Address = '0xtoken1';
+
+      const tokens = [
+        {
+          id: 1,
+          address: token1Address,
+          name: 'Token 1',
+          symbol: 'TK1',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(
+        BlockchainType.Sei,
+        undefined,
+        undefined, // No ignore list defined
+      );
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [token1Address]: { usd: '100', provider: 'codex' },
+      });
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that getLatestPrices was called with the token (no filtering)
+      expect(mockCodexService.getLatestPrices).toHaveBeenCalledWith(deployment, [token1Address]);
+    });
+
+    it('should handle case-insensitive token address matching', async () => {
+      const ignoredTokenAddress = '0xIgNoRedToKeN'; // Mixed case
+      const allowedTokenAddress = '0xallowedtoken';
+
+      const tokens = [
+        {
+          id: 1,
+          address: ignoredTokenAddress,
+          name: 'Ignored Token',
+          symbol: 'IGN',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+        {
+          id: 2,
+          address: allowedTokenAddress,
+          name: 'Allowed Token',
+          symbol: 'ALW',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(
+        BlockchainType.Sei,
+        undefined,
+        ['0xignoredtoken'], // Lowercase in ignore list, mixed case in token
+      );
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [allowedTokenAddress]: { usd: '100', provider: 'codex' },
+      });
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that the mixed case token was properly ignored
+      expect(mockCodexService.getLatestPrices).toHaveBeenCalledWith(
+        deployment,
+        [allowedTokenAddress], // Should only contain the allowed token
+      );
+
+      const latestPricesCall = mockCodexService.getLatestPrices.mock.calls[0];
+      expect(latestPricesCall[1]).not.toContain(ignoredTokenAddress);
+    });
+
+    it('should work with Ethereum deployment and CoinGecko service', async () => {
+      const ignoredTokenAddress = '0xignoredtoken';
+      const allowedTokenAddress = '0xallowedtoken';
+
+      const tokens = [
+        {
+          id: 1,
+          address: ignoredTokenAddress,
+          name: 'Ignored Token',
+          symbol: 'IGN',
+          decimals: 18,
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+        } as Token,
+        {
+          id: 2,
+          address: allowedTokenAddress,
+          name: 'Allowed Token',
+          symbol: 'ALW',
+          decimals: 18,
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+        } as Token,
+      ];
+
+      const deployment = createMockDeployment(BlockchainType.Ethereum, undefined, [ignoredTokenAddress]);
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCoinGeckoService.getLatestPrices.mockResolvedValue({
+        [allowedTokenAddress]: { usd: '100', provider: 'coingecko' },
+      });
+      mockCoinGeckoService.getLatestGasTokenPrice.mockResolvedValue({
+        '0xgastoken': { usd: '2000', provider: 'coingecko' },
+      });
+
+      await service.pollForDeployment(deployment);
+
+      // Verify that getLatestPrices was called only with the allowed token
+      expect(mockCoinGeckoService.getLatestPrices).toHaveBeenCalledWith(
+        [allowedTokenAddress], // Should only contain the allowed token
+        deployment,
+      );
+
+      const latestPricesCall = mockCoinGeckoService.getLatestPrices.mock.calls[0];
+      expect(latestPricesCall[0]).not.toContain(ignoredTokenAddress);
     });
   });
 });
