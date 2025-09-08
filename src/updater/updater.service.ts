@@ -29,6 +29,7 @@ import { CarbonPriceService } from '../carbon-price/carbon-price.service';
 import { CarbonGraphPriceService } from '../carbon-graph-price/carbon-graph-price.service';
 import { QuoteService } from '../quote/quote.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
+import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 
@@ -66,6 +67,7 @@ export class UpdaterService {
     private carbonGraphPriceService: CarbonGraphPriceService,
     private quoteService: QuoteService,
     private historicQuoteService: HistoricQuoteService,
+    private merklProcessorService: MerklProcessorService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -186,6 +188,10 @@ export class UpdaterService {
       await this.activityV2Service.update(endBlock, deployment, tokens);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
 
+      // update merkl rewards
+      await this.merklProcessorService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating merkl rewards for ${deployment.exchangeId}`);
+
       await this.tvlService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating tvl for ${deployment.exchangeId}`);
 
@@ -242,6 +248,10 @@ export class UpdaterService {
       // coingecko tickers
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
+
+      // total tvl
+      await this.tvlService.updateTotalTvl(deployment);
+      console.log(`CARBON SERVICE - Finished updating total tvl for ${deployment.exchangeId}`);
 
       console.log(`CARBON SERVICE - Finished updating analytics for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingAnalytics[deploymentKey] = false;

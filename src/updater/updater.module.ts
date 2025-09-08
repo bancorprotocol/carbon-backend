@@ -33,6 +33,7 @@ import { VortexFundsWithdrawnEventModule } from '../events/vortex-funds-withdraw
 import { NotificationModule } from '../notification/notification.module';
 import { ProtectionRemovedEventModule } from '../events/protection-removed-event/protection-removed-event.module';
 import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
+import { MerklModule } from '../merkl/merkl.module';
 import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price.module';
 
 @Module({
@@ -70,6 +71,7 @@ import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price
     NotificationModule,
     ProtectionRemovedEventModule,
     CarbonPriceModule,
+    MerklModule,
     CarbonGraphPriceModule,
     HistoricQuoteModule,
   ],

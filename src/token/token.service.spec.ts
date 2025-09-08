@@ -562,17 +562,17 @@ describe('TokenService', () => {
   describe('getOrCreateTokenByAddress', () => {
     it('should return existing token if found', async () => {
       const mockToken = { ...mockTokenEntity, address: '0xexisting' };
+      const mockTokens = [mockToken];
 
-      jest.spyOn(tokenRepository, 'findOne').mockResolvedValue(mockToken as Token);
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue(mockTokens as Token[]);
 
       const result = await service.getOrCreateTokenByAddress('0xExisting', mockDeployment);
 
       expect(result).toEqual(mockToken);
-      expect(tokenRepository.findOne).toHaveBeenCalledWith({
+      expect(tokenRepository.find).toHaveBeenCalledWith({
         where: {
           blockchainType: mockDeployment.blockchainType,
           exchangeId: mockDeployment.exchangeId,
-          address: expect.anything(),
         },
       });
 
@@ -580,8 +580,79 @@ describe('TokenService', () => {
       expect(harvesterService.stringsWithMulticall).not.toHaveBeenCalled();
     });
 
+    it('should find existing token with case-insensitive matching', async () => {
+      // Test the fix for the TypeORM Raw query issue
+      const originalToken = {
+        ...mockTokenEntity,
+        address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // Mixed case (checksum format)
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+      };
+      const mockTokens = [originalToken];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue(mockTokens as Token[]);
+
+      // Spy on repository methods to verify they're not called for creation
+      const createSpy = jest.spyOn(tokenRepository, 'create');
+      const saveSpy = jest.spyOn(tokenRepository, 'save');
+
+      // Request with lowercase address should find the existing mixed-case token
+      const result = await service.getOrCreateTokenByAddress(
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2',
+        mockDeployment,
+      );
+
+      expect(result).toEqual(originalToken);
+      expect(tokenRepository.find).toHaveBeenCalledWith({
+        where: {
+          blockchainType: mockDeployment.blockchainType,
+          exchangeId: mockDeployment.exchangeId,
+        },
+      });
+
+      // Verify no creation happens since existing token was found
+      expect(harvesterService.stringsWithMulticall).not.toHaveBeenCalled();
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
+
+    it('should find existing token regardless of address case variations', async () => {
+      const lowercaseToken = {
+        ...mockTokenEntity,
+        address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // Lowercase
+        symbol: 'WETH',
+        name: 'Wrapped Ether',
+      };
+      const mockTokens = [lowercaseToken];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue(mockTokens as Token[]);
+
+      // Spy on repository methods to verify they're not called for creation
+      const createSpy = jest.spyOn(tokenRepository, 'create');
+      const saveSpy = jest.spyOn(tokenRepository, 'save');
+
+      // Request with mixed case should find the existing lowercase token
+      const result = await service.getOrCreateTokenByAddress(
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+        mockDeployment,
+      );
+
+      expect(result).toEqual(lowercaseToken);
+      expect(tokenRepository.find).toHaveBeenCalledWith({
+        where: {
+          blockchainType: mockDeployment.blockchainType,
+          exchangeId: mockDeployment.exchangeId,
+        },
+      });
+
+      // Verify no creation happens
+      expect(harvesterService.stringsWithMulticall).not.toHaveBeenCalled();
+      expect(createSpy).not.toHaveBeenCalled();
+      expect(saveSpy).not.toHaveBeenCalled();
+    });
+
     it('should create new token if not found', async () => {
-      jest.spyOn(tokenRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]); // No existing tokens
 
       // Mock token creation
       jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);

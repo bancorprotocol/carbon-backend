@@ -139,4 +139,18 @@ export class BlockService {
       .limit(1)
       .getOne();
   }
+
+  /**
+   * Get the block at or before a specific timestamp
+   * Returns the latest block where block.timestamp <= targetTimestamp
+   */
+  async getBlockAtOrBeforeTimestamp(targetTimestamp: Date, deployment: Deployment): Promise<Block | null> {
+    return this.block
+      .createQueryBuilder()
+      .where('"timestamp" <= :targetTimestamp', { targetTimestamp })
+      .andWhere('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .orderBy('"id"', 'DESC')
+      .limit(1)
+      .getOne();
+  }
 }

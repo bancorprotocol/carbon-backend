@@ -35,7 +35,7 @@ export class PairService {
     const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, 1);
 
     // fetch pair created events
-    const newEvents = await this.pairCreatedEventService.get(lastProcessedBlockNumber, endBlock, deployment);
+    const newEvents = await this.pairCreatedEventService.get(lastProcessedBlockNumber + 1, endBlock, deployment);
 
     // create new pairs
     const eventBatches = _.chunk(newEvents, 1000);

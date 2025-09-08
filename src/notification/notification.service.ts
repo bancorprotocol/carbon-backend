@@ -65,7 +65,7 @@ export class NotificationService {
     );
     const lastProcessedBlockNumber = await this.lastProcessedBlockService.getOrInit(lastProcessedEntity, initTo);
     const batchSize = 100000;
-    let currentBlock = lastProcessedBlockNumber;
+    let currentBlock = lastProcessedBlockNumber + 1;
 
     while (currentBlock < endBlock) {
       const nextBlock = Math.min(currentBlock + batchSize, endBlock);

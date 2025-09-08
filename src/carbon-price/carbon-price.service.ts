@@ -126,7 +126,7 @@ export class CarbonPriceService {
     }
 
     // Calculate the price of the unknown token
-    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment);
+    const unknownTokenPrice = this.calculateTokenPrice(knownTokenQuote, event, deployment, tokenPair);
     const tokenPrice = unknownTokenPrice.toString();
 
     // Check if the last price for this token is the same, to avoid duplicate entries
@@ -166,6 +166,35 @@ export class CarbonPriceService {
       timestamp: event.timestamp,
       provider: 'carbon-defi',
     });
+
+    // If the unknown token is a native token alias, also save price for the original NATIVE_TOKEN address
+    if (deployment.nativeTokenAlias && tokenPair.unknownTokenAddress === deployment.nativeTokenAlias.toLowerCase()) {
+      const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
+
+      // Save to historicQuote table for NATIVE_TOKEN address
+      await this.historicQuoteService.addQuote({
+        blockchainType: deployment.blockchainType,
+        tokenAddress: nativeTokenAddress,
+        usd: tokenPrice,
+        timestamp: event.timestamp,
+        provider: 'carbon-defi',
+      });
+
+      // Create a native token object for the quote table
+      const nativeToken = {
+        ...token,
+        address: NATIVE_TOKEN,
+      };
+
+      // Save to quote table for NATIVE_TOKEN address
+      await this.quoteService.addOrUpdateQuote({
+        token: nativeToken,
+        blockchainType: deployment.blockchainType,
+        usd: tokenPrice,
+        timestamp: event.timestamp,
+        provider: 'carbon-defi',
+      });
+    }
 
     return true;
   }
@@ -216,7 +245,12 @@ export class CarbonPriceService {
   /**
    * Pure function to calculate token price based on trade event
    */
-  calculateTokenPrice(knownTokenQuote: HistoricQuote, event: TokensTradedEvent, deployment: Deployment): Decimal {
+  calculateTokenPrice(
+    knownTokenQuote: HistoricQuote,
+    event: TokensTradedEvent,
+    deployment: Deployment,
+    tokenPair: TokenAddressPair,
+  ): Decimal {
     // Normalize the addresses to handle native token aliases
     const sourceTokenAddress = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
     const knownTokenAddress = knownTokenQuote.tokenAddress.toLowerCase();
@@ -227,11 +261,11 @@ export class CarbonPriceService {
 
     const tradeRate = normalizedSourceAmount.div(normalizedTargetAmount);
 
-    if (sourceTokenAddress === knownTokenAddress) {
-      // Known token is token0, target token is token1
+    if (tokenPair.isToken0Known) {
+      // Source token is known, target token is unknown
       return new Decimal(knownTokenQuote.usd).mul(tradeRate);
     } else {
-      // Known token is token1, target token is token0
+      // Target token is known, source token is unknown
       return new Decimal(knownTokenQuote.usd).div(tradeRate);
     }
   }

@@ -149,8 +149,20 @@ export class HistoricQuoteService implements OnModuleInit {
    * Only saves new quotes if the price has changed from the latest stored value.
    */
   private async updateCoinMarketCapQuotes(): Promise<void> {
+    const deployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
     const latest = await this.getLatest(BlockchainType.Ethereum); // Pass the deployment to filter by blockchainType
-    const quotes = await this.coinmarketcapService.getLatestQuotes();
+    const allQuotes = await this.coinmarketcapService.getLatestQuotes();
+
+    // Filter out quotes for tokens that should be ignored from pricing
+    const quotes = allQuotes.filter(
+      (q) => !this.deploymentService.isTokenIgnoredFromPricing(deployment, q.tokenAddress),
+    );
+
+    if (quotes.length === 0) {
+      this.logger.log(`No CoinMarketCap quotes to update after applying ignore list`);
+      return;
+    }
+
     const newQuotes = [];
 
     for (const q of quotes) {
@@ -181,7 +193,18 @@ export class HistoricQuoteService implements OnModuleInit {
   private async updateCodexQuotes(blockchainType: BlockchainType): Promise<void> {
     const deployment = this.deploymentService.getDeploymentByBlockchainType(blockchainType);
     const latest = await this.getLatest(blockchainType);
-    const addresses = await this.codexService.getAllTokenAddresses(deployment);
+    const allAddresses = await this.codexService.getAllTokenAddresses(deployment);
+
+    // Filter out addresses that should be ignored from pricing
+    const addresses = allAddresses.filter(
+      (address) => !this.deploymentService.isTokenIgnoredFromPricing(deployment, address),
+    );
+
+    if (addresses.length === 0) {
+      this.logger.log(`No addresses to update for ${blockchainType} after applying ignore list`);
+      return;
+    }
+
     const quotes = await this.codexService.getLatestPrices(deployment, addresses);
     const newQuotes = [];
 
@@ -1046,11 +1069,21 @@ export class HistoricQuoteService implements OnModuleInit {
     const paddedStart = moment.utc(start).subtract(1, 'day').format('YYYY-MM-DD');
     const paddedEnd = moment.utc(end).add(1, 'day').format('YYYY-MM-DD');
 
+    // Filter out addresses that should be ignored from pricing
+    const filteredAddresses = addresses.filter(
+      (address) => !this.deploymentService.isTokenIgnoredFromPricing(deployment, address),
+    );
+
+    if (filteredAddresses.length === 0) {
+      this.logger.log(`No addresses to fetch USD rates for after applying ignore list`);
+      return [];
+    }
+
     // Check for Ethereum token mappings
     const tokenMap = deployment.mapEthereumTokens ? this.deploymentService.getLowercaseTokenMap(deployment) : {};
 
     // Split addresses into mapped and unmapped based on tokenMap
-    const lowercaseAddresses = addresses.map((addr) => addr.toLowerCase());
+    const lowercaseAddresses = filteredAddresses.map((addr) => addr.toLowerCase());
     const mappedAddresses = lowercaseAddresses.filter((addr) => tokenMap[addr]);
     const unmappedAddresses = lowercaseAddresses.filter((addr) => !tokenMap[addr]);
 
@@ -1077,33 +1110,42 @@ export class HistoricQuoteService implements OnModuleInit {
 
     // 2. Fetch rates for mapped addresses from Ethereum blockchain if any exist
     if (mappedAddresses.length > 0) {
-      // Create a mapping from Ethereum address to original address for later reconstruction
-      const ethereumToOriginalMap = {};
-      const ethereumAddresses = mappedAddresses.map((addr) => {
+      // Create a mapping from Ethereum address to array of original addresses
+      const ethereumToOriginalMap: { [key: string]: string[] } = {};
+      const uniqueEthereumAddresses = new Set<string>();
+
+      mappedAddresses.forEach((addr) => {
         const ethereumAddr = tokenMap[addr].toLowerCase();
-        ethereumToOriginalMap[ethereumAddr] = addr;
-        return ethereumAddr;
+        if (!ethereumToOriginalMap[ethereumAddr]) {
+          ethereumToOriginalMap[ethereumAddr] = [];
+        }
+        ethereumToOriginalMap[ethereumAddr].push(addr);
+        uniqueEthereumAddresses.add(ethereumAddr);
       });
 
       const mappedResults = await this.fetchUsdRatesData(
         BlockchainType.Ethereum,
-        ethereumAddresses,
+        Array.from(uniqueEthereumAddresses),
         paddedStart,
         paddedEnd,
       );
 
-      // Map results back to original addresses
-      const mappedProcessedResults = mappedResults.map((row) => {
+      // Map results back to original addresses - create entry for each original address
+      const mappedProcessedResults = [];
+      mappedResults.forEach((row) => {
         const ethereumAddr = row.address.toLowerCase();
-        const originalAddr = ethereumToOriginalMap[ethereumAddr];
+        const originalAddresses = ethereumToOriginalMap[ethereumAddr];
 
-        return {
-          day: moment.utc(row.day).unix(),
-          address: originalAddr, // Use original address
-          usd: parseFloat(row.usd),
-          provider: row.provider,
-          mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
-        };
+        // Create an entry for each original address that maps to this Ethereum address
+        originalAddresses.forEach((originalAddr) => {
+          mappedProcessedResults.push({
+            day: moment.utc(row.day).unix(),
+            address: originalAddr, // Use original address
+            usd: parseFloat(row.usd),
+            provider: row.provider,
+            mappedFrom: ethereumAddr, // Mark that this is mapped from Ethereum
+          });
+        });
       });
 
       result = result.concat(mappedProcessedResults);
@@ -1360,12 +1402,18 @@ export class HistoricQuoteService implements OnModuleInit {
    * Adds a new price quote to the database.
    * Skips adding if the quote is a duplicate of the most recent one.
    * @param quote - The quote data to add
-   * @returns The newly created quote
+   * @returns The newly created quote, or null if the token is ignored from pricing
    */
-  async addQuote(quote: Partial<HistoricQuote>): Promise<HistoricQuote> {
+  async addQuote(quote: Partial<HistoricQuote>): Promise<HistoricQuote | null> {
     try {
-      // Check if there's an existing quote with the same token address and blockchain type
+      // Check if the token should be ignored from pricing
       if (quote.tokenAddress && quote.blockchainType) {
+        const deployment = this.deploymentService.getDeploymentByBlockchainType(quote.blockchainType);
+        if (this.deploymentService.isTokenIgnoredFromPricing(deployment, quote.tokenAddress)) {
+          this.logger.log(`Skipping quote for ignored token ${quote.tokenAddress}`);
+          return null; // Return null to indicate the quote was skipped
+        }
+
         const lastQuote = await this.getLast(quote.blockchainType, quote.tokenAddress);
 
         // If the last quote exists and has the same USD value, return it instead of creating a new one
@@ -1376,6 +1424,22 @@ export class HistoricQuoteService implements OnModuleInit {
           if (lastQuoteDecimal.equals(newQuoteDecimal)) {
             this.logger.log(`Skipping duplicate quote for ${quote.tokenAddress} with USD value ${quote.usd}`);
             return lastQuote;
+          }
+
+          // Check if the price jump is too extreme (1000x smaller or bigger)
+          if (lastQuoteDecimal.greaterThan(0) && newQuoteDecimal.greaterThan(0)) {
+            const ratio = newQuoteDecimal.dividedBy(lastQuoteDecimal);
+            const thousandDecimal = new Decimal(1000);
+            const thousandthDecimal = new Decimal(0.001);
+
+            if (ratio.greaterThanOrEqualTo(thousandDecimal) || ratio.lessThanOrEqualTo(thousandthDecimal)) {
+              this.logger.warn(
+                `Skipping extreme price jump for ${quote.tokenAddress}: ${lastQuote.usd} -> ${
+                  quote.usd
+                } (ratio: ${ratio.toFixed(2)}x)`,
+              );
+              return lastQuote;
+            }
           }
         }
       }
@@ -1390,7 +1454,7 @@ export class HistoricQuoteService implements OnModuleInit {
       return await this.repository.save(newQuote);
     } catch (error) {
       this.logger.error(`Error adding historical quote for address ${quote.tokenAddress}:`, error);
-      throw new Error(`Error adding historical quote for address ${quote.tokenAddress}`);
+      throw error;
     }
   }
 
