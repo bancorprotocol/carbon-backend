@@ -2063,11 +2063,13 @@ describe('CarbonGraphPriceService', () => {
         BlockchainType.Ethereum,
         ISOLATED_USDC.address.toLowerCase(),
         expect.any(Date),
+        true, // excludeCarbonGraph = true
       );
       expect(mockHistoricQuoteService.getLatestPriceBeforeTimestamp).toHaveBeenCalledWith(
         BlockchainType.Ethereum,
         ISOLATED_USDT.address.toLowerCase(),
         expect.any(Date),
+        true, // excludeCarbonGraph = true
       );
     });
 

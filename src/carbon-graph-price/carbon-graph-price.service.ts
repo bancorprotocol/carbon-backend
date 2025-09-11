@@ -209,6 +209,9 @@ export class CarbonGraphPriceService {
     const historicalPrices = await this.historicQuoteService.getLatestPricesBeforeTimestamp(
       deployment.blockchainType,
       batchStartTimestamp,
+      500000, // default limit
+      undefined, // no token address filter
+      true, // excludeCarbonGraph = true
     );
 
     let addedCount = 0;
@@ -252,6 +255,7 @@ export class CarbonGraphPriceService {
         BlockchainType.Ethereum,
         ethereumAddress,
         maxTimestamp,
+        true, // excludeCarbonGraph = true
       );
 
       if (primaryQuote) {
@@ -283,6 +287,7 @@ export class CarbonGraphPriceService {
         BlockchainType.Ethereum,
         ethereumAddress,
         maxTimestamp,
+        true, // excludeCarbonGraph = true
       );
 
       if (secondaryQuote) {

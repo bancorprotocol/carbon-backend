@@ -627,7 +627,7 @@ export class QuoteService implements OnModuleInit {
     const existingQuotes = await this.findQuotes(blockchainType, [address]);
     const existingQuote = existingQuotes[address] || existingQuotes[address.toLowerCase()];
     if (existingQuote) {
-      if (existingQuote.provider === 'carbon-defi') {
+      if (['carbon-defi', 'carbon-graph'].includes(existingQuote.provider)) {
         return existingQuote;
       }
 

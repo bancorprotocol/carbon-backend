@@ -2702,6 +2702,96 @@ describe('HistoricQuoteService', () => {
         expect.arrayContaining([[]]),
       );
     });
+
+    it('should exclude carbon-graph provider when excludeCarbonGraph is true', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPricesBeforeTimestamp(
+        blockchainType,
+        cutoffTimestamp,
+        500000,
+        undefined,
+        true, // excludeCarbonGraph = true
+      );
+
+      // Verify the query was called with providers excluding carbon-graph
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('WITH token_provider_latest AS'),
+        expect.arrayContaining([
+          'ethereum',
+          '2024-01-01T12:00:00.000Z',
+          '2023-12-25T12:00:00.000Z',
+          ['coinmarketcap', 'codex'], // carbon-graph should be excluded
+          500000,
+          undefined,
+        ]),
+      );
+    });
+
+    it('should include carbon-graph provider by default', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
+
+      // Verify the query was called with all providers including carbon-graph
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('WITH token_provider_latest AS'),
+        expect.arrayContaining([
+          'ethereum',
+          '2024-01-01T12:00:00.000Z',
+          '2023-12-25T12:00:00.000Z',
+          ['coinmarketcap', 'codex', 'carbon-graph'], // carbon-graph should be included
+          500000,
+          undefined,
+        ]),
+      );
+    });
+
+    it('should filter out carbon-graph quotes when excludeCarbonGraph is true', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      // Mock query response with carbon-graph quote that should be ignored
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '99.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'carbon-graph',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPricesBeforeTimestamp(
+        blockchainType,
+        cutoffTimestamp,
+        500000,
+        undefined,
+        true, // excludeCarbonGraph = true
+      );
+
+      expect(result).toHaveLength(1);
+      // Should pick coinmarketcap and ignore carbon-graph quote
+      expect(result[0].provider).toBe('coinmarketcap');
+      expect(result[0].usd).toBe('100.00');
+    });
   });
 
   describe('selectBestQuoteWithPriority', () => {
@@ -2975,6 +3065,94 @@ describe('HistoricQuoteService', () => {
         expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
         expect.arrayContaining([['0xtoken1']]),
       );
+    });
+
+    it('should exclude carbon-graph provider when excludeCarbonGraph is true', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      mockRepository.query.mockResolvedValue([]);
+
+      await service.getLatestPriceBeforeTimestamp(
+        blockchainType,
+        tokenAddress,
+        cutoffTimestamp,
+        true, // excludeCarbonGraph = true
+      );
+
+      // Verify the query was called with providers excluding carbon-graph
+      expect(mockRepository.query).toHaveBeenCalledWith(
+        expect.stringContaining('($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))'),
+        expect.arrayContaining([
+          'ethereum',
+          '2024-01-01T12:00:00.000Z',
+          '2023-12-25T12:00:00.000Z',
+          ['coinmarketcap', 'codex'], // carbon-graph should be excluded
+          1,
+          ['0xtoken1'],
+        ]),
+      );
+    });
+
+    it('should return carbon-graph quote by default when excludeCarbonGraph is false', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      const mockQuote = {
+        id: 1,
+        tokenAddress: '0xtoken1',
+        usd: '100.00',
+        timestamp: new Date('2024-01-01T10:00:00Z'),
+        provider: 'carbon-graph',
+        blockchainType: 'ethereum',
+      };
+
+      mockRepository.query.mockResolvedValue([mockQuote]);
+
+      const result = await service.getLatestPriceBeforeTimestamp(blockchainType, tokenAddress, cutoffTimestamp);
+
+      expect(result).toEqual(mockQuote);
+      expect(result.provider).toBe('carbon-graph');
+    });
+
+    it('should exclude carbon-graph quote when excludeCarbonGraph is true and return next best', async () => {
+      const blockchainType = BlockchainType.Ethereum;
+      const tokenAddress = '0xToken1';
+      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
+
+      // Mock carbon-graph as highest priority but should be excluded
+      const mockQuotes = [
+        {
+          id: 1,
+          tokenAddress: '0xtoken1',
+          usd: '99.00',
+          timestamp: new Date('2024-01-01T11:00:00Z'),
+          provider: 'carbon-graph',
+          blockchainType: 'ethereum',
+        },
+        {
+          id: 2,
+          tokenAddress: '0xtoken1',
+          usd: '100.00',
+          timestamp: new Date('2024-01-01T10:00:00Z'),
+          provider: 'coinmarketcap',
+          blockchainType: 'ethereum',
+        },
+      ];
+
+      mockRepository.query.mockResolvedValue(mockQuotes);
+
+      const result = await service.getLatestPriceBeforeTimestamp(
+        blockchainType,
+        tokenAddress,
+        cutoffTimestamp,
+        true, // excludeCarbonGraph = true
+      );
+
+      expect(result.provider).toBe('coinmarketcap');
+      expect(result.usd).toBe('100.00');
     });
   });
 });

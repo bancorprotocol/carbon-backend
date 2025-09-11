@@ -49,7 +49,6 @@ export class HistoricQuoteService implements OnModuleInit {
     [BlockchainType.Ethereum]: [
       { name: 'coinmarketcap', enabled: true },
       { name: 'codex', enabled: true },
-      { name: 'carbon-graph', enabled: true },
     ],
     [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],
@@ -60,11 +59,14 @@ export class HistoricQuoteService implements OnModuleInit {
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Coti]: [
+      { name: 'carbon-defi', enabled: true },
       { name: 'carbon-graph', enabled: true },
-      // { name: 'carbon-defi', enabled: true },
     ],
     [BlockchainType.Iota]: [],
-    [BlockchainType.Tac]: [{ name: 'carbon-defi', enabled: true }],
+    [BlockchainType.Tac]: [
+      { name: 'carbon-defi', enabled: true },
+      // { name: 'carbon-graph', enabled: true },
+    ],
   };
 
   constructor(
@@ -1259,6 +1261,7 @@ export class HistoricQuoteService implements OnModuleInit {
    * @param cutoffTimestamp - Only return quotes with timestamp <= this value
    * @param limit - Maximum number of results to return (safety limit)
    * @param tokenAddresses - Optional array of token addresses to filter by
+   * @param excludeCarbonGraph - If true, exclude carbon-graph provider from results (default: false)
    * @returns Array of latest quotes per token before the cutoff with provider priority
    */
   async getLatestPricesBeforeTimestamp(
@@ -1266,10 +1269,16 @@ export class HistoricQuoteService implements OnModuleInit {
     cutoffTimestamp: Date,
     limit = 500000,
     tokenAddresses?: string[],
+    excludeCarbonGraph = false,
   ): Promise<HistoricQuote[]> {
     try {
       // Get enabled providers in priority order
-      const enabledProviders = this.priceProviders[blockchainType].filter((p) => p.enabled).map((p) => p.name);
+      let enabledProviders = this.priceProviders[blockchainType].filter((p) => p.enabled).map((p) => p.name);
+
+      // Exclude carbon-graph provider if requested
+      if (excludeCarbonGraph) {
+        enabledProviders = enabledProviders.filter((provider) => provider !== 'carbon-graph');
+      }
 
       if (enabledProviders.length === 0) {
         this.logger.warn(`No enabled providers for ${blockchainType}`);
@@ -1319,7 +1328,7 @@ export class HistoricQuoteService implements OnModuleInit {
       const tokenGroups = _.groupBy(allLatestQuotes, 'tokenAddress');
       const results = [];
 
-      for (const [tokenAddress, quotes] of Object.entries(tokenGroups)) {
+      for (const [, quotes] of Object.entries(tokenGroups)) {
         const selectedQuote = this.selectBestQuoteWithPriority(quotes as HistoricQuote[], enabledProviders);
         if (selectedQuote) {
           results.push(selectedQuote);
@@ -1379,15 +1388,23 @@ export class HistoricQuoteService implements OnModuleInit {
    * @param blockchainType - The blockchain type of the token
    * @param tokenAddress - The address of the token
    * @param cutoffTimestamp - Only return quotes with timestamp <= this value
+   * @param excludeCarbonGraph - If true, exclude carbon-graph provider from results (default: false)
    * @returns The most recent quote before the cutoff or null if none exists
    */
   async getLatestPriceBeforeTimestamp(
     blockchainType: BlockchainType,
     tokenAddress: string,
     cutoffTimestamp: Date,
+    excludeCarbonGraph = false,
   ): Promise<HistoricQuote | null> {
     try {
-      const results = await this.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp, 1, [tokenAddress]);
+      const results = await this.getLatestPricesBeforeTimestamp(
+        blockchainType,
+        cutoffTimestamp,
+        1,
+        [tokenAddress],
+        excludeCarbonGraph,
+      );
       return results[0] || null;
     } catch (error) {
       this.logger.error(
