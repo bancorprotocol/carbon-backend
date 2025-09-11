@@ -26,6 +26,7 @@ import { NotificationService } from '../notification/notification.service';
 import { ActivityV2Service } from '../activity/activity-v2.service';
 import { ProtectionRemovedEventService } from '../events/protection-removed-event/protection-removed-event.service';
 import { CarbonPriceService } from '../carbon-price/carbon-price.service';
+import { CarbonGraphPriceService } from '../carbon-graph-price/carbon-graph-price.service';
 import { QuoteService } from '../quote/quote.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
@@ -63,6 +64,7 @@ export class UpdaterService {
     private protectionRemovedEventService: ProtectionRemovedEventService,
     private activityV2Service: ActivityV2Service,
     private carbonPriceService: CarbonPriceService,
+    private carbonGraphPriceService: CarbonGraphPriceService,
     private quoteService: QuoteService,
     private historicQuoteService: HistoricQuoteService,
     private merklProcessorService: MerklProcessorService,
@@ -158,6 +160,10 @@ export class UpdaterService {
       // update carbon price
       await this.carbonPriceService.update(endBlock, deployment);
       console.log(`CARBON SERVICE - Finished updating carbon price for ${deployment.exchangeId}`);
+
+      // update carbon graph price (runs in parallel with existing carbon price)
+      await this.carbonGraphPriceService.update(endBlock, deployment);
+      console.log(`CARBON SERVICE - Finished updating carbon graph price for ${deployment.exchangeId}`);
 
       // coingecko tickers - fetch quotes first and pass them to update method
       const quotesCTE = await this.quoteService.prepareQuotesForQuery(deployment);
