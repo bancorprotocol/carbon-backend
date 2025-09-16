@@ -47,7 +47,9 @@ describe('CarbonPriceService', () => {
 
     historicQuoteService = {
       getLast: jest.fn(),
+      getLatest: jest.fn(),
       addQuote: jest.fn(),
+      addQuotesBatch: jest.fn(),
     } as any;
 
     quoteService = {
@@ -623,6 +625,21 @@ describe('CarbonPriceService', () => {
       usd: '0.53',
     } as HistoricQuote;
 
+    // Mock rates objects for the new optimized method
+    const mockEthereumRates = {
+      '0xethereumtoken': mockKnownTokenQuote,
+      '0xethereumtoken1': mockKnownTokenQuote,
+      '0xethereumtoken2': mockKnownTokenQuote,
+      '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': {
+        tokenAddress: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599',
+        usd: '62430.123',
+        timestamp: new Date(),
+        provider: 'coingecko',
+      } as HistoricQuote,
+    };
+
+    const mockDeploymentRates = {}; // No existing prices for unknown tokens
+
     beforeEach(() => {
       historicQuoteService.getLast.mockReset();
       historicQuoteService.addQuote.mockReset();
@@ -631,7 +648,17 @@ describe('CarbonPriceService', () => {
 
     it('should return false if no token in pair is in token map', async () => {
       const emptyTokenMap = {};
-      const result = await service.processTradeEvent(mockEvent, emptyTokenMap, mockDeployment as Deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEvent,
+        emptyTokenMap,
+        mockDeployment as Deployment,
+        mockEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
       expect(result).toBe(false);
       expect(historicQuoteService.getLast).not.toHaveBeenCalled();
     });
@@ -643,10 +670,16 @@ describe('CarbonPriceService', () => {
         '0xanothermappedtoken': '0xethereumtoken2',
       };
 
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
       const result = await service.processTradeEvent(
         mockEventWithBothMapped,
         multiTokenMap,
         mockDeployment as Deployment,
+        mockEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
       );
       expect(result).toBe(false);
       expect(historicQuoteService.getLast).not.toHaveBeenCalled();
@@ -670,25 +703,29 @@ describe('CarbonPriceService', () => {
         return price;
       });
 
-      // Setup mocks for the first getLast call (for ethereum token)
-      historicQuoteService.getLast.mockImplementation((blockchainType, tokenAddress) => {
-        if (blockchainType === BlockchainType.Ethereum && tokenAddress === '0xethereumtoken') {
-          return Promise.resolve(mockKnownTokenQuote);
-        } else if (blockchainType === mockDeployment.blockchainType && tokenAddress === '0xunknowntoken') {
-          // Return a mock quote with the exact same price that will be calculated
-          return Promise.resolve({
-            tokenAddress: '0xunknowntoken',
-            blockchainType: mockDeployment.blockchainType,
-            usd: actualCalculatedPrice, // Exact price that our mock calculation will produce
-            timestamp: new Date(),
-            provider: 'carbon-defi',
-          } as HistoricQuote);
-        }
-        return Promise.resolve(null);
-      });
+      // Create deployment rates with existing duplicate price
+      const deploymentRatesWithDuplicate = {
+        '0xunknowntoken': {
+          tokenAddress: '0xunknowntoken',
+          blockchainType: mockDeployment.blockchainType,
+          usd: actualCalculatedPrice, // Exact price that our mock calculation will produce
+          timestamp: new Date(),
+          provider: 'carbon-defi',
+        } as HistoricQuote,
+      };
 
       // Run the method
-      const result = await service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEvent,
+        mockTokenMap,
+        mockDeployment as Deployment,
+        mockEthereumRates,
+        deploymentRatesWithDuplicate,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
 
       // For debugging - should match the expected price format
       expect(calculatedPrice).toEqual(actualCalculatedPrice);
@@ -696,16 +733,8 @@ describe('CarbonPriceService', () => {
       // It should return false because the price is duplicated
       expect(result).toBe(false);
 
-      // Verify historicQuoteService.getLast was called twice:
-      // 1. To get the price of the known token
-      // 2. To check if we already have this price for the target token
-      expect(historicQuoteService.getLast).toHaveBeenCalledTimes(2);
-
-      // Verify first call was for known Ethereum token
-      expect(historicQuoteService.getLast).toHaveBeenNthCalledWith(1, BlockchainType.Ethereum, '0xethereumtoken');
-
-      // Verify second call was for target token
-      expect(historicQuoteService.getLast).toHaveBeenNthCalledWith(2, mockDeployment.blockchainType, '0xunknowntoken');
+      // Verify that getLast was NOT called since we're using cached rates
+      expect(historicQuoteService.getLast).not.toHaveBeenCalled();
 
       // Verify that addQuote was NOT called since we detected a duplicate
       expect(historicQuoteService.addQuote).not.toHaveBeenCalled();
@@ -742,8 +771,29 @@ describe('CarbonPriceService', () => {
       // Override the calculateTokenPrice to return exactly the same value as in the lastQuote
       jest.spyOn(service, 'calculateTokenPrice').mockReturnValue(new Decimal(exactPrice));
 
+      // Create deployment rates with existing duplicate price
+      const deploymentRatesWithDuplicate = {
+        '0xunknowntoken': {
+          tokenAddress: '0xunknowntoken',
+          blockchainType: mockDeployment.blockchainType,
+          usd: exactPrice,
+          timestamp: new Date(),
+          provider: 'carbon-defi',
+        } as HistoricQuote,
+      };
+
       // Run the method
-      const result = await service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEvent,
+        mockTokenMap,
+        mockDeployment as Deployment,
+        mockEthereumRates,
+        deploymentRatesWithDuplicate,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
 
       // It should return false because the prices are equivalent
       expect(result).toBe(false);
@@ -756,25 +806,53 @@ describe('CarbonPriceService', () => {
     });
 
     it('should return false if known token has no price data', async () => {
-      historicQuoteService.getLast.mockResolvedValue(null);
+      // Create Ethereum rates without known token
+      const emptyEthereumRates = {};
 
-      const result = await service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEvent,
+        mockTokenMap,
+        mockDeployment as Deployment,
+        emptyEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
 
       expect(result).toBe(false);
-      expect(historicQuoteService.getLast).toHaveBeenCalledWith(BlockchainType.Ethereum, '0xethereumtoken');
+      expect(historicQuoteService.getLast).not.toHaveBeenCalled();
       expect(historicQuoteService.addQuote).not.toHaveBeenCalled();
     });
 
     it('should calculate and save price when token0 is known', async () => {
-      historicQuoteService.getLast.mockResolvedValue(mockKnownTokenQuote);
-      historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+      historicQuoteService.addQuote.mockResolvedValue({
+        tokenAddress: '0xunknowntoken',
+        usd: '100.00',
+        blockchainType: mockDeployment.blockchainType,
+        timestamp: new Date(),
+        provider: 'carbon-defi',
+      } as HistoricQuote);
       quoteService.addOrUpdateQuote.mockResolvedValue({} as any);
 
-      const result = await service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEvent,
+        mockTokenMap,
+        mockDeployment as Deployment,
+        mockEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
 
       expect(result).toBe(true);
-      expect(historicQuoteService.getLast).toHaveBeenCalledWith(BlockchainType.Ethereum, '0xethereumtoken');
-      expect(historicQuoteService.addQuote).toHaveBeenCalledWith(
+      expect(historicQuotesToInsert).toHaveLength(1);
+      expect(quoteUpdates).toHaveLength(1);
+      expect(historicQuoteService.getLast).not.toHaveBeenCalled();
+      expect(historicQuotesToInsert[0]).toEqual(
         expect.objectContaining({
           blockchainType: BlockchainType.Coti,
           tokenAddress: '0xunknowntoken',
@@ -784,8 +862,8 @@ describe('CarbonPriceService', () => {
         }),
       );
 
-      // Verify QuoteService is called
-      expect(quoteService.addOrUpdateQuote).toHaveBeenCalledWith(
+      // Verify QuoteService update is collected
+      expect(quoteUpdates[0]).toEqual(
         expect.objectContaining({
           token: mockEvent.targetToken,
           blockchainType: BlockchainType.Coti,
@@ -832,33 +910,42 @@ describe('CarbonPriceService', () => {
         provider: 'coingecko',
       } as HistoricQuote;
 
-      // Setup mocks
-      historicQuoteService.getLast.mockImplementation((blockchainType, tokenAddress) => {
-        if (
-          blockchainType === BlockchainType.Ethereum &&
-          tokenAddress === '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'
-        ) {
-          return Promise.resolve(mockWbtcQuote);
-        }
-        // Return null for TAC price lookup (no existing price)
-        return Promise.resolve(null);
-      });
+      // Create rate objects for this test
+      const tacEthereumRates = {
+        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': mockWbtcQuote,
+      };
 
-      historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+      const tacDeploymentRates = {}; // No existing TAC prices
+
+      historicQuoteService.addQuote.mockResolvedValue({
+        tokenAddress: '0xunknowntoken',
+        usd: '100.00',
+        blockchainType: mockDeployment.blockchainType,
+        timestamp: new Date(),
+        provider: 'carbon-defi',
+      } as HistoricQuote);
       quoteService.addOrUpdateQuote.mockResolvedValue({} as any);
 
       // Process the trade event
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
       const result = await service.processTradeEvent(
         problemEvent,
         deploymentService.getLowercaseTokenMap(tacDeployment),
         tacDeployment,
+        tacEthereumRates,
+        tacDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
       );
 
       // Verify the result
       expect(result).toBe(true);
 
-      // Verify historicQuoteService.addQuote was called with correct TAC price
-      expect(historicQuoteService.addQuote).toHaveBeenCalledWith(
+      // Verify historicQuote was collected with correct TAC price
+      // Should have 2 quotes: one for the WTAC token and one for the native token
+      expect(historicQuotesToInsert).toHaveLength(2);
+      expect(historicQuotesToInsert[0]).toEqual(
         expect.objectContaining({
           blockchainType: BlockchainType.Tac,
           tokenAddress: '0xb63b9f0eb4a6e6f191529d71d4d88cc8900df2c9', // WTAC (normalized from TAC)
@@ -866,10 +953,18 @@ describe('CarbonPriceService', () => {
           timestamp: problemEvent.timestamp,
         }),
       );
+      // Second quote should be for the native token
+      expect(historicQuotesToInsert[1]).toEqual(
+        expect.objectContaining({
+          blockchainType: BlockchainType.Tac,
+          tokenAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', // Native token
+          provider: 'carbon-defi',
+          timestamp: problemEvent.timestamp,
+        }),
+      );
 
       // Get the actual price that was calculated
-      const addQuoteCall = historicQuoteService.addQuote.mock.calls[0][0];
-      const calculatedPrice = parseFloat(addQuoteCall.usd);
+      const calculatedPrice = parseFloat(historicQuotesToInsert[0].usd);
 
       // Verify the price is reasonable (around 0.01457) and NOT the buggy 62.43
       expect(calculatedPrice).toBeCloseTo(0.01457, 4);
@@ -878,19 +973,44 @@ describe('CarbonPriceService', () => {
       expect(calculatedPrice).toBeLessThan(0.02);
     });
 
-    it('should propagate errors from QuoteService.addOrUpdateQuote', async () => {
+    it('should collect quotes for batch processing', async () => {
       historicQuoteService.getLast.mockResolvedValue(mockKnownTokenQuote);
-      historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+      historicQuoteService.addQuote.mockResolvedValue({
+        tokenAddress: '0xunknowntoken',
+        usd: '100.00',
+        blockchainType: mockDeployment.blockchainType,
+        timestamp: new Date(),
+        provider: 'carbon-defi',
+      } as HistoricQuote);
 
-      const testError = new Error('Test error');
-      quoteService.addOrUpdateQuote.mockRejectedValue(testError);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
 
-      await expect(service.processTradeEvent(mockEvent, mockTokenMap, mockDeployment as Deployment)).rejects.toThrow(
-        testError,
+      // Test that the method collects quotes instead of processing them directly
+      const result = await service.processTradeEvent(
+        mockEvent,
+        mockTokenMap,
+        mockDeployment as Deployment,
+        mockEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
       );
 
-      expect(historicQuoteService.addQuote).toHaveBeenCalled();
-      expect(quoteService.addOrUpdateQuote).toHaveBeenCalled();
+      expect(result).toBe(true);
+      expect(historicQuotesToInsert).toHaveLength(1);
+      expect(quoteUpdates).toHaveLength(1);
+
+      // Verify the collected data is correct
+      expect(historicQuotesToInsert[0]).toEqual(
+        expect.objectContaining({
+          blockchainType: mockDeployment.blockchainType,
+          tokenAddress: '0xunknowntoken',
+          provider: 'carbon-defi',
+          usd: expect.any(String),
+          timestamp: mockEvent.timestamp,
+        }),
+      );
     });
 
     // Test with native token as the known token in processTradeEvent
@@ -928,41 +1048,46 @@ describe('CarbonPriceService', () => {
         '0xnativetokenalias': '0xethereumtoken',
       });
 
-      // Reset the mock to control getLast behavior
-      historicQuoteService.getLast.mockReset();
+      // Create rate objects for this test
+      const nativeEthereumRates = {
+        '0xethereumtoken': {
+          tokenAddress: '0xethereumtoken',
+          usd: '2000',
+          blockchainType: BlockchainType.Ethereum,
+          timestamp: new Date(),
+          provider: 'codex',
+        } as HistoricQuote,
+      };
 
-      // Setup the mocks to verify duplicate detection logic
-      // First call: return ETH price
-      // Second call: return null for target token (no existing quote so we should save a new one)
-      historicQuoteService.getLast.mockImplementation((blockchainType, tokenAddress) => {
-        if (blockchainType === BlockchainType.Ethereum && tokenAddress === '0xethereumtoken') {
-          return Promise.resolve({
-            tokenAddress: '0xethereumtoken',
-            usd: '2000',
-            blockchainType: BlockchainType.Ethereum,
-            timestamp: new Date(),
-            provider: 'codex',
-          });
-        }
-        // For the target token, return null to indicate no price exists yet
-        return Promise.resolve(null);
-      });
+      const nativeDeploymentRates = {}; // No existing prices for target token
 
       // Mock addQuote to return a successful result
-      historicQuoteService.addQuote.mockResolvedValue({} as HistoricQuote);
+      historicQuoteService.addQuote.mockResolvedValue({
+        tokenAddress: '0xunknowntoken',
+        usd: '100.00',
+        blockchainType: mockDeployment.blockchainType,
+        timestamp: new Date(),
+        provider: 'carbon-defi',
+      } as HistoricQuote);
       quoteService.addOrUpdateQuote.mockResolvedValue({} as any);
 
       // Run processTradeEvent
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
       const result = await service.processTradeEvent(
         mockEvent,
         { '0xnativetokenalias': '0xethereumtoken' },
         deployment,
+        nativeEthereumRates,
+        nativeDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
       );
 
-      // Verify the result is true and quotes were added
+      // Verify the result is true and quotes were collected
       expect(result).toBe(true);
-      expect(historicQuoteService.addQuote).toHaveBeenCalled();
-      expect(quoteService.addOrUpdateQuote).toHaveBeenCalled();
+      expect(historicQuotesToInsert).toHaveLength(1);
+      expect(quoteUpdates).toHaveLength(1);
     });
 
     it('should handle case where nativeTokenAlias has no mapping in tokenMap', async () => {
@@ -987,7 +1112,17 @@ describe('CarbonPriceService', () => {
       };
 
       // Run processTradeEvent
-      const result = await service.processTradeEvent(mockEventWithNative, tokenMapWithoutNative, deployment);
+      const historicQuotesToInsert: any[] = [];
+      const quoteUpdates: any[] = [];
+      const result = await service.processTradeEvent(
+        mockEventWithNative,
+        tokenMapWithoutNative,
+        deployment,
+        mockEthereumRates,
+        mockDeploymentRates,
+        historicQuotesToInsert,
+        quoteUpdates,
+      );
 
       // Should return false as the token pair wouldn't be identified
       expect(result).toBe(false);
@@ -1001,6 +1136,8 @@ describe('CarbonPriceService', () => {
       lastProcessedBlockService.get.mockResolvedValue(1000);
       tokensTradedEventService.get.mockResolvedValue([]);
       lastProcessedBlockService.update.mockResolvedValue(undefined);
+      historicQuoteService.getLatest.mockResolvedValue({});
+      historicQuoteService.addQuotesBatch.mockResolvedValue([]);
     });
 
     it('should skip processing if deployment has no mapEthereumTokens', async () => {

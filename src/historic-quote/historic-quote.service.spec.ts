@@ -1902,6 +1902,147 @@ describe('HistoricQuoteService', () => {
     });
   });
 
+  describe('addQuotesBatch', () => {
+    beforeEach(() => {
+      jest.clearAllMocks();
+    });
+
+    it('should batch insert multiple quotes in chunks of 1000', async () => {
+      const quotes = [
+        {
+          blockchainType: BlockchainType.Ethereum,
+          tokenAddress: '0xtoken1',
+          usd: '100.25',
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'carbon-defi',
+        },
+        {
+          blockchainType: BlockchainType.Ethereum,
+          tokenAddress: '0xtoken2',
+          usd: '200.50',
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'carbon-defi',
+        },
+        {
+          blockchainType: BlockchainType.Coti,
+          tokenAddress: '0xtoken3',
+          usd: '300.75',
+          timestamp: new Date('2023-01-01T12:00:00.000Z'),
+          provider: 'custom-provider',
+        },
+      ];
+
+      const mockSavedQuotes = quotes.map((quote, index) => ({
+        id: index + 1,
+        ...quote,
+        tokenAddress: quote.tokenAddress.toLowerCase(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+
+      mockRepository.create.mockReturnValue(mockSavedQuotes);
+      mockRepository.save.mockResolvedValue(mockSavedQuotes);
+
+      const result = await service.addQuotesBatch(quotes);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            blockchainType: BlockchainType.Ethereum,
+            tokenAddress: '0xtoken1',
+            usd: '100.25',
+            timestamp: quotes[0].timestamp,
+            provider: 'carbon-defi',
+          }),
+          expect.objectContaining({
+            blockchainType: BlockchainType.Ethereum,
+            tokenAddress: '0xtoken2',
+            usd: '200.50',
+            timestamp: quotes[1].timestamp,
+            provider: 'carbon-defi',
+          }),
+          expect.objectContaining({
+            blockchainType: BlockchainType.Coti,
+            tokenAddress: '0xtoken3',
+            usd: '300.75',
+            timestamp: quotes[2].timestamp,
+            provider: 'custom-provider',
+          }),
+        ]),
+      );
+
+      expect(mockRepository.save).toHaveBeenCalledTimes(1);
+      expect(result).toHaveLength(3);
+      expect(result).toEqual(mockSavedQuotes);
+    });
+
+    it('should handle empty array by returning empty array', async () => {
+      const result = await service.addQuotesBatch([]);
+
+      expect(mockRepository.create).not.toHaveBeenCalled();
+      expect(mockRepository.save).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
+    });
+
+    it('should normalize token addresses to lowercase', async () => {
+      const quotes = [
+        {
+          blockchainType: BlockchainType.Ethereum,
+          tokenAddress: '0xTOKEN1',
+          usd: '100.00',
+          timestamp: new Date(),
+          provider: 'test-provider',
+        },
+      ];
+
+      const mockSavedQuote = {
+        id: 1,
+        ...quotes[0],
+        tokenAddress: '0xtoken1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      mockRepository.create.mockReturnValue([mockSavedQuote]);
+      mockRepository.save.mockResolvedValue([mockSavedQuote]);
+
+      await service.addQuotesBatch(quotes);
+
+      expect(mockRepository.create).toHaveBeenCalledWith([
+        expect.objectContaining({
+          tokenAddress: '0xtoken1',
+        }),
+      ]);
+    });
+
+    it('should process large batches in chunks of 1000', async () => {
+      // Create 2500 quotes to test batching
+      const quotes = Array.from({ length: 2500 }, (_, index) => ({
+        blockchainType: BlockchainType.Ethereum,
+        tokenAddress: `0xtoken${index}`,
+        usd: `${index * 100}`,
+        timestamp: new Date(),
+        provider: 'test-provider',
+      }));
+
+      const mockSavedQuotes = quotes.map((quote, index) => ({
+        id: index + 1,
+        ...quote,
+        tokenAddress: quote.tokenAddress.toLowerCase(),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }));
+
+      mockRepository.create.mockReturnValue(mockSavedQuotes);
+      mockRepository.save.mockResolvedValue(mockSavedQuotes);
+
+      await service.addQuotesBatch(quotes);
+
+      // Should be called 3 times: 1000 + 1000 + 500
+      expect(mockRepository.save).toHaveBeenCalledTimes(3);
+    });
+  });
+
   describe('getLatest', () => {
     beforeEach(() => {
       jest.clearAllMocks();

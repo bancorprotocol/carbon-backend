@@ -1307,6 +1307,52 @@ export class HistoricQuoteService implements OnModuleInit {
     }
   }
 
+  /**
+   * Add multiple quotes in batches of 1000 without duplicate checking or validation
+   * This is optimized for bulk inserts where duplicate checking is handled elsewhere
+   * All required fields must be provided - this method will not set defaults
+   * @param quotes Array of quotes to insert (all fields required)
+   * @returns Array of saved quotes
+   */
+  async addQuotesBatch(quotes: Partial<HistoricQuote>[]): Promise<HistoricQuote[]> {
+    if (quotes.length === 0) {
+      return [];
+    }
+
+    const batchSize = 1000;
+    const results: HistoricQuote[] = [];
+
+    // Process quotes in batches of 1000
+    for (let i = 0; i < quotes.length; i += batchSize) {
+      const batch = quotes.slice(i, i + batchSize);
+
+      // Prepare quotes for insertion - normalize tokenAddress to lowercase
+      const preparedQuotes = batch.map((quote) => ({
+        ...quote,
+        tokenAddress: quote.tokenAddress.toLowerCase(),
+      }));
+
+      // Create entities without saving first
+      const entities = this.repository.create(preparedQuotes);
+
+      // Batch insert
+      const savedEntities = await this.repository.save(entities);
+      results.push(...savedEntities);
+
+      this.logger.log(
+        `Inserted batch of ${savedEntities.length} historic quotes (${i + 1}-${Math.min(
+          i + batchSize,
+          quotes.length,
+        )} of ${quotes.length})`,
+      );
+    }
+
+    this.logger.log(
+      `Successfully inserted ${results.length} historic quotes in ${Math.ceil(quotes.length / batchSize)} batches`,
+    );
+    return results;
+  }
+
   async prepareHistoricQuotesForQuery(deployment: Deployment, tokens: TokensByAddress): Promise<string> {
     // Calculate timestamps for 5 years ago and now
     const end = Math.floor(Date.now() / 1000);
