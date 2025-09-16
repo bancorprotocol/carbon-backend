@@ -52,6 +52,10 @@ export class CarbonPriceService {
     // Get the deployment's token map outside the batch loop
     const lowercaseTokenMap = this.deploymentService.getLowercaseTokenMap(deployment);
 
+    // Get latest rates for Ethereum and current deployment - called only twice for the entire batch
+    const ethereumRates = await this.historicQuoteService.getLatest(BlockchainType.Ethereum);
+    const deploymentRates = await this.historicQuoteService.getLatest(deployment.blockchainType);
+
     // Process in batches to avoid memory issues
     while (currentStartBlock < endBlock) {
       const batchEndBlock = Math.min(currentStartBlock + BATCH_SIZE, endBlock);
@@ -63,13 +67,43 @@ export class CarbonPriceService {
         `Processing batch from ${currentStartBlock} to ${batchEndBlock}, found ${tradedEvents.length} events`,
       );
 
+      // Collect quotes for this batch only
+      const historicQuotesToInsert: Partial<HistoricQuote>[] = [];
+      const quoteUpdates: any[] = [];
+
       // Process each traded event
       for (const event of tradedEvents) {
         totalProcessed++;
 
-        const result = await this.processTradeEvent(event, lowercaseTokenMap, deployment);
+        const result = await this.processTradeEvent(
+          event,
+          lowercaseTokenMap,
+          deployment,
+          ethereumRates,
+          deploymentRates,
+          historicQuotesToInsert,
+          quoteUpdates,
+        );
         if (result) {
           totalPricesUpdated++;
+        }
+      }
+
+      // Batch insert historic quotes for this batch
+      if (historicQuotesToInsert.length > 0) {
+        this.logger.log(
+          `Batch inserting ${historicQuotesToInsert.length} historic quotes for batch ${currentStartBlock}-${batchEndBlock}`,
+        );
+        await this.historicQuoteService.addQuotesBatch(historicQuotesToInsert);
+      }
+
+      // Batch update quote service entries for this batch
+      if (quoteUpdates.length > 0) {
+        this.logger.log(
+          `Processing ${quoteUpdates.length} quote updates for batch ${currentStartBlock}-${batchEndBlock}`,
+        );
+        for (const quoteUpdate of quoteUpdates) {
+          await this.quoteService.addOrUpdateQuote(quoteUpdate);
         }
       }
 
@@ -89,13 +123,21 @@ export class CarbonPriceService {
   }
 
   /**
-   * Process a single trade event and save price if applicable
+   * Process a single trade event and collect quotes for batch insertion
+   * @param ethereumRates - Latest rates from Ethereum blockchain
+   * @param deploymentRates - Latest rates from current deployment blockchain
+   * @param historicQuotesToInsert - Array to collect historic quotes for batch insertion
+   * @param quoteUpdates - Array to collect quote service updates
    * @returns true if a price was updated, false otherwise
    */
   async processTradeEvent(
     event: TokensTradedEvent,
     lowercaseTokenMap: LowercaseTokenMap,
     deployment: Deployment,
+    ethereumRates: { [key: string]: HistoricQuote },
+    deploymentRates: { [key: string]: HistoricQuote },
+    historicQuotesToInsert: Partial<HistoricQuote>[],
+    quoteUpdates: any[],
   ): Promise<boolean> {
     // Get the token addresses and normalize them
     const token0Address = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
@@ -108,11 +150,8 @@ export class CarbonPriceService {
       return false; // No relevant tokens in this trade
     }
 
-    // Get the latest price of the known token from ethereum blockchain
-    const knownTokenQuote = await this.historicQuoteService.getLast(
-      BlockchainType.Ethereum,
-      tokenPair.mappedTokenAddress,
-    );
+    // Get the latest price of the known token from ethereum rates
+    const knownTokenQuote = ethereumRates[tokenPair.mappedTokenAddress];
 
     if (!knownTokenQuote) {
       return false; // Skip if we don't have a price for the known token
@@ -123,7 +162,7 @@ export class CarbonPriceService {
     const tokenPrice = unknownTokenPrice.toString();
 
     // Check if the last price for this token is the same, to avoid duplicate entries
-    const lastQuote = await this.historicQuoteService.getLast(deployment.blockchainType, tokenPair.unknownTokenAddress);
+    const lastQuote = deploymentRates[tokenPair.unknownTokenAddress];
 
     // If the last quote exists and has the same price, skip adding a new quote
     // Use Decimal.js for precise comparison
@@ -138,21 +177,33 @@ export class CarbonPriceService {
       }
     }
 
-    // Save the price to the historicQuote table
-    await this.historicQuoteService.addQuote({
+    // Collect the quote for batch insertion to historicQuote table
+    const newQuoteData = {
       blockchainType: deployment.blockchainType,
       tokenAddress: tokenPair.unknownTokenAddress,
       usd: tokenPrice,
       timestamp: event.timestamp,
       provider: 'carbon-defi',
-    });
+    };
+    historicQuotesToInsert.push(newQuoteData);
 
-    // Also update the quote table
+    // Create a mock quote object for caching (to maintain duplicate detection)
+    const newQuote = {
+      ...newQuoteData,
+      id: 0, // Temporary ID for caching purposes
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as HistoricQuote;
+
+    // Update the cached rates with the new price to ensure future price change detection works correctly
+    deploymentRates[tokenPair.unknownTokenAddress] = newQuote;
+
+    // Collect quote table update
     const token = tokenPair.isToken0Known
       ? event.targetToken // If token0 is known, then token1 is the unknown token
       : event.sourceToken; // If token1 is known, then token0 is the unknown token
 
-    await this.quoteService.addOrUpdateQuote({
+    quoteUpdates.push({
       token: token,
       blockchainType: deployment.blockchainType,
       usd: tokenPrice,
@@ -160,18 +211,30 @@ export class CarbonPriceService {
       provider: 'carbon-defi',
     });
 
-    // If the unknown token is a native token alias, also save price for the original NATIVE_TOKEN address
+    // If the unknown token is a native token alias, also collect price for the original NATIVE_TOKEN address
     if (deployment.nativeTokenAlias && tokenPair.unknownTokenAddress === deployment.nativeTokenAlias.toLowerCase()) {
       const nativeTokenAddress = NATIVE_TOKEN.toLowerCase();
 
-      // Save to historicQuote table for NATIVE_TOKEN address
-      await this.historicQuoteService.addQuote({
+      // Collect native token quote for batch insertion to historicQuote table
+      const nativeTokenQuoteData = {
         blockchainType: deployment.blockchainType,
         tokenAddress: nativeTokenAddress,
         usd: tokenPrice,
         timestamp: event.timestamp,
         provider: 'carbon-defi',
-      });
+      };
+      historicQuotesToInsert.push(nativeTokenQuoteData);
+
+      // Create mock quote for caching
+      const nativeTokenQuote = {
+        ...nativeTokenQuoteData,
+        id: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      } as HistoricQuote;
+
+      // Update the cached rates for the native token as well
+      deploymentRates[nativeTokenAddress] = nativeTokenQuote;
 
       // Create a native token object for the quote table
       const nativeToken = {
@@ -179,8 +242,8 @@ export class CarbonPriceService {
         address: NATIVE_TOKEN,
       };
 
-      // Save to quote table for NATIVE_TOKEN address
-      await this.quoteService.addOrUpdateQuote({
+      // Collect native token quote table update
+      quoteUpdates.push({
         token: nativeToken,
         blockchainType: deployment.blockchainType,
         usd: tokenPrice,
@@ -244,10 +307,6 @@ export class CarbonPriceService {
     deployment: Deployment,
     tokenPair: TokenAddressPair,
   ): Decimal {
-    // Normalize the addresses to handle native token aliases
-    const sourceTokenAddress = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
-    const knownTokenAddress = knownTokenQuote.tokenAddress.toLowerCase();
-
     // Normalize amounts using the correct decimal places from their respective tokens
     const normalizedSourceAmount = new Decimal(event.sourceAmount).div(new Decimal(10).pow(event.sourceToken.decimals));
     const normalizedTargetAmount = new Decimal(event.targetAmount).div(new Decimal(10).pow(event.targetToken.decimals));
