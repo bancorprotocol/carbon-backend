@@ -1,6 +1,6 @@
 import { Controller, Get, Query, Header, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, LessThanOrEqual } from 'typeorm';
 import { Decimal } from 'decimal.js';
 import { toChecksumAddress } from 'web3-utils';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
@@ -69,6 +69,8 @@ export class MerklController {
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
+        isActive: true,
+        startDate: LessThanOrEqual(new Date()),
         pair: {
           token0: { address: pair.token0.address },
           token1: { address: pair.token1.address },
@@ -127,6 +129,8 @@ export class MerklController {
       where: {
         blockchainType: deployment.blockchainType,
         exchangeId: deployment.exchangeId,
+        isActive: true,
+        startDate: LessThanOrEqual(new Date()),
         pair: { id: pair.id },
       },
       relations: ['pair', 'pair.token0', 'pair.token1'],
