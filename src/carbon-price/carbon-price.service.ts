@@ -143,6 +143,13 @@ export class CarbonPriceService {
     const token0Address = this.normalizeTokenAddress(event.sourceToken.address.toLowerCase(), deployment);
     const token1Address = this.normalizeTokenAddress(event.targetToken.address.toLowerCase(), deployment);
 
+    if (
+      token0Address === '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d' ||
+      token1Address === '0xfc60fc0145d7330e5abcfc52af7b043a1ce18e7d'
+    ) {
+      console.log('hi');
+    }
+
     // Check if either token0 or token1 is in the deployment token map
     const tokenPair = this.identifyTokenPair(token0Address, token1Address, lowercaseTokenMap);
 
