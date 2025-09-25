@@ -26,6 +26,7 @@
     "migration:run": "npm run build && typeorm-ts-node-commonjs migration:run -d src/typeorm.config.ts",
     "migration:revert": "npm run build && typeorm-ts-node-commonjs migration:revert -d src/typeorm.config.ts",
     "cleanup:duplicates": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/cleanup-duplicates.ts",
+    "cleanup:activities": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/cleanup-activities.ts",
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
     "db:seed": "node src/scripts/seed.js",

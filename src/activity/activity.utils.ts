@@ -179,6 +179,10 @@ export function createActivityFromEvent(
   if (event instanceof StrategyCreatedEvent) {
     activity.creationWallet = event.owner;
     activity.currentOwner = event.owner;
+  } else if (action === 'create_strategy' && 'owner' in event) {
+    // Handle modified strategy created events (batch creates)
+    activity.creationWallet = (event as any).owner;
+    activity.currentOwner = (event as any).owner;
   } else if (strategyStates.has(event.strategyId)) {
     const previousState = strategyStates.get(event.strategyId);
     activity.creationWallet = previousState.creationWallet;
