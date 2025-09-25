@@ -209,6 +209,37 @@ describe('ActivityV2Service', () => {
       expect(activities[0].action).toBe('create_strategy');
     });
 
+    it('should include budget and price changes for create events', async () => {
+      const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
+      const strategyStates = new Map();
+      const activities = service.processEvents([createdEvent], [], [], [], mockDeployment, mockTokens, strategyStates);
+
+      const createActivity = activities[0];
+      expect(createActivity.action).toBe('create_strategy');
+
+      // Budget changes should equal the current budget (change from null/0 to current)
+      expect(createActivity.sellBudgetChange).toBe(createActivity.sellBudget);
+      expect(createActivity.buyBudgetChange).toBe(createActivity.buyBudget);
+
+      // Price changes should equal the current prices (change from 0 to current)
+      expect(createActivity.sellPriceADelta).toBe(createActivity.sellPriceA);
+      expect(createActivity.sellPriceMargDelta).toBe(createActivity.sellPriceMarg);
+      expect(createActivity.sellPriceBDelta).toBe(createActivity.sellPriceB);
+      expect(createActivity.buyPriceADelta).toBe(createActivity.buyPriceA);
+      expect(createActivity.buyPriceMargDelta).toBe(createActivity.buyPriceMarg);
+      expect(createActivity.buyPriceBDelta).toBe(createActivity.buyPriceB);
+
+      // Verify that the change fields are not null/undefined
+      expect(createActivity.sellBudgetChange).toBeDefined();
+      expect(createActivity.buyBudgetChange).toBeDefined();
+      expect(createActivity.sellPriceADelta).toBeDefined();
+      expect(createActivity.sellPriceMargDelta).toBeDefined();
+      expect(createActivity.sellPriceBDelta).toBeDefined();
+      expect(createActivity.buyPriceADelta).toBeDefined();
+      expect(createActivity.buyPriceMargDelta).toBeDefined();
+      expect(createActivity.buyPriceBDelta).toBeDefined();
+    });
+
     it('should assign strategy_paused action when prices are zero', async () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
@@ -659,6 +690,54 @@ describe('ActivityV2Service', () => {
       const strategyState = strategyStates.get('1');
       expect(strategyState.currentOwner).toBe('0xuser');
       expect(strategyState.creationWallet).toBe('0xuser');
+    });
+
+    it('should include budget and price changes for batch create events', async () => {
+      const strategyStates = new Map();
+
+      // Create a batch create scenario: StrategyCreated by batcher + Transfer to user
+      const batchCreatedEvent = {
+        ...baseCreatedEvent,
+        owner: '0xbatcher', // Strategy created by batcher
+        transactionHash: '0xbatchtx',
+      } as StrategyCreatedEvent;
+
+      const batchTransferEvent = {
+        ...baseTransferEvent,
+        from: '0xbatcher', // Transfer from batcher
+        to: '0xuser', // To real user
+        transactionHash: '0xbatchtx', // Same transaction
+        strategyId: '1', // Same strategy
+      } as VoucherTransferEvent;
+
+      const activities = service.processEvents(
+        [batchCreatedEvent],
+        [],
+        [],
+        [batchTransferEvent],
+        mockDeployment,
+        mockTokens,
+        strategyStates,
+      );
+
+      const createActivity = activities[0];
+      expect(createActivity.action).toBe('create_strategy');
+
+      // Even for batch creates, budget changes should equal the current budget
+      expect(createActivity.sellBudgetChange).toBe(createActivity.sellBudget);
+      expect(createActivity.buyBudgetChange).toBe(createActivity.buyBudget);
+
+      // Price changes should equal the current prices
+      expect(createActivity.sellPriceADelta).toBe(createActivity.sellPriceA);
+      expect(createActivity.sellPriceMargDelta).toBe(createActivity.sellPriceMarg);
+      expect(createActivity.sellPriceBDelta).toBe(createActivity.sellPriceB);
+      expect(createActivity.buyPriceADelta).toBe(createActivity.buyPriceA);
+      expect(createActivity.buyPriceMargDelta).toBe(createActivity.buyPriceMarg);
+      expect(createActivity.buyPriceBDelta).toBe(createActivity.buyPriceB);
+
+      // Verify that the change fields are populated
+      expect(createActivity.sellBudgetChange).toBeDefined();
+      expect(createActivity.buyBudgetChange).toBeDefined();
     });
 
     it('should handle multiple transfers and use the last one', async () => {

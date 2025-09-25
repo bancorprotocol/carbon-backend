@@ -239,6 +239,19 @@ export function createActivityFromEvent(
         activity.action = 'buy_low';
       }
     }
+  } else if (action === 'create_strategy' || event instanceof StrategyCreatedEvent) {
+    // For create events, there's no previous state, so the change equals the current budget
+    // (difference from null/0 to current state)
+    activity.sellBudgetChange = processedOrders.liquidity0.toString();
+    activity.buyBudgetChange = processedOrders.liquidity1.toString();
+
+    // Price deltas for create events (from 0 to current prices)
+    activity.sellPriceADelta = processedOrders.sellPriceA.toString();
+    activity.sellPriceMargDelta = processedOrders.sellPriceMarg.toString();
+    activity.sellPriceBDelta = processedOrders.sellPriceB.toString();
+    activity.buyPriceADelta = processedOrders.buyPriceA.toString();
+    activity.buyPriceMargDelta = processedOrders.buyPriceMarg.toString();
+    activity.buyPriceBDelta = processedOrders.buyPriceB.toString();
   }
 
   return activity;
