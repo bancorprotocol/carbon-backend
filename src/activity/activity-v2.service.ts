@@ -299,8 +299,19 @@ export class ActivityV2Service {
   ): ActivityV2[] {
     const activities: ActivityV2[] = [];
 
+    // Detect batch creates and modify events accordingly
+    const { modifiedCreatedEvents, filteredTransferEvents } = this.detectAndProcessBatchCreates(
+      createdEvents,
+      transferEvents,
+    );
+
     // Process all events in chronological order
-    const allEvents = this.sortEventsByChronologicalOrder(createdEvents, updatedEvents, deletedEvents, transferEvents);
+    const allEvents = this.sortEventsByChronologicalOrder(
+      modifiedCreatedEvents,
+      updatedEvents,
+      deletedEvents,
+      filteredTransferEvents,
+    );
 
     for (const { type, event } of allEvents) {
       switch (type) {
@@ -572,6 +583,95 @@ export class ActivityV2Service {
     activity.logIndex = event.logIndex;
 
     return activity;
+  }
+
+  private detectAndProcessBatchCreates(
+    createdEvents: StrategyCreatedEvent[],
+    transferEvents: VoucherTransferEvent[],
+  ): { modifiedCreatedEvents: StrategyCreatedEvent[]; filteredTransferEvents: VoucherTransferEvent[] } {
+    // Group events by transaction hash
+    const transfersByTxHash = new Map<string, VoucherTransferEvent[]>();
+    const createdByTxHash = new Map<string, StrategyCreatedEvent[]>();
+
+    // Group transfer events by transaction hash and sort them properly within each transaction
+    for (const transfer of transferEvents) {
+      if (!transfersByTxHash.has(transfer.transactionHash)) {
+        transfersByTxHash.set(transfer.transactionHash, []);
+      }
+      const transfersArray = transfersByTxHash.get(transfer.transactionHash);
+      if (transfersArray) {
+        transfersArray.push(transfer);
+      }
+    }
+
+    // Sort transfers within each transaction by transactionIndex and logIndex
+    for (const [txHash, transfers] of transfersByTxHash) {
+      transfers.sort((a, b) => {
+        if (a.transactionIndex !== b.transactionIndex) {
+          return a.transactionIndex - b.transactionIndex;
+        }
+        return a.logIndex - b.logIndex;
+      });
+      transfersByTxHash.set(txHash, transfers);
+    }
+
+    // Group created events by transaction hash
+    for (const created of createdEvents) {
+      if (!createdByTxHash.has(created.transactionHash)) {
+        createdByTxHash.set(created.transactionHash, []);
+      }
+      const createdArray = createdByTxHash.get(created.transactionHash);
+      if (createdArray) {
+        createdArray.push(created);
+      }
+    }
+
+    const modifiedCreatedEvents: StrategyCreatedEvent[] = [];
+    const batchTransferHashes = new Set<string>(); // Track transfers that are part of batch creates
+
+    // Process each transaction to detect batch creates
+    for (const [txHash, createdEventsInTx] of createdByTxHash) {
+      const transfersInTx = transfersByTxHash.get(txHash) || [];
+
+      for (const createdEvent of createdEventsInTx) {
+        // Look for a transfer in the same transaction where:
+        // 1. Transfer.from === StrategyCreated.owner (batcher address)
+        // 2. Transfer.strategyId === StrategyCreated.strategyId
+        const matchingTransfers = transfersInTx.filter(
+          (transfer) =>
+            transfer.strategyId === createdEvent.strategyId &&
+            transfer.from.toLowerCase() === createdEvent.owner.toLowerCase(),
+        );
+
+        if (matchingTransfers.length > 0) {
+          // Batch create detected - use the last transfer (as per your instruction)
+          const finalTransfer = matchingTransfers[matchingTransfers.length - 1];
+
+          // Create a modified version of the created event with the real user as owner
+          const modifiedCreatedEvent = {
+            ...createdEvent,
+            owner: finalTransfer.to,
+          };
+
+          modifiedCreatedEvents.push(modifiedCreatedEvent);
+
+          // Mark all matching transfers for filtering
+          for (const transfer of matchingTransfers) {
+            batchTransferHashes.add(`${transfer.transactionHash}-${transfer.logIndex}`);
+          }
+        } else {
+          // Not a batch create - keep original
+          modifiedCreatedEvents.push(createdEvent);
+        }
+      }
+    }
+
+    // Filter out transfer events that are part of batch creates
+    const filteredTransferEvents = transferEvents.filter(
+      (transfer) => !batchTransferHashes.has(`${transfer.transactionHash}-${transfer.logIndex}`),
+    );
+
+    return { modifiedCreatedEvents, filteredTransferEvents };
   }
 
   private async initializeStrategyStates(
