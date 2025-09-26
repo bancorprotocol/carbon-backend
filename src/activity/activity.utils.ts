@@ -124,8 +124,17 @@ export function createActivityFromEvent(
   const order0 = parseOrder(event.order0);
   const order1 = parseOrder(event.order1);
 
-  // Process the orders using the updated processOrders function.
-  const processedOrders = processOrders(order0, order1, decimals0, decimals1);
+  // For delete events, we need to show the final state (all zeros) instead of the event data
+  let processedOrders;
+  if (action === 'deleted' || event instanceof StrategyDeletedEvent) {
+    // Create zero orders for the final state after deletion
+    const zeroOrder0 = { y: new Decimal(0), z: new Decimal(0), A: new Decimal(0), B: new Decimal(0) };
+    const zeroOrder1 = { y: new Decimal(0), z: new Decimal(0), A: new Decimal(0), B: new Decimal(0) };
+    processedOrders = processOrders(zeroOrder0, zeroOrder1, decimals0, decimals1);
+  } else {
+    // Process the orders using the updated processOrders function.
+    processedOrders = processOrders(order0, order1, decimals0, decimals1);
+  }
 
   // If this is an update event that (by default) is returning 'edit_price',
   // then check if all price fields are zero and if so mark it as paused
@@ -239,6 +248,21 @@ export function createActivityFromEvent(
         activity.action = 'buy_low';
       }
     }
+  } else if (action === 'deleted' || event instanceof StrategyDeletedEvent) {
+    // For delete events, calculate changes from the event data (previous state) to zeros (current state)
+    const eventProcessed = processOrders(order0, order1, decimals0, decimals1);
+
+    // Changes are negative since we're going from some value to zero
+    activity.sellBudgetChange = processedOrders.liquidity0.minus(eventProcessed.liquidity0).toString();
+    activity.buyBudgetChange = processedOrders.liquidity1.minus(eventProcessed.liquidity1).toString();
+
+    // Price deltas are also negative (from some value to zero)
+    activity.sellPriceADelta = processedOrders.sellPriceA.minus(eventProcessed.sellPriceA).toString();
+    activity.sellPriceMargDelta = processedOrders.sellPriceMarg.minus(eventProcessed.sellPriceMarg).toString();
+    activity.sellPriceBDelta = processedOrders.sellPriceB.minus(eventProcessed.sellPriceB).toString();
+    activity.buyPriceADelta = processedOrders.buyPriceA.minus(eventProcessed.buyPriceA).toString();
+    activity.buyPriceMargDelta = processedOrders.buyPriceMarg.minus(eventProcessed.buyPriceMarg).toString();
+    activity.buyPriceBDelta = processedOrders.buyPriceB.minus(eventProcessed.buyPriceB).toString();
   } else if (action === 'create_strategy' || event instanceof StrategyCreatedEvent) {
     // For create events, there's no previous state, so the change equals the current budget
     // (difference from null/0 to current state)

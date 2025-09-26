@@ -28,6 +28,7 @@
     "cleanup:duplicates": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/cleanup-duplicates.ts",
     "cleanup:activities": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/cleanup-activities.ts",
     "update:create-changes": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/update-create-changes.ts",
+    "update:delete-events": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/update-delete-events.ts",
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
     "db:seed": "node src/scripts/seed.js",

@@ -469,6 +469,32 @@ describe('ActivityV2Service', () => {
       expect(activities[0].action).toBe('deleted');
     });
 
+    it('should show zero budgets and correct changes for delete events', async () => {
+      const deletedEvent = {
+        ...baseDeletedEvent,
+        order0: JSON.stringify({ y: '10000000000000000000', z: '0', A: '0', B: '4409572391052980' }), // 10 ETH budget
+        order1: JSON.stringify({ y: '2000000000', z: '0', A: '0', B: '12397686690' }), // 2000 USDC budget
+      } as StrategyDeletedEvent;
+
+      const strategyStates = new Map();
+      const activities = service.processEvents([], [], [deletedEvent], [], mockDeployment, mockTokens, strategyStates);
+
+      const deleteActivity = activities[0];
+      expect(deleteActivity.action).toBe('deleted');
+
+      // Strategy budgets should be zero after deletion
+      expect(deleteActivity.sellBudget).toBe('0');
+      expect(deleteActivity.buyBudget).toBe('0');
+
+      // Changes should reflect the decrease from previous state to zero (negative values)
+      expect(parseFloat(deleteActivity.sellBudgetChange)).toBeLessThan(0);
+      expect(parseFloat(deleteActivity.buyBudgetChange)).toBeLessThan(0);
+
+      // The absolute change should equal the original budget amounts
+      expect(deleteActivity.sellBudgetChange).toBe('-10');
+      expect(deleteActivity.buyBudgetChange).toBe('-2000');
+    });
+
     it('should assign sell_high action for trade events (reason = 1) where y0 increases and y1 decreases', async () => {
       const createdEvent = { ...baseCreatedEvent } as StrategyCreatedEvent;
       const updatedEvent = {
