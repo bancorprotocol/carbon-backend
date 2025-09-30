@@ -34,6 +34,7 @@ describe('MarketRateController', () => {
         return acc;
       }, {});
     }),
+    isTokenIgnoredFromPricing: jest.fn(() => false),
   };
 
   const mockCodexService = {
@@ -320,6 +321,73 @@ describe('MarketRateController', () => {
         data: { USD: 555.55 },
         provider: 'coingecko',
       });
+    });
+
+    it('should throw BadRequestException when token address is in pricing ignore list', async () => {
+      const params = { address: '0x44d13160094b45f39b712843d887939027513129', convert: 'usd' };
+      const deployment = {
+        exchangeId: MockExchangeId.Ethereum,
+        blockchainType: MockBlockchainType.Ethereum,
+        pricingIgnoreList: ['0x44d13160094b45f39b712843d887939027513129'],
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockReturnValue(deployment);
+      mockDeploymentService.isTokenIgnoredFromPricing.mockReturnValue(true);
+
+      await expect(controller.marketRate(MockExchangeId.Ethereum as unknown as ExchangeId, params)).rejects.toThrow(
+        new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Pricing not available for this token address',
+        }),
+      );
+
+      expect(mockDeploymentService.isTokenIgnoredFromPricing).toHaveBeenCalledWith(
+        deployment,
+        params.address.toLowerCase(),
+      );
+    });
+
+    it('should throw BadRequestException when mapped token address is in pricing ignore list', async () => {
+      const params = { address: '0x9151434b16b9763660705744891fA906F660EcC5', convert: 'usd' };
+      const deployment = {
+        exchangeId: MockExchangeId.Sei,
+        blockchainType: MockBlockchainType.Sei,
+        mapEthereumTokens: {
+          '0x9151434b16b9763660705744891fA906F660EcC5': '0xdac17f958d2ee523a2206206994597c13d831ec7',
+        },
+      };
+      const ethereumDeployment = {
+        exchangeId: MockExchangeId.Ethereum,
+        blockchainType: MockBlockchainType.Ethereum,
+        pricingIgnoreList: ['0xdac17f958d2ee523a2206206994597c13d831ec7'],
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockReturnValue(deployment);
+      mockDeploymentService.getDeploymentByBlockchainType.mockReturnValue(ethereumDeployment);
+      mockDeploymentService.isTokenIgnoredFromPricing
+        .mockReturnValueOnce(false) // First call for original address
+        .mockReturnValueOnce(true); // Second call for mapped address
+
+      await expect(controller.marketRate(MockExchangeId.Sei as unknown as ExchangeId, params)).rejects.toThrow(
+        new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Pricing not available for this token address',
+        }),
+      );
+
+      expect(mockDeploymentService.isTokenIgnoredFromPricing).toHaveBeenCalledTimes(2);
+      expect(mockDeploymentService.isTokenIgnoredFromPricing).toHaveBeenNthCalledWith(
+        1,
+        deployment,
+        params.address.toLowerCase(),
+      );
+      expect(mockDeploymentService.isTokenIgnoredFromPricing).toHaveBeenNthCalledWith(
+        2,
+        ethereumDeployment,
+        '0xdac17f958d2ee523a2206206994597c13d831ec7',
+      );
     });
   });
 });

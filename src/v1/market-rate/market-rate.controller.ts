@@ -46,6 +46,15 @@ export class MarketRateController {
     const { convert } = params;
     const currencies = convert.split(',');
 
+    // Check if the token address is in the pricing ignore list
+    if (this.deploymentService.isTokenIgnoredFromPricing(deployment, address)) {
+      throw new BadRequestException({
+        statusCode: 400,
+        error: 'Bad Request',
+        message: 'Pricing not available for this token address',
+      });
+    }
+
     // check if we currencies requested are the same as the ones we already have
     const existingQuote = await this.quoteService.getRecentQuotesForAddress(deployment.blockchainType, address);
     if (existingQuote) {
@@ -63,6 +72,15 @@ export class MarketRateController {
       // Use the mapped Ethereum address and Ethereum deployment
       tokenAddress = lowercaseTokenMap[address];
       tokenDeployment = this.deploymentService.getDeploymentByBlockchainType(BlockchainType.Ethereum);
+
+      // Also check if the mapped token address is in the target deployment's pricing ignore list
+      if (this.deploymentService.isTokenIgnoredFromPricing(tokenDeployment, tokenAddress)) {
+        throw new BadRequestException({
+          statusCode: 400,
+          error: 'Bad Request',
+          message: 'Pricing not available for this token address',
+        });
+      }
     }
 
     // Use the appropriate providers based on the deployment
