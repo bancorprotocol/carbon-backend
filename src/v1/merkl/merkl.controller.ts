@@ -91,6 +91,53 @@ export class MerklController {
     return this.processSingleCampaign(campaign, deployment);
   }
 
+  @Get('all-data')
+  @CacheTTL(1 * 1000)
+  @Header('Cache-Control', 'public, max-age=60')
+  @ApiExchangeIdParam()
+  async getAllData(@ExchangeIdParam() exchangeId: ExchangeId): Promise<any> {
+    const deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
+
+    // Get all active campaigns with startDate <= now
+    const campaigns = await this.campaignRepository.find({
+      where: {
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        isActive: true,
+        startDate: LessThanOrEqual(new Date()),
+      },
+      relations: ['pair', 'pair.token0', 'pair.token1'],
+      order: { endDate: 'DESC' },
+    });
+
+    if (campaigns.length === 0) {
+      return [];
+    }
+
+    // Collect all unique reward token addresses to optimize USD rate fetching
+    const uniqueRewardTokens = [...new Set(campaigns.map((campaign) => campaign.rewardTokenAddress))];
+
+    // Fetch USD rates for all reward tokens at once (optimization)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    const nowIso = new Date().toISOString();
+
+    const allUsdRates = await this.historicQuoteService.getUsdRates(
+      deployment,
+      uniqueRewardTokens,
+      thirtyDaysAgo,
+      nowIso,
+    );
+
+    // Process all campaigns with the precomputed USD rates
+    const campaignDataPromises = campaigns.map((campaign) =>
+      this.processSingleCampaign(campaign, deployment, allUsdRates),
+    );
+
+    const campaignData = await Promise.all(campaignDataPromises);
+
+    return campaignData;
+  }
+
   @Get('rewards')
   @CacheTTL(1 * 1000)
   @Header('Cache-Control', 'public, max-age=60')
@@ -184,7 +231,11 @@ export class MerklController {
     };
   }
 
-  private async processSingleCampaign(campaign: Campaign, deployment: Deployment): Promise<DataResponseDto> {
+  private async processSingleCampaign(
+    campaign: Campaign,
+    deployment: Deployment,
+    precomputedUsdRates?: any[],
+  ): Promise<DataResponseDto> {
     const currentTime = Math.floor(Date.now() / 1000);
     const campaignStartTime = Math.floor(campaign.startDate.getTime() / 1000);
     const campaignEndTime = Math.floor(campaign.endDate.getTime() / 1000);
@@ -226,17 +277,25 @@ export class MerklController {
       };
     }
 
-    // Get USD price of reward token from last 30 days
+    // Get USD price of reward token
     let rewardTokenUsdPrice = new Decimal(0);
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const nowIso = new Date().toISOString();
+    let usdRates;
 
-    const usdRates = await this.historicQuoteService.getUsdRates(
-      deployment,
-      [campaign.rewardTokenAddress],
-      thirtyDaysAgo,
-      nowIso,
-    );
+    if (precomputedUsdRates) {
+      // Use the precomputed USD rates if provided
+      usdRates = precomputedUsdRates;
+    } else {
+      // Fall back to fetching individually (existing behavior)
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      const nowIso = new Date().toISOString();
+
+      usdRates = await this.historicQuoteService.getUsdRates(
+        deployment,
+        [campaign.rewardTokenAddress],
+        thirtyDaysAgo,
+        nowIso,
+      );
+    }
 
     // Filter for the reward token and get the most recent rate
     const rewardTokenRates = usdRates.filter(

@@ -1,31 +1,21 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import { MerklController } from './merkl.controller';
 import { CampaignService } from '../../merkl/services/campaign.service';
 import { DeploymentService, BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 import { Campaign } from '../../merkl/entities/campaign.entity';
 import { SubEpochService } from '../../merkl/services/sub-epoch.service';
-import { DataJSON, DataResponseDto } from '../../merkl/dto/data-response.dto';
-import { EncompassingJSON } from '../../merkl/dto/rewards-response.dto';
+import { DataResponseDto } from '../../merkl/dto/data-response.dto';
 import { PairService } from '../../pair/pair.service';
 import { TvlService } from '../../tvl/tvl.service';
 import { TokenService } from '../../token/token.service';
 import { HistoricQuoteService } from '../../historic-quote/historic-quote.service';
 import Decimal from 'decimal.js';
 import { BadRequestException } from '@nestjs/common';
-import { MerklDataQueryDto } from './data.dto';
 import { toChecksumAddress } from 'web3-utils';
 
 describe('MerklController', () => {
   let controller: MerklController;
-  let campaignService: CampaignService;
-  let deploymentService: DeploymentService;
-  let pairService: PairService;
-  let tokenService: TokenService;
-  let historicQuoteService: HistoricQuoteService;
-  let campaignRepository: Repository<Campaign>;
-  let subEpochService: SubEpochService;
 
   const mockCampaignService = {
     getActiveCampaigns: jest.fn(),
@@ -101,13 +91,6 @@ describe('MerklController', () => {
     }).compile();
 
     controller = module.get<MerklController>(MerklController);
-    campaignService = module.get<CampaignService>(CampaignService);
-    deploymentService = module.get<DeploymentService>(DeploymentService);
-    pairService = module.get<PairService>(PairService);
-    tokenService = module.get<TokenService>(TokenService);
-    historicQuoteService = module.get<HistoricQuoteService>(HistoricQuoteService);
-    campaignRepository = module.get<Repository<Campaign>>(getRepositoryToken(Campaign));
-    subEpochService = module.get<SubEpochService>(SubEpochService);
   });
 
   afterEach(() => {
@@ -175,6 +158,8 @@ describe('MerklController', () => {
         where: {
           blockchainType: deployment.blockchainType,
           exchangeId: deployment.exchangeId,
+          isActive: true,
+          startDate: expect.any(Object), // LessThanOrEqual(new Date())
           pair: {
             token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
             token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
@@ -265,6 +250,8 @@ describe('MerklController', () => {
         where: {
           blockchainType: deployment.blockchainType,
           exchangeId: deployment.exchangeId,
+          isActive: true,
+          startDate: expect.any(Object), // LessThanOrEqual(new Date())
           pair: {
             token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
             token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
@@ -564,6 +551,319 @@ describe('MerklController', () => {
       // Verify Decimal can handle them (may be in scientific notation for toString)
       expect(rewardDecimal.isFinite()).toBe(true);
       expect(tvlDecimal.isFinite()).toBe(true);
+    });
+  });
+
+  describe('getAllData', () => {
+    it('should return data for all active campaigns with optimized USD rate fetching', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaigns = [
+        {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '100000000000000000000000', // 100,000 tokens
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', // UNI
+          startDate: new Date(Date.now() - 86400 * 1000), // Started 1 day ago
+          endDate: new Date(Date.now() + 86400 * 30 * 1000), // Ends in 30 days
+          isActive: true,
+          opportunityName: 'ETH/USDC Liquidity Mining',
+          pair: {
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+        {
+          id: '2',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '50000000000000000000000', // 50,000 tokens
+          rewardTokenAddress: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8', // Different token
+          startDate: new Date(Date.now() - 86400 * 2000), // Started 2 days ago
+          endDate: new Date(Date.now() + 86400 * 60 * 1000), // Ends in 60 days
+          isActive: true,
+          opportunityName: 'WETH/DAI Liquidity Mining',
+          pair: {
+            token0: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
+            token1: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+          },
+        },
+      ];
+
+      // Mock USD rates for both tokens
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.013,
+          provider: 'coingecko',
+        },
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          usd: 3200, // WETH price
+          provider: 'coingecko',
+        },
+      ];
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+        [toChecksumAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2')]: {
+          [toChecksumAddress('0x6B175474E89094C44Da98b954EedeAC495271d0F')]: {
+            id: 2,
+            token0: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
+            token1: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+          },
+        },
+      });
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]); // $1M TVL for both
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
+
+      const result = await controller.getAllData(ExchangeId.OGEthereum);
+
+      // Verify campaigns were fetched with correct filters
+      expect(mockCampaignRepository.find).toHaveBeenCalledWith({
+        where: {
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          isActive: true,
+          startDate: expect.any(Object), // LessThanOrEqual(new Date())
+        },
+        relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: { endDate: 'DESC' },
+      });
+
+      // Verify USD rates were fetched only once for all unique tokens
+      expect(mockHistoricQuoteService.getUsdRates).toHaveBeenCalledTimes(1);
+      expect(mockHistoricQuoteService.getUsdRates).toHaveBeenCalledWith(
+        deployment,
+        ['0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8'], // Both unique tokens
+        expect.any(String), // thirtyDaysAgo
+        expect.any(String), // nowIso
+      );
+
+      // Verify response structure
+      expect(result).toHaveLength(2);
+      expect(result[0].pair).toBe(
+        '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8_0xdac17f958d2ee523a2206206994597c13d831ec7',
+      );
+      expect(result[0].opportunityName).toBe('ETH/USDC Liquidity Mining');
+      expect(result[1].pair).toBe(
+        '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2_0x6b175474e89094c44da98b954eedeac495271d0f',
+      );
+      expect(result[1].opportunityName).toBe('WETH/DAI Liquidity Mining');
+    });
+
+    it('should return empty array when no active campaigns are found', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue([]); // No campaigns
+
+      const result = await controller.getAllData(ExchangeId.OGEthereum);
+
+      expect(result).toEqual([]);
+      expect(mockHistoricQuoteService.getUsdRates).not.toHaveBeenCalled(); // Should not fetch USD rates when no campaigns
+    });
+
+    it('should handle campaigns with duplicate reward tokens efficiently', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      // Three campaigns, but only two unique reward tokens
+      const mockCampaigns = [
+        {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '100000000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', // UNI
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
+          isActive: true,
+          opportunityName: 'Campaign 1',
+          pair: {
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+        {
+          id: '2',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '50000000000000000000000',
+          rewardTokenAddress: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', // UNI (duplicate)
+          startDate: new Date(Date.now() - 86400 * 2000),
+          endDate: new Date(Date.now() + 86400 * 60 * 1000),
+          isActive: true,
+          opportunityName: 'Campaign 2',
+          pair: {
+            token0: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
+            token1: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+          },
+        },
+        {
+          id: '3',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '75000000000000000000000',
+          rewardTokenAddress: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8', // Different token
+          startDate: new Date(Date.now() - 86400 * 3000),
+          endDate: new Date(Date.now() + 86400 * 45 * 1000),
+          isActive: true,
+          opportunityName: 'Campaign 3',
+          pair: {
+            token0: { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      ];
+
+      const mockUsdRates = [
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984',
+          usd: 0.013,
+          provider: 'coingecko',
+        },
+        {
+          day: Math.floor(Date.now() / 1000),
+          address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8',
+          usd: 3200,
+          provider: 'coingecko',
+        },
+      ];
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+        [toChecksumAddress('0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2')]: {
+          [toChecksumAddress('0x6B175474E89094C44Da98b954EedeAC495271d0F')]: {
+            id: 2,
+            token0: { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2' },
+            token1: { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+          },
+        },
+        [toChecksumAddress('0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 3,
+            token0: { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      });
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue(mockUsdRates);
+
+      const result = await controller.getAllData(ExchangeId.OGEthereum);
+
+      // Verify only unique tokens were requested (deduplication)
+      expect(mockHistoricQuoteService.getUsdRates).toHaveBeenCalledWith(
+        deployment,
+        ['0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8'], // Only 2 unique tokens
+        expect.any(String),
+        expect.any(String),
+      );
+
+      expect(result).toHaveLength(3);
+    });
+
+    it('should handle campaigns with no USD price data gracefully', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        startBlock: 18000000,
+      };
+
+      const mockCampaigns = [
+        {
+          id: '1',
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          rewardAmount: '100000000000000000000000',
+          rewardTokenAddress: '0xUnknownToken123456789012345678901234567890',
+          startDate: new Date(Date.now() - 86400 * 1000),
+          endDate: new Date(Date.now() + 86400 * 30 * 1000),
+          isActive: true,
+          opportunityName: 'Unknown Token Campaign',
+          pair: {
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      ];
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue(mockCampaigns);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8')]: {
+          [toChecksumAddress('0xdAC17F958D2ee523a2206206994597C13D831ec7')]: {
+            id: 1,
+            token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
+            token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+          },
+        },
+      });
+      mockTvlService.getTvlByPair.mockResolvedValue([{ tvlUsd: '1000000' }]);
+      mockHistoricQuoteService.getUsdRates.mockResolvedValue([]); // No price data
+
+      const result = await controller.getAllData(ExchangeId.OGEthereum);
+
+      expect(result).toHaveLength(1);
+      expect(result[0].apr).toBe('0'); // Should be 0 when no price is available
+      expect(result[0].tvl).toBe('1000000');
+      expect(result[0].opportunityName).toBe('Unknown Token Campaign');
+    });
+
+    it('should filter campaigns correctly by blockchain and exchange ID', async () => {
+      const deployment = {
+        blockchainType: BlockchainType.Sei,
+        exchangeId: ExchangeId.OGSei,
+        startBlock: 50000000,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockCampaignRepository.find.mockResolvedValue([]);
+
+      await controller.getAllData(ExchangeId.OGSei);
+
+      expect(mockCampaignRepository.find).toHaveBeenCalledWith({
+        where: {
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+          isActive: true,
+          startDate: expect.any(Object),
+        },
+        relations: ['pair', 'pair.token0', 'pair.token1'],
+        order: { endDate: 'DESC' },
+      });
     });
   });
 
@@ -1017,6 +1317,8 @@ describe('MerklController', () => {
           where: {
             blockchainType: deployment.blockchainType,
             exchangeId: deployment.exchangeId,
+            isActive: true,
+            startDate: expect.any(Object), // LessThanOrEqual(new Date())
             pair: {
               token0: { address: '0xA0b86a33E6441e68e2e80f99a8b38A6cd2C7F8f8' },
               token1: { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
