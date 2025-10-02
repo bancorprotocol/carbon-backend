@@ -58,6 +58,16 @@ export interface Deployment {
     [deploymentTokenAddress: string]: string;
   };
   pricingIgnoreList?: string[];
+  graphPriceAnchors?: {
+    primary: {
+      localAddress: string;
+      ethereumAddress: string;
+    };
+    secondary?: {
+      localAddress: string;
+      ethereumAddress: string;
+    };
+  };
   contracts: {
     [contractName: string]: {
       address: string;
@@ -631,6 +641,16 @@ export class DeploymentService {
           '0x639acc80569c5fc83c6fbf2319a6cc38bbfe26d1': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
           '0x8c39b1fd0e6260fdf20652fc436d25026832bfea': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // usdc.e
         },
+        graphPriceAnchors: {
+          primary: {
+            localAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+            ethereumAddress: '0xDDB3422497E61e13543BeA06989C0789117555c5',
+          },
+          secondary: {
+            localAddress: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+            ethereumAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+          },
+        },
       },
       {
         exchangeId: ExchangeId.IotaGraphene,
@@ -714,6 +734,16 @@ export class DeploymentService {
           '0x20512cF15E60242aB5237E0A76c873a338281397': '0x582d872a1b094fc48f5de31d3b73f2d9be47def1', // bmTON
           '0x7048c9e4aBD0cf0219E95a17A8C6908dfC4f0Ee4': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // cbBTC
         },
+        // graphPriceAnchors: {
+        //   primary: {
+        //     localAddress: '0xb76d91340f5ce3577f0a056d29f6e3eb4e88b140',
+        //     ethereumAddress: '0x582d872a1b094fc48f5de31d3b73f2d9be47def1',
+        //   },
+        //   secondary: {
+        //     localAddress: '0xaf988c3f7cb2aceabb15f96b19388a259b6c438f',
+        //     ethereumAddress: '0xdac17f958d2ee523a2206206994597c13d831ec7',
+        //   },
+        // },
         notifications: {
           explorerUrl: this.configService.get('TAC_EXPLORER_URL'),
           carbonWalletUrl: this.configService.get('TAC_CARBON_WALLET_URL'),
