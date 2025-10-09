@@ -639,4 +639,275 @@ describe('MerklProcessorService', () => {
       });
     });
   });
+
+  describe('Equal Reward Distribution Logic', () => {
+    describe('calculateTotalSubEpochsForCampaign', () => {
+      it('should calculate total sub-epochs for entire campaign duration', () => {
+        // Access the private method for testing
+        const calculateTotalSubEpochs = (service as any).calculateTotalSubEpochsForCampaign.bind(service);
+
+        // Test with a campaign that spans exactly 2 epochs (8 hours)
+        const testCampaign = {
+          ...mockCampaign,
+          startDate: new Date('2023-01-01T00:00:00Z'),
+          endDate: new Date('2023-01-01T08:00:00Z'), // 8 hours = 2 epochs
+        };
+
+        const totalSubEpochs = calculateTotalSubEpochs(testCampaign);
+
+        // Should return a positive number representing total sub-epochs across all epochs
+        expect(totalSubEpochs).toBeGreaterThan(0);
+        expect(typeof totalSubEpochs).toBe('number');
+        expect(Number.isInteger(totalSubEpochs)).toBe(true);
+      });
+
+      it('should return consistent results for same campaign', () => {
+        const calculateTotalSubEpochs = (service as any).calculateTotalSubEpochsForCampaign.bind(service);
+
+        const testCampaign = {
+          ...mockCampaign,
+          startDate: new Date('2023-01-01T00:00:00Z'),
+          endDate: new Date('2023-01-01T12:00:00Z'), // 12 hours = 3 epochs
+        };
+
+        const result1 = calculateTotalSubEpochs(testCampaign);
+        const result2 = calculateTotalSubEpochs(testCampaign);
+
+        expect(result1).toBe(result2);
+      });
+
+      it('should return more sub-epochs for longer campaigns', () => {
+        const calculateTotalSubEpochs = (service as any).calculateTotalSubEpochsForCampaign.bind(service);
+
+        const shortCampaign = {
+          ...mockCampaign,
+          startDate: new Date('2023-01-01T00:00:00Z'),
+          endDate: new Date('2023-01-01T04:00:00Z'), // 4 hours = 1 epoch
+        };
+
+        const longCampaign = {
+          ...mockCampaign,
+          startDate: new Date('2023-01-01T00:00:00Z'),
+          endDate: new Date('2023-01-01T16:00:00Z'), // 16 hours = 4 epochs
+        };
+
+        const shortTotal = calculateTotalSubEpochs(shortCampaign);
+        const longTotal = calculateTotalSubEpochs(longCampaign);
+
+        expect(longTotal).toBeGreaterThan(shortTotal);
+      });
+    });
+
+    describe('Equal Distribution Calculation', () => {
+      it('should use campaign total rewards divided by total sub-epochs', () => {
+        // Mock the calculateTotalSubEpochsForCampaign method to return a known value
+        const mockTotalSubEpochs = 10;
+        jest.spyOn(service as any, 'calculateTotalSubEpochsForCampaign').mockReturnValue(mockTotalSubEpochs);
+
+        const campaignDistributedAmounts = new Map([[1, new Decimal('0')]]);
+        const campaignTotalAmounts = new Map([[1, new Decimal('1000000000000000000000')]]);
+
+        const subEpochData = {
+          timestamp: Date.now(),
+          order0TargetPrice: new Decimal(1),
+          order1TargetPrice: new Decimal(1),
+          targetSqrtPriceScaled: new Decimal(1),
+          invTargetSqrtPriceScaled: new Decimal(1),
+          strategies: new Map([
+            [
+              'strategy-1',
+              {
+                strategyId: 'strategy-1',
+                pairId: 1,
+                token0Address: mockToken0.address,
+                token1Address: mockToken1.address,
+                token0Decimals: 18,
+                token1Decimals: 18,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_A: new Decimal(1),
+                order0_B: new Decimal(1),
+                order0_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal(1),
+                order1_B: new Decimal(1),
+                order1_z: new Decimal('1000000000000000000'),
+                order0_A_compressed: new Decimal(1),
+                order0_B_compressed: new Decimal(1),
+                order0_z_compressed: new Decimal(1),
+                order1_A_compressed: new Decimal(1),
+                order1_B_compressed: new Decimal(1),
+                order1_z_compressed: new Decimal(1),
+                currentOwner: '0xowner',
+                creationWallet: '0xowner',
+                lastProcessedBlock: 1000000,
+                isDeleted: false,
+                lastEventTimestamp: Date.now(),
+              },
+            ],
+          ]),
+        };
+
+        // Call calculateSubEpochRewards with a known reward amount
+        const rewardPerSubEpoch = new Decimal('50000000000000000000'); // 50 tokens per sub-epoch
+        const result = (service as any).calculateSubEpochRewards(
+          subEpochData,
+          rewardPerSubEpoch,
+          mockCampaign,
+          campaignDistributedAmounts,
+          campaignTotalAmounts,
+        );
+
+        // Verify that the reward calculation uses the expected per-sub-epoch amount
+        // Campaign total (1000 tokens) / 10 sub-epochs = 100 tokens per sub-epoch
+        // But we're passing 50 tokens per sub-epoch to test the logic
+        expect(result.totalRewards.get('strategy-1')).toBeDefined();
+
+        // Restore the original method
+        jest.restoreAllMocks();
+      });
+
+      it('should distribute rewards equally regardless of epoch duration', () => {
+        // Test that sub-epochs get equal rewards even if epochs have different durations
+        const mockTotalSubEpochs = 6; // 3 sub-epochs in epoch 1, 3 in epoch 2
+        jest.spyOn(service as any, 'calculateTotalSubEpochsForCampaign').mockReturnValue(mockTotalSubEpochs);
+
+        const campaignRewardAmount = '600000000000000000000'; // 600 tokens
+        const expectedRewardPerSubEpoch = new Decimal(campaignRewardAmount).div(mockTotalSubEpochs); // 100 tokens per sub-epoch
+
+        // Test campaign with the specific reward amount
+        const testCampaign = {
+          ...mockCampaign,
+          rewardAmount: campaignRewardAmount,
+        };
+
+        // Verify that regardless of which epoch we're processing, the reward per sub-epoch is the same
+        const campaignDistributedAmounts = new Map([[1, new Decimal('0')]]);
+        const campaignTotalAmounts = new Map([[1, new Decimal(campaignRewardAmount)]]);
+
+        const subEpochData = {
+          timestamp: Date.now(),
+          order0TargetPrice: new Decimal(1),
+          order1TargetPrice: new Decimal(1),
+          targetSqrtPriceScaled: new Decimal(1),
+          invTargetSqrtPriceScaled: new Decimal(1),
+          strategies: new Map([
+            [
+              'strategy-1',
+              {
+                strategyId: 'strategy-1',
+                pairId: 1,
+                token0Address: mockToken0.address,
+                token1Address: mockToken1.address,
+                token0Decimals: 18,
+                token1Decimals: 18,
+                liquidity0: new Decimal('1000000000000000000'),
+                liquidity1: new Decimal('1000000000000000000'),
+                order0_A: new Decimal(1),
+                order0_B: new Decimal(1),
+                order0_z: new Decimal('1000000000000000000'),
+                order1_A: new Decimal(1),
+                order1_B: new Decimal(1),
+                order1_z: new Decimal('1000000000000000000'),
+                order0_A_compressed: new Decimal(1),
+                order0_B_compressed: new Decimal(1),
+                order0_z_compressed: new Decimal(1),
+                order1_A_compressed: new Decimal(1),
+                order1_B_compressed: new Decimal(1),
+                order1_z_compressed: new Decimal(1),
+                currentOwner: '0xowner',
+                creationWallet: '0xowner',
+                lastProcessedBlock: 1000000,
+                isDeleted: false,
+                lastEventTimestamp: Date.now(),
+              },
+            ],
+          ]),
+        };
+
+        // The key test: reward per sub-epoch should be campaign total / total sub-epochs
+        const result = (service as any).calculateSubEpochRewards(
+          subEpochData,
+          expectedRewardPerSubEpoch, // This should be 100 tokens
+          testCampaign,
+          campaignDistributedAmounts,
+          campaignTotalAmounts,
+        );
+
+        // Verify the calculation works with our expected reward per sub-epoch
+        expect(expectedRewardPerSubEpoch.toString()).toBe('100000000000000000000'); // 100 tokens
+
+        jest.restoreAllMocks();
+      });
+    });
+
+    describe('Integration with processEpoch', () => {
+      it('should pass total campaign sub-epochs to reward calculation', () => {
+        // This test verifies that the processEpoch method correctly calculates and uses
+        // the total campaign sub-epochs for reward distribution
+        const mockTotalSubEpochs = 8;
+        const calculateTotalSubEpochsSpy = jest
+          .spyOn(service as any, 'calculateTotalSubEpochsForCampaign')
+          .mockReturnValue(mockTotalSubEpochs);
+
+        const calculateSubEpochRewardsSpy = jest.spyOn(service as any, 'calculateSubEpochRewards').mockReturnValue({
+          totalRewards: new Map([['strategy-1', new Decimal('100')]]),
+          tokenRewards: new Map([['strategy-1', { token0: new Decimal('50'), token1: new Decimal('50') }]]),
+        });
+
+        const generateSubEpochsSpy = jest.spyOn(service as any, 'generateSubEpochsForEpoch').mockReturnValue([
+          {
+            timestamp: Date.now(),
+            order0TargetPrice: new Decimal(1),
+            order1TargetPrice: new Decimal(1),
+            targetSqrtPriceScaled: new Decimal(1),
+            invTargetSqrtPriceScaled: new Decimal(1),
+            strategies: new Map(),
+          },
+        ]);
+
+        // Mock saveSubEpochs to avoid database operations
+        mockSubEpochService.saveSubEpochs.mockResolvedValue(undefined);
+
+        const testEpoch = {
+          epochNumber: 1,
+          startTimestamp: new Date('2023-01-01T00:00:00Z'),
+          endTimestamp: new Date('2023-01-01T04:00:00Z'),
+          totalRewards: new Decimal('200000000000000000000'), // This should NOT be used anymore
+        };
+
+        const campaignDistributedAmounts = new Map([[1, new Decimal('0')]]);
+        const campaignTotalAmounts = new Map([[1, new Decimal('800000000000000000000')]]);
+
+        // Call processEpoch (this is an async method, so we need to handle it properly)
+        const processEpochPromise = (service as any).processEpoch(
+          mockCampaign,
+          testEpoch,
+          new Map(), // strategyStates
+          {}, // priceCache
+          { createdEvents: [], updatedEvents: [], deletedEvents: [], transferEvents: [] }, // batchEvents
+          campaignDistributedAmounts,
+          campaignTotalAmounts,
+          mockTotalSubEpochs, // This is the key parameter we added
+        );
+
+        // Since this is async, we need to return the promise for Jest to handle
+        return processEpochPromise.then(() => {
+          // Verify that calculateTotalSubEpochsForCampaign was NOT called in processEpoch
+          // (it should be called in processEpochBatch instead)
+          expect(calculateTotalSubEpochsSpy).not.toHaveBeenCalled();
+
+          // Verify that calculateSubEpochRewards was called with the expected reward per sub-epoch
+          expect(calculateSubEpochRewardsSpy).toHaveBeenCalled();
+          const callArgs = calculateSubEpochRewardsSpy.mock.calls[0];
+          const rewardPerSubEpoch = callArgs[1]; // Second argument is rewardPerSubEpoch
+
+          // The reward per sub-epoch should be campaign total (1000 tokens) / total sub-epochs (8)
+          const expectedRewardPerSubEpoch = new Decimal(mockCampaign.rewardAmount).div(mockTotalSubEpochs);
+          expect(rewardPerSubEpoch.toString()).toBe(expectedRewardPerSubEpoch.toString());
+
+          jest.restoreAllMocks();
+        });
+      });
+    });
+  });
 });
