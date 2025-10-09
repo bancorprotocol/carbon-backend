@@ -440,6 +440,9 @@ export class MerklProcessorService {
     campaignDistributedAmounts.set(campaign.id, currentDistributed);
     campaignTotalAmounts.set(campaign.id, campaignAmount);
 
+    // Calculate total sub-epochs for the entire campaign to enable equal distribution
+    const totalCampaignSubEpochs = this.calculateTotalSubEpochsForCampaign(campaign);
+
     // Execute epoch processing with isolated state and events
     await this.processEpoch(
       campaign,
@@ -449,6 +452,7 @@ export class MerklProcessorService {
       epochEvents, // Events filtered to this epoch's timeframe
       campaignDistributedAmounts,
       campaignTotalAmounts,
+      totalCampaignSubEpochs,
     );
 
     this.logger.log(`Completed epoch batch: ${globalEpochId}`);
@@ -986,6 +990,43 @@ export class MerklProcessorService {
   }
 
   /**
+   * Calculates the total expected number of sub-epochs for the entire campaign.
+   * This is used to determine equal reward distribution across all sub-epochs.
+   *
+   * @param campaign - The campaign to calculate total sub-epochs for
+   * @returns Total number of expected sub-epochs across all epochs in the campaign
+   */
+  private calculateTotalSubEpochsForCampaign(campaign: Campaign): number {
+    const campaignStartTime = campaign.startDate.getTime();
+    const campaignEndTime = campaign.endDate.getTime();
+
+    let epochStart = campaignStartTime;
+    let totalSubEpochs = 0;
+    let epochNumber = 1;
+
+    while (epochStart < campaignEndTime) {
+      const epochEnd = Math.min(epochStart + this.EPOCH_DURATION * 1000, campaignEndTime);
+
+      // Create a mock epoch to calculate sub-epochs for this time period
+      const mockEpoch: EpochInfo = {
+        epochNumber,
+        startTimestamp: new Date(epochStart),
+        endTimestamp: new Date(epochEnd),
+        totalRewards: new Decimal(0), // Not used for counting
+      };
+
+      // Calculate snapshot intervals for this epoch
+      const snapshotIntervals = this.getSnapshotIntervals(campaign, mockEpoch);
+      totalSubEpochs += snapshotIntervals.length;
+
+      epochStart = epochEnd;
+      epochNumber++;
+    }
+
+    return totalSubEpochs;
+  }
+
+  /**
    * Calculates all epochs within a given time range for a campaign.
    *
    * @param campaign - The campaign to calculate epochs for
@@ -1062,6 +1103,7 @@ export class MerklProcessorService {
    * @param batchEvents - Events that occurred during this epoch
    * @param campaignDistributedAmounts - Tracking of distributed rewards per campaign
    * @param campaignTotalAmounts - Total budget available per campaign
+   * @param totalCampaignSubEpochs - Total number of sub-epochs across the entire campaign
    */
   private async processEpoch(
     campaign: Campaign,
@@ -1071,6 +1113,7 @@ export class MerklProcessorService {
     batchEvents: BatchEvents,
     campaignDistributedAmounts: Map<number, Decimal>,
     campaignTotalAmounts: Map<number, Decimal>,
+    totalCampaignSubEpochs: number,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
@@ -1098,7 +1141,9 @@ export class MerklProcessorService {
     if (subEpochs.length === 0) return;
 
     const subEpochsToSave: Partial<SubEpoch>[] = [];
-    const rewardPerSubEpoch = epoch.totalRewards.div(subEpochs.length);
+    // Use campaign total rewards divided by total sub-epochs across entire campaign
+    // This ensures equal distribution across all sub-epochs regardless of epoch duration
+    const rewardPerSubEpoch = new Decimal(campaign.rewardAmount).div(totalCampaignSubEpochs);
     const currentBatchEndBlock = Math.max(
       0,
       ...batchEvents.createdEvents.map((e) => e.block.id),
