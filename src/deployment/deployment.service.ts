@@ -608,7 +608,7 @@ export class DeploymentService {
             address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
           },
           BancorArbitrageV2: {
-            address: '0x2ec4cCAA4394633eCdCcc987E0E9A398F837e3DD',
+            address: '0x8de2A8F011Df2e88941ab2AB883Cd25f1Fc7C72D',
           },
         },
         notifications: {
