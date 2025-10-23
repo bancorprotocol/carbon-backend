@@ -24,7 +24,7 @@ type Candlestick = {
   mappedQuoteToken?: string;
 };
 
-type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko' | 'carbon-defi';
+type PriceProvider = 'coinmarketcap' | 'codex' | 'coingecko' | 'carbon-defi' | 'carbon-graph';
 
 interface ProviderConfig {
   name: PriceProvider;
@@ -58,9 +58,15 @@ export class HistoricQuoteService implements OnModuleInit {
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
-    [BlockchainType.Coti]: [{ name: 'carbon-defi', enabled: true }],
+    [BlockchainType.Coti]: [
+      { name: 'carbon-defi', enabled: true },
+      { name: 'carbon-graph', enabled: true },
+    ],
     [BlockchainType.Iota]: [],
-    [BlockchainType.Tac]: [{ name: 'carbon-defi', enabled: true }],
+    [BlockchainType.Tac]: [
+      { name: 'carbon-defi', enabled: true },
+      // { name: 'carbon-graph', enabled: true },
+    ],
   };
 
   constructor(
@@ -1243,6 +1249,168 @@ export class HistoricQuoteService implements OnModuleInit {
         .getOne();
     } catch (error) {
       this.logger.error(`Error fetching last historical quote for address ${tokenAddress}:`, error);
+      return null;
+    }
+  }
+
+  /**
+   * Retrieves the latest price quotes for all tokens before a specified timestamp.
+   * Uses TimescaleDB optimizations and provider priority logic with 24-hour freshness rule.
+   * Optimized for TimescaleDB with proper indexing and 7-day window for performance.
+   * @param blockchainType - The blockchain type to query
+   * @param cutoffTimestamp - Only return quotes with timestamp <= this value
+   * @param limit - Maximum number of results to return (safety limit)
+   * @param tokenAddresses - Optional array of token addresses to filter by
+   * @param excludeCarbonGraph - If true, exclude carbon-graph provider from results (default: false)
+   * @returns Array of latest quotes per token before the cutoff with provider priority
+   */
+  async getLatestPricesBeforeTimestamp(
+    blockchainType: BlockchainType,
+    cutoffTimestamp: Date,
+    limit = 500000,
+    tokenAddresses?: string[],
+    excludeCarbonGraph = false,
+  ): Promise<HistoricQuote[]> {
+    try {
+      // Get enabled providers in priority order
+      let enabledProviders = this.priceProviders[blockchainType].filter((p) => p.enabled).map((p) => p.name);
+
+      // Exclude carbon-graph provider if requested
+      if (excludeCarbonGraph) {
+        enabledProviders = enabledProviders.filter((provider) => provider !== 'carbon-graph');
+      }
+
+      if (enabledProviders.length === 0) {
+        this.logger.warn(`No enabled providers for ${blockchainType}`);
+        return [];
+      }
+
+      // Calculate 7 days before cutoff for performance optimization
+      const startWindow = moment(cutoffTimestamp).subtract(7, 'days').toISOString();
+      const cutoffIso = moment(cutoffTimestamp).toISOString();
+
+      // Normalize token addresses to lowercase if provided
+      const normalizedTokenAddresses = tokenAddresses?.map((addr) => addr.toLowerCase());
+
+      // Fast TimescaleDB query using last() function
+      const allLatestQuotes = await this.repository.query(
+        `
+        WITH token_provider_latest AS (
+          SELECT 
+            "tokenAddress",
+            provider,
+            last(usd, timestamp) AS usd,
+            last(timestamp, timestamp) AS timestamp,
+            last(id, timestamp) AS id
+          FROM "historic-quotes"
+          WHERE "blockchainType" = $1
+            AND timestamp <= $2
+            AND timestamp >= $3
+            AND provider = ANY($4::text[])
+            AND ($6::text[] IS NULL OR "tokenAddress" = ANY($6::text[]))
+          GROUP BY "tokenAddress", provider
+        )
+        SELECT 
+          id, 
+          "tokenAddress", 
+          usd, 
+          timestamp, 
+          provider, 
+          $1 as "blockchainType"
+        FROM token_provider_latest
+        ORDER BY "tokenAddress", provider
+        LIMIT $5
+        `,
+        [blockchainType, cutoffIso, startWindow, enabledProviders, limit, normalizedTokenAddresses],
+      );
+
+      // Group by token and apply priority logic
+      const tokenGroups = _.groupBy(allLatestQuotes, 'tokenAddress');
+      const results = [];
+
+      for (const [, quotes] of Object.entries(tokenGroups)) {
+        const selectedQuote = this.selectBestQuoteWithPriority(quotes as HistoricQuote[], enabledProviders);
+        if (selectedQuote) {
+          results.push(selectedQuote);
+        }
+      }
+
+      return results;
+    } catch (error) {
+      this.logger.error(`Error fetching latest prices before timestamp for ${blockchainType}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Selects the best quote from multiple provider quotes based on priority and 24-hour freshness rule.
+   * Uses provider priority order, but prefers a lower priority provider if its data is more than 24 hours newer.
+   * @param quotes - Array of quotes for the same token from different providers
+   * @param providerPriorities - Array of provider names in priority order
+   * @returns The best quote based on priority + freshness logic
+   */
+  private selectBestQuoteWithPriority(quotes: HistoricQuote[], providerPriorities: string[]): HistoricQuote | null {
+    if (quotes.length === 0) return null;
+    if (quotes.length === 1) return quotes[0];
+
+    // Filter out providers not in the priority list
+    const validQuotes = quotes.filter((quote) => providerPriorities.includes(quote.provider));
+
+    if (validQuotes.length === 0) return quotes[0]; // Fallback to first quote if no valid providers
+    if (validQuotes.length === 1) return validQuotes[0];
+
+    // Sort quotes by provider priority
+    const sortedQuotes = validQuotes.sort((a, b) => {
+      const priorityA = providerPriorities.indexOf(a.provider);
+      const priorityB = providerPriorities.indexOf(b.provider);
+      return priorityA - priorityB;
+    });
+
+    let bestQuote = sortedQuotes[0]; // Start with highest priority
+
+    // Check if any lower priority provider has data more than 24h newer
+    for (let i = 1; i < sortedQuotes.length; i++) {
+      const currentQuote = sortedQuotes[i];
+      const timeDiffHours = moment(currentQuote.timestamp).diff(moment(bestQuote.timestamp), 'hours');
+
+      if (timeDiffHours > 24) {
+        bestQuote = currentQuote;
+        break; // Once we find a significantly newer quote, use it
+      }
+    }
+
+    return bestQuote;
+  }
+
+  /**
+   * Retrieves the latest price quote for a specific token before a specified timestamp.
+   * Uses the optimized multi-token method with provider priority logic internally.
+   * @param blockchainType - The blockchain type of the token
+   * @param tokenAddress - The address of the token
+   * @param cutoffTimestamp - Only return quotes with timestamp <= this value
+   * @param excludeCarbonGraph - If true, exclude carbon-graph provider from results (default: false)
+   * @returns The most recent quote before the cutoff or null if none exists
+   */
+  async getLatestPriceBeforeTimestamp(
+    blockchainType: BlockchainType,
+    tokenAddress: string,
+    cutoffTimestamp: Date,
+    excludeCarbonGraph = false,
+  ): Promise<HistoricQuote | null> {
+    try {
+      const results = await this.getLatestPricesBeforeTimestamp(
+        blockchainType,
+        cutoffTimestamp,
+        1,
+        [tokenAddress],
+        excludeCarbonGraph,
+      );
+      return results[0] || null;
+    } catch (error) {
+      this.logger.error(
+        `Error fetching latest price before timestamp for ${tokenAddress} at ${cutoffTimestamp.toISOString()}:`,
+        error,
+      );
       return null;
     }
   }
