@@ -197,6 +197,11 @@ export class MerklProcessorService {
       whitelistedAssets: [],
       defaultWeighting: 0.5,
     },
+    [ExchangeId.OGCelo]: {
+      tokenWeightings: {},
+      whitelistedAssets: [],
+      defaultWeighting: 0.5,
+    },
   };
 
   /**
