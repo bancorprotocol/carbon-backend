@@ -182,24 +182,24 @@ describe('SimulatorController', () => {
       await controller.simulator(ExchangeId.OGSei, validParams);
 
       // Verify the services were called with correct parameters
+      // Note: Token mapping is now handled internally by historicQuoteService
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
-        BlockchainType.Ethereum,
         BlockchainType.Sei,
-        baseEthAddress.toLowerCase(),
+        BlockchainType.Sei,
+        validParams.baseToken.toLowerCase(),
         validParams.quoteToken.toLowerCase(),
         validParams.start,
         validParams.end,
       );
 
       // Verify the simulatorService was called with the sei deployment
-      // When only one token is mapped to Ethereum, we should use the original deployment
       expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseToken: baseEthAddress.toLowerCase(),
+          baseToken: validParams.baseToken.toLowerCase(),
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
-        ethereumDeployment,
+        seiDeployment,
         seiDeployment,
         seiDeployment,
       );
@@ -235,24 +235,25 @@ describe('SimulatorController', () => {
       await controller.simulator(ExchangeId.OGSei, validParams);
 
       // Verify the services were called with correct parameters
+      // Note: Token mapping is now handled internally by historicQuoteService
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
-        BlockchainType.Ethereum,
-        BlockchainType.Ethereum,
-        baseEthAddress.toLowerCase(),
-        quoteEthAddress.toLowerCase(),
+        BlockchainType.Sei,
+        BlockchainType.Sei,
+        validParams.baseToken.toLowerCase(),
+        validParams.quoteToken.toLowerCase(),
         validParams.start,
         validParams.end,
       );
 
-      // Verify the simulatorService was called with the ethereum deployment
+      // Verify the simulatorService was called with the sei deployment
       expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseToken: baseEthAddress.toLowerCase(),
-          quoteToken: quoteEthAddress.toLowerCase(),
+          baseToken: validParams.baseToken.toLowerCase(),
+          quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
-        ethereumDeployment,
-        ethereumDeployment,
+        seiDeployment,
+        seiDeployment,
         seiDeployment,
       );
     });
@@ -285,25 +286,25 @@ describe('SimulatorController', () => {
       await controller.simulator(ExchangeId.OGSei, validParams);
 
       // Verify the services were called with correct parameters
+      // Note: Token mapping is now handled internally by historicQuoteService
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
         BlockchainType.Sei,
-        BlockchainType.Ethereum,
+        BlockchainType.Sei,
         validParams.baseToken.toLowerCase(),
-        quoteEthAddress,
+        validParams.quoteToken.toLowerCase(),
         validParams.start,
         validParams.end,
       );
 
       // Verify the simulatorService was called with the sei deployment
-      // When only one token is mapped to Ethereum, we should use the original deployment
       expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
         expect.objectContaining({
           baseToken: validParams.baseToken.toLowerCase(),
-          quoteToken: quoteEthAddress,
+          quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
         seiDeployment,
-        ethereumDeployment,
+        seiDeployment,
         seiDeployment,
       );
     });
@@ -332,18 +333,20 @@ describe('SimulatorController', () => {
       await controller.simulator(ExchangeId.OGSei, paramsWithNativeBase);
 
       // Verify the services were called with correct parameters
+      // Note: Controller passes NATIVE_TOKEN directly, alias handling is internal
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
         BlockchainType.Sei,
         BlockchainType.Sei,
-        nativeTokenAlias.toLowerCase(),
+        NATIVE_TOKEN.toLowerCase(),
         validParams.quoteToken.toLowerCase(),
         validParams.start,
         validParams.end,
       );
 
+      // Controller passes NATIVE_TOKEN directly to simulator
       expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseToken: nativeTokenAlias.toLowerCase(),
+          baseToken: NATIVE_TOKEN.toLowerCase(),
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
@@ -394,27 +397,32 @@ describe('SimulatorController', () => {
       // Call the controller
       await controller.simulator(ExchangeId.OGSei, paramsWithNativeBase);
 
-      // Verify the native token was first replaced with its alias and then mapped to ethereum
+      // Note: Token mapping and native token alias handling is now done internally
       expect(mockHistoricQuoteService.getUsdBuckets).toHaveBeenCalledWith(
-        BlockchainType.Ethereum,
         BlockchainType.Sei,
-        mappedNativeAlias.toLowerCase(),
+        BlockchainType.Sei,
+        NATIVE_TOKEN.toLowerCase(),
         validParams.quoteToken.toLowerCase(),
         validParams.start,
         validParams.end,
       );
 
-      // Verify the simulatorService was called with the sei deployment
-      // When only one token is mapped to Ethereum, we should use the original deployment
+      // Controller passes NATIVE_TOKEN directly to simulator
       expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
         expect.objectContaining({
-          baseToken: mappedNativeAlias.toLowerCase(),
+          baseToken: NATIVE_TOKEN.toLowerCase(),
           quoteToken: validParams.quoteToken.toLowerCase(),
         }),
         mockUsdPrices,
-        ethereumDeployment,
-        seiDeployment,
-        seiDeployment,
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
+        expect.objectContaining({
+          blockchainType: BlockchainType.Sei,
+        }),
       );
     });
   });

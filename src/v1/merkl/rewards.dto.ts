@@ -1,12 +1,4 @@
-import {
-  IsString,
-  IsNotEmpty,
-  ValidateNested,
-  ArrayMinSize,
-  IsArray,
-  IsOptional,
-  IsNumberString,
-} from 'class-validator';
+import { IsString, ValidateNested, ArrayMinSize, IsArray, IsOptional, IsNumberString } from 'class-validator';
 import { Transform, Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 import { formatEthereumAddress, IsAddress } from '../../isAddress.validator';

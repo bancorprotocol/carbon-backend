@@ -517,7 +517,7 @@ describe('HistoricQuoteService', () => {
       expect(candlesticks).toHaveLength(3);
 
       // Check each candlestick for OHLC consistency
-      candlesticks.forEach((candle, index) => {
+      candlesticks.forEach((candle) => {
         if (candle.open !== null && candle.high !== null && candle.low !== null && candle.close !== null) {
           const open = parseFloat(candle.open.toString());
           const high = parseFloat(candle.high.toString());
@@ -1524,7 +1524,7 @@ describe('HistoricQuoteService', () => {
         blockchainType: BlockchainType.Sei,
       };
 
-      const result = await service.addQuote(quote);
+      await service.addQuote(quote);
 
       expect(mockRepository.create).toHaveBeenCalledWith({
         ...quote,
@@ -2749,7 +2749,7 @@ describe('HistoricQuoteService', () => {
           'ethereum',
           '2024-01-01T12:00:00.000Z',
           '2023-12-25T12:00:00.000Z', // 7 days before
-          ['coinmarketcap', 'codex', 'carbon-graph'],
+          ['coinmarketcap', 'codex'], // Ethereum doesn't have carbon-graph by default
           500000,
         ]),
       );
@@ -2880,14 +2880,14 @@ describe('HistoricQuoteService', () => {
 
       await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
 
-      // Verify the query was called with all providers including carbon-graph
+      // Verify the query was called with default providers for Ethereum
       expect(mockRepository.query).toHaveBeenCalledWith(
         expect.stringContaining('WITH token_provider_latest AS'),
         expect.arrayContaining([
           'ethereum',
           '2024-01-01T12:00:00.000Z',
           '2023-12-25T12:00:00.000Z',
-          ['coinmarketcap', 'codex', 'carbon-graph'], // carbon-graph should be included
+          ['coinmarketcap', 'codex'], // Ethereum's default providers (no carbon-graph)
           500000,
           undefined,
         ]),
@@ -3127,7 +3127,7 @@ describe('HistoricQuoteService', () => {
           'ethereum',
           '2024-01-01T12:00:00.000Z',
           '2023-12-25T12:00:00.000Z',
-          ['coinmarketcap', 'codex', 'carbon-graph'],
+          ['coinmarketcap', 'codex'], // Ethereum's default providers
           1, // limit should be 1
           ['0xtoken1'], // should filter to specific token
         ]),

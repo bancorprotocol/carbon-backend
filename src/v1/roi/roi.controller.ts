@@ -1,7 +1,7 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { RoiService } from './roi.service';
-import { DeploymentService, ExchangeId, BlockchainType } from '../../deployment/deployment.service';
+import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { QuoteService } from '../../quote/quote.service';
 

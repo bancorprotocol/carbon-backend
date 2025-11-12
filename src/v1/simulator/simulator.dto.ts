@@ -1,9 +1,8 @@
 // coinmarketcap.dto.ts
 
-import { IsNumber, IsOptional, Min, Max } from 'class-validator';
+import { IsNumber } from 'class-validator';
 import { IsAddress } from '../../isAddress.validator';
 import { Transform, Type } from 'class-transformer';
-import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SimulatorDto {
   @IsAddress()
