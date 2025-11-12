@@ -8,9 +8,6 @@ import { StrategyDeletedEventService } from './strategy-deleted-event.service';
 @Module({
   imports: [TypeOrmModule.forFeature([StrategyDeletedEvent]), HarvesterModule],
   providers: [ConfigService, StrategyDeletedEventService],
-  exports: [
-    StrategyDeletedEventService,
-    TypeOrmModule.forFeature([StrategyDeletedEvent]),
-  ],
+  exports: [StrategyDeletedEventService, TypeOrmModule.forFeature([StrategyDeletedEvent])],
 })
 export class StrategyDeletedEventModule {}

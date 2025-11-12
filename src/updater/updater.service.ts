@@ -1,7 +1,6 @@
 import { Interval } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
 import { Inject, Injectable } from '@nestjs/common';
-import * as _ from 'lodash';
 import { HarvesterService } from '../harvester/harvester.service';
 import { TokenService } from '../token/token.service';
 import { PairService } from '../pair/pair.service';

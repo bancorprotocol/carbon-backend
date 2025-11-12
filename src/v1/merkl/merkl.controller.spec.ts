@@ -1389,4 +1389,78 @@ describe('MerklController', () => {
       expect(mockCampaignRepository.findOne).toHaveBeenCalledTimes(5);
     });
   });
+
+  describe('getRewards - error cases', () => {
+    it('should throw BadRequestException when pair format is invalid (empty token0)', async () => {
+      const invalidPair = [{ token0: '', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' }];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+
+      await expect(controller.getRewards({ pair: invalidPair as any }, ExchangeId.OGEthereum)).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(controller.getRewards({ pair: invalidPair as any }, ExchangeId.OGEthereum)).rejects.toThrow(
+        'Invalid pair format',
+      );
+    });
+
+    it('should throw BadRequestException when pair format is invalid (empty token1)', async () => {
+      const invalidPair = [{ token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '' }];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+
+      await expect(controller.getRewards({ pair: invalidPair as any }, ExchangeId.OGEthereum)).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('should throw BadRequestException when no pair is found for given tokens', async () => {
+      const pair = [
+        { token0: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', token1: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+      ];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({}); // Empty dictionary - no pairs
+
+      await expect(controller.getRewards({ pair }, ExchangeId.OGEthereum)).rejects.toThrow(BadRequestException);
+      await expect(controller.getRewards({ pair }, ExchangeId.OGEthereum)).rejects.toThrow('No pair found');
+    });
+
+    it('should throw BadRequestException when no active campaign is found for pair', async () => {
+      const pair = [
+        { token0: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', token1: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+      ];
+      const deployment = {
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue(deployment);
+      mockPairService.allAsDictionary.mockResolvedValue({
+        [toChecksumAddress('0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2')]: {
+          [toChecksumAddress('0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8')]: {
+            id: 1,
+            token0: { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2' },
+            token1: { address: '0xa0b86a33e6441e68e2e80f99a8b38a6cd2c7f8f8' },
+          },
+        },
+      });
+      mockCampaignRepository.findOne.mockResolvedValue(null); // No campaign found
+
+      await expect(controller.getRewards({ pair }, ExchangeId.OGEthereum)).rejects.toThrow(BadRequestException);
+      await expect(controller.getRewards({ pair }, ExchangeId.OGEthereum)).rejects.toThrow('No active campaign found');
+    });
+  });
 });

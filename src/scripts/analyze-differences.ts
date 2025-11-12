@@ -104,7 +104,8 @@ async function analyzeDetailedDifferences(file1Path: string, file2Path: string) 
 
   for (const [key, row1] of map1) {
     if (map2.has(key)) {
-      const row2 = map2.get(key)!;
+      const row2 = map2.get(key);
+      if (!row2) continue;
 
       const token0_1 = parseFloat(row1.token0_reward) || 0;
       const token0_2 = parseFloat(row2.token0_reward) || 0;
@@ -167,7 +168,8 @@ async function analyzeDetailedDifferences(file1Path: string, file2Path: string) 
         });
       }
 
-      const stratDiff = strategyDifferences.get(row1.strategy_id)!;
+      const stratDiff = strategyDifferences.get(row1.strategy_id);
+      if (!stratDiff) continue;
       stratDiff.token0_diff += token0_diff;
       stratDiff.token1_diff += token1_diff;
       stratDiff.sum_diff += sum_diff;

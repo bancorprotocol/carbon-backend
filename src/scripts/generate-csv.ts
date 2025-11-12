@@ -234,7 +234,7 @@ class CsvGeneratorWithValidation {
     });
   }
 
-  private async validateCSV(csvPath: string, campaignId: string): Promise<ValidationResult> {
+  private async validateCSV(csvPath: string): Promise<ValidationResult> {
     const csvContent = await readFile(csvPath, 'utf-8');
     const lines = csvContent.trim().split('\n');
 
@@ -282,6 +282,7 @@ class CsvGeneratorWithValidation {
         continue;
       }
 
+      /* eslint-disable @typescript-eslint/no-unused-vars */
       const [
         strategyId,
         epochStart,
@@ -298,26 +299,27 @@ class CsvGeneratorWithValidation {
         token0UsdRate,
         token1UsdRate,
         targetPrice,
-        eligible0,
-        eligible1,
-        token0RewardZoneBoundary,
-        token1RewardZoneBoundary,
-        token0Weighting,
-        token1Weighting,
-        token0Decimals,
-        token1Decimals,
-        order0ACompressed,
-        order0BCompressed,
-        order0A,
-        order0B,
-        order0Z,
-        order1ACompressed,
-        order1BCompressed,
-        order1A,
-        order1B,
-        order1Z,
+        _eligible0,
+        _eligible1,
+        _token0RewardZoneBoundary,
+        _token1RewardZoneBoundary,
+        _token0Weighting,
+        _token1Weighting,
+        _token0Decimals,
+        _token1Decimals,
+        _order0ACompressed,
+        _order0BCompressed,
+        _order0A,
+        _order0B,
+        _order0Z,
+        _order1ACompressed,
+        _order1BCompressed,
+        _order1A,
+        _order1B,
+        _order1Z,
         lastEventTimestamp,
       ] = values;
+      /* eslint-enable @typescript-eslint/no-unused-vars */
 
       // Track unique strategies
       uniqueStrategies.add(strategyId);
@@ -336,17 +338,20 @@ class CsvGeneratorWithValidation {
         if (!strategySubEpochs.has(strategyId)) {
           strategySubEpochs.set(strategyId, []);
         }
-        strategySubEpochs.get(strategyId)!.push(subEpochNum);
+        const subEpochArray = strategySubEpochs.get(strategyId);
+        if (subEpochArray) subEpochArray.push(subEpochNum);
 
         // Track timestamps per strategy for chronological validation
         if (!strategyTimestamps.has(strategyId)) {
           strategyTimestamps.set(strategyId, []);
         }
-        strategyTimestamps.get(strategyId)!.push({
-          subEpoch: subEpochNum,
-          timestamp: subEpochTimestamp,
-          rowIndex,
-        });
+        const timestampArray = strategyTimestamps.get(strategyId);
+        if (timestampArray)
+          timestampArray.push({
+            subEpoch: subEpochNum,
+            timestamp: subEpochTimestamp,
+            rowIndex,
+          });
 
         // Track min/max sub-epochs
         if (minSubEpoch === null || subEpochNum < minSubEpoch) minSubEpoch = subEpochNum;
@@ -360,11 +365,13 @@ class CsvGeneratorWithValidation {
         if (!strategyEpochTimestamps.has(strategyId)) {
           strategyEpochTimestamps.set(strategyId, []);
         }
-        strategyEpochTimestamps.get(strategyId)!.push({
-          epoch: epochNum,
-          timestamp: epochStart,
-          rowIndex,
-        });
+        const epochTimestampArray = strategyEpochTimestamps.get(strategyId);
+        if (epochTimestampArray)
+          epochTimestampArray.push({
+            epoch: epochNum,
+            timestamp: epochStart,
+            rowIndex,
+          });
       }
 
       // Check for duplicates (strategy + sub-epoch combination)
@@ -490,7 +497,8 @@ class CsvGeneratorWithValidation {
         if (!epochGroups.has(item.epoch)) {
           epochGroups.set(item.epoch, []);
         }
-        epochGroups.get(item.epoch)!.push(item.timestamp);
+        const epochGroup = epochGroups.get(item.epoch);
+        if (epochGroup) epochGroup.push(item.timestamp);
       }
 
       // Sort epochs
@@ -501,8 +509,9 @@ class CsvGeneratorWithValidation {
         const currentEpoch = sortedEpochs[i];
         const previousEpoch = sortedEpochs[i - 1];
 
-        const currentEpochTimestamps = epochGroups.get(currentEpoch)!;
-        const previousEpochTimestamps = epochGroups.get(previousEpoch)!;
+        const currentEpochTimestamps = epochGroups.get(currentEpoch);
+        const previousEpochTimestamps = epochGroups.get(previousEpoch);
+        if (!currentEpochTimestamps || !previousEpochTimestamps) continue;
 
         // Find min timestamp in current epoch and max timestamp in previous epoch
         let minCurrentTime = Number.MAX_VALUE;

@@ -126,13 +126,6 @@ export class SimulatorService {
     // Run Python executable asynchronously
     const pythonProcess = childProcess.spawn('python3', [pythonExecutablePath, '-c', inputFilePath, '-o', outputPath]);
 
-    // Capture Python process output
-    let pythonOutput = '';
-
-    pythonProcess.stdout.on('data', (data) => {
-      pythonOutput += data.toString();
-    });
-
     pythonProcess.stderr.on('data', (data) => {
       console.error(`Error from Python process: ${data.toString()}`);
     });

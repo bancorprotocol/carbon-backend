@@ -1,4 +1,4 @@
-import { Controller, Get, Header, Query, Param } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricalTradesDto } from './historical_trades.dto';
 import {
   TokensTradedEventQueryParams,

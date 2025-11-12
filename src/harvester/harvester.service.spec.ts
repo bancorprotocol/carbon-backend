@@ -1,501 +1,1276 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 import { Test, TestingModule } from '@nestjs/testing';
-import { HarvesterService, ProcessEventsArgs } from './harvester.service';
-import { Repository } from 'typeorm';
+import { HarvesterService, ContractsNames, ProcessEventsArgs } from './harvester.service';
+import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
+import { BlockService } from '../block/block.service';
 import { ConfigService } from '@nestjs/config';
-import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
-import { BlockchainConfigModule } from '../..//blockchain-config/blockchain-config.module';
-import { RedisModule } from '../../redis/redis.module';
-import { Pool } from '../pair/pair.entity';
-import { BlockService } from '../../block/block.service';
-import { QuoteService } from '../../quote/quote.service';
-import { Rate } from '../rate/rate.entity';
-import { BnRate } from '../bn-rate/bn-rate.entity';
+import { Repository } from 'typeorm';
+import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
+import { BigNumber } from '@ethersproject/bignumber';
+import { Token } from '../token/token.entity';
+import { Pair } from '../pair/pair.entity';
+import { Block } from '../block/block.entity';
+
+// Mock Web3
+jest.mock('web3', () => {
+  return jest.fn().mockImplementation(() => ({
+    eth: {
+      Contract: jest.fn(),
+      getBlockNumber: jest.fn(),
+      getTransaction: jest.fn(),
+    },
+  }));
+});
+
+// Mock p-limit
+jest.mock('p-limit', () => ({
+  __esModule: true,
+  default: jest.fn(() => jest.fn((fn) => fn())),
+}));
+
+// Mock utilities
+jest.mock('../utilities', () => ({
+  sleep: jest.fn().mockResolvedValue(undefined),
+}));
 
 describe('HarvesterService', () => {
   let service: HarvesterService;
-  let get: jest.Mock;
-  let getOrInit: jest.Mock;
-  let update: jest.Mock;
-  let findQuotesForTimestamp: jest.Mock;
-  let repository: Repository<unknown>;
-  let poolCollectionByPoolForBlock: jest.Mock;
-  let processEventsArgs: ProcessEventsArgs;
-  const ABI: any = { type: 'event' };
+  let lastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
+  let blockService: jest.Mocked<BlockService>;
+  let configService: jest.Mocked<ConfigService>;
 
-  const eventMock = {
-    returnValues: {},
-    logIndex: 1,
-    transactionIndex: 2,
-    transactionHash: '3',
-    blockNumber: 10,
-    blockHash: '',
-    address: '',
-    event: '',
-    raw: { data: '', topics: [] },
-    signature: '',
-  };
-
-  const resultMock = {
-    block: { id: 10 },
-    logIndex: 1,
-    transactionIndex: 2,
-    transactionHash: '3',
+  const mockDeployment: Deployment = {
+    blockchainType: BlockchainType.Ethereum,
+    exchangeId: ExchangeId.OGEthereum,
+    rpcEndpoint: 'https://eth-mainnet.example.com',
+    startBlock: 1000,
+    harvestConcurrency: 5,
+    harvestEventsBatchSize: 1000,
+    harvestSleep: 0,
+    multicallAddress: '0xMulticallAddress',
+    gasToken: {
+      name: 'Ethereum',
+      symbol: 'ETH',
+      address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+    },
+    contracts: {
+      [ContractsNames.CarbonController]: {
+        address: '0xCarbonControllerAddress',
+      },
+      [ContractsNames.ERC20]: {
+        address: '0xERC20Address',
+      },
+    },
   };
 
   beforeEach(async () => {
-    get = jest.fn();
-    getOrInit = jest.fn();
-    update = jest.fn();
-    poolCollectionByPoolForBlock = jest.fn();
-    findQuotesForTimestamp = jest.fn();
-    repository = new Repository(Pool, null);
-    repository.createQueryBuilder = jest.fn();
-
-    processEventsArgs = {
-      entity: '',
-      contractName: '',
-      eventName: '',
-      endBlock: 1000,
-      repository,
-    };
-
     const module: TestingModule = await Test.createTestingModule({
-      imports: [BlockchainConfigModule, RedisModule],
       providers: [
         HarvesterService,
         {
-          provide: ConfigService,
-          useValue: { get },
-        },
-        {
           provide: LastProcessedBlockService,
-          useValue: { getOrInit, update },
+          useValue: {
+            getOrInit: jest.fn(),
+            update: jest.fn(),
+          },
         },
         {
           provide: BlockService,
-          useValue: {},
+          useValue: {
+            getBlocksDictionary: jest.fn(),
+          },
         },
         {
-          provide: QuoteService,
-          useValue: { findQuotesForTimestamp },
+          provide: ConfigService,
+          useValue: {
+            get: jest.fn(),
+          },
         },
       ],
     }).compile();
 
     service = module.get<HarvesterService>(HarvesterService);
-    service.preClear = jest.fn();
+    lastProcessedBlockService = module.get(LastProcessedBlockService) as jest.Mocked<LastProcessedBlockService>;
+    blockService = module.get(BlockService) as jest.Mocked<BlockService>;
+    configService = module.get(ConfigService) as jest.Mocked<ConfigService>;
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
+  describe('constructor', () => {
+    it('should be defined', () => {
+      expect(service).toBeDefined();
+    });
+
+    it('should inject dependencies', () => {
+      expect(service['lastProcessedBlockService']).toBe(lastProcessedBlockService);
+      expect(service['blockService']).toBe(blockService);
+      expect(service['configService']).toBe(configService);
+    });
+  });
+
+  describe('getContract', () => {
+    let mockContract: any;
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockContract = {
+        getPastEvents: jest.fn(),
+        methods: {},
+        options: { address: '0xContractAddress' },
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+        },
+      };
+
+      // Mock Web3 constructor
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should create and return a contract instance with default address', () => {
+      const contract = service.getContract(ContractsNames.CarbonController, undefined, undefined, mockDeployment);
+
+      expect(contract).toBeDefined();
+    });
+
+    it('should create and return a contract instance with custom address', () => {
+      const customAddress = '0xCustomAddress';
+      const contract = service.getContract(ContractsNames.CarbonController, undefined, customAddress, mockDeployment);
+
+      expect(contract).toBeDefined();
+    });
+
+    it('should throw error when contract address is not found', () => {
+      const deploymentWithoutContract = {
+        ...mockDeployment,
+        contracts: {},
+      } as Deployment;
+
+      expect(() => {
+        service.getContract(ContractsNames.CarbonController, undefined, undefined, deploymentWithoutContract);
+      }).toThrow('Contract CarbonController address not found in deployment configuration');
+    });
+
+    it('should handle versioned contracts', () => {
+      const contract = service.getContract(ContractsNames.CarbonController, 2, undefined, mockDeployment);
+
+      expect(contract).toBeDefined();
+    });
+  });
+
+  describe('fetchEventsFromBlockchain', () => {
+    let mockContract: any;
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockContract = {
+        getPastEvents: jest.fn(),
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should handle versioned contracts with VERSIONS', async () => {
+      // Import VERSIONS and add a test version
+      const harvesterModule = require('./harvester.service');
+      const originalVersions = { ...harvesterModule.VERSIONS };
+
+      // Add a versioned contract for testing
+      harvesterModule.VERSIONS.CarbonController = [
+        { terminatesAt: 1500, version: 1 },
+        { terminatesAt: 2000, version: 2 },
+        { version: 3 },
+      ];
+
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        1000,
+        2500,
+        undefined,
+        mockDeployment,
+      );
+
+      // Should be called once for each version range
+      expect(mockContract.getPastEvents).toHaveBeenCalled();
+
+      // Restore original VERSIONS
+      harvesterModule.VERSIONS = originalVersions;
+    });
+
+    it('should skip version ranges that are beyond toBlock', async () => {
+      const harvesterModule = require('./harvester.service');
+      const originalVersions = { ...harvesterModule.VERSIONS };
+
+      // Add versions where some ranges are beyond toBlock
+      harvesterModule.VERSIONS.CarbonController = [
+        { terminatesAt: 1200, version: 1 },
+        { terminatesAt: 1800, version: 2 },
+        { terminatesAt: 3000, version: 3 }, // This should be skipped as it starts after toBlock
+        { version: 4 }, // This too
+      ];
+
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        1000,
+        1500,
+        undefined,
+        mockDeployment,
+      );
+
+      expect(mockContract.getPastEvents).toHaveBeenCalled();
+
+      // Restore original VERSIONS
+      harvesterModule.VERSIONS = originalVersions;
+    });
+
+    it('should return empty array when fromBlock > toBlock', async () => {
+      const result = await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        2000,
+        1000,
+        undefined,
+        mockDeployment,
+      );
+
+      expect(result).toEqual([]);
+      expect(mockContract.getPastEvents).not.toHaveBeenCalled();
+    });
+
+    it('should fetch events in single batch', async () => {
+      const mockEvents = [
+        { blockNumber: 1001, transactionHash: '0xabc', logIndex: 0 },
+        { blockNumber: 1002, transactionHash: '0xdef', logIndex: 1 },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const result = await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        1001,
+        1500,
+        undefined,
+        mockDeployment,
+      );
+
+      expect(mockContract.getPastEvents).toHaveBeenCalledWith('PairCreated', {
+        fromBlock: 1001,
+        toBlock: 1500,
+      });
+      expect(result).toEqual(mockEvents);
+    });
+
+    it('should fetch events in multiple batches', async () => {
+      const smallBatchDeployment = {
+        ...mockDeployment,
+        harvestEventsBatchSize: 100,
+      };
+
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        1000,
+        1250,
+        undefined,
+        smallBatchDeployment,
+      );
+
+      expect(mockContract.getPastEvents).toHaveBeenCalledTimes(3);
+      expect(mockContract.getPastEvents).toHaveBeenCalledWith('PairCreated', {
+        fromBlock: 1000,
+        toBlock: 1099,
+      });
+      expect(mockContract.getPastEvents).toHaveBeenCalledWith('PairCreated', {
+        fromBlock: 1100,
+        toBlock: 1199,
+      });
+      expect(mockContract.getPastEvents).toHaveBeenCalledWith('PairCreated', {
+        fromBlock: 1200,
+        toBlock: 1250,
+      });
+    });
+
+    it('should handle custom contract address', async () => {
+      const customAddress = '0xCustomContract';
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      await service.fetchEventsFromBlockchain(
+        ContractsNames.ERC20,
+        'Transfer',
+        1000,
+        2000,
+        customAddress,
+        mockDeployment,
+      );
+
+      expect(mockContract.getPastEvents).toHaveBeenCalled();
+    });
+
+    it('should respect toBlock limit in batches', async () => {
+      const smallBatchDeployment = {
+        ...mockDeployment,
+        harvestEventsBatchSize: 100,
+      };
+
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      await service.fetchEventsFromBlockchain(
+        ContractsNames.CarbonController,
+        'PairCreated',
+        1000,
+        1050,
+        undefined,
+        smallBatchDeployment,
+      );
+
+      expect(mockContract.getPastEvents).toHaveBeenCalledTimes(1);
+      expect(mockContract.getPastEvents).toHaveBeenCalledWith('PairCreated', {
+        fromBlock: 1000,
+        toBlock: 1050,
+      });
+    });
+  });
+
+  describe('latestBlock', () => {
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockWeb3 = {
+        eth: {
+          getBlockNumber: jest.fn(),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should return latest block number', async () => {
+      mockWeb3.eth.getBlockNumber.mockResolvedValue(12345);
+
+      const result = await service.latestBlock(mockDeployment);
+
+      expect(mockWeb3.eth.getBlockNumber).toHaveBeenCalled();
+      expect(result).toBe(12345);
+    });
+
+    it('should handle BigInt block numbers', async () => {
+      mockWeb3.eth.getBlockNumber.mockResolvedValue(BigInt(99999));
+
+      const result = await service.latestBlock(mockDeployment);
+
+      expect(result).toBe(99999);
+    });
+  });
+
+  describe('preClear', () => {
+    let mockRepository: jest.Mocked<Repository<any>>;
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        delete: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({}),
+      };
+
+      mockRepository = {
+        createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+      } as any;
+    });
+
+    it('should delete records after last processed block', async () => {
+      await service.preClear(mockRepository, 5000, mockDeployment);
+
+      expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
+      expect(mockQueryBuilder.delete).toHaveBeenCalled();
+      expect(mockQueryBuilder.where).toHaveBeenCalledWith('block.id > :lastProcessedBlock', {
+        lastProcessedBlock: 5000,
+      });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('blockchainType = :blockchainType', {
+        blockchainType: BlockchainType.Ethereum,
+      });
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith('exchangeId = :exchangeId', {
+        exchangeId: ExchangeId.OGEthereum,
+      });
+      expect(mockQueryBuilder.execute).toHaveBeenCalled();
+    });
   });
 
   describe('processEvents', () => {
-    it('parses basic AND custom fields', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
-        {
-          ...eventMock,
-          returnValues: {
-            foo: 'bar',
-            bar: 'foo',
-            pool: 'xxx',
-          },
-        },
-      ]);
+    let mockRepository: jest.Mocked<Repository<any>>;
+    let processEventsArgs: ProcessEventsArgs;
+    let mockContract: any;
+    let mockWeb3: any;
 
-      const pool = new Pool();
-      pool.id = 1;
-      await service.processEvents({
-        ...processEventsArgs,
-        fields: ['foo', 'bar'],
-        poolsByAddress: { xxx: pool },
-      });
-      const expected = [
-        {
-          ...resultMock,
-          pool: { id: 1 },
-          foo: 'bar',
-          bar: 'foo',
-        },
-      ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
-    });
+    beforeEach(() => {
+      mockRepository = {
+        create: jest.fn((data) => data),
+        save: jest.fn().mockResolvedValue([]),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          delete: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          execute: jest.fn().mockResolvedValue({}),
+        }),
+      } as any;
 
-    it('parses entities', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
-        {
-          ...eventMock,
-          returnValues: {
-            pool: 'pool1',
-            poolType: 2,
-            poolCollection: 'poolCollection1',
-            prevPoolCollection: 'poolCollection2',
-            newPoolCollection: 'poolCollection3',
-          },
-        },
-      ]);
-
-      const poolsByAddress: any = {
-        pool1: {
-          id: 1,
-          poolType: 2,
-          poolCollection: { id: 3 },
-          prevPoolCollection: { id: 4 },
-          newPoolCollection: { id: 5 },
-        },
-      };
-      const poolCollectionsByAddress: any = {
-        poolCollection1: { id: 1 },
-        poolCollection2: { id: 2 },
-        poolCollection3: { id: 3 },
+      processEventsArgs = {
+        entity: 'TestEntity',
+        contractName: ContractsNames.CarbonController,
+        eventName: 'PairCreated',
+        endBlock: 2000,
+        repository: mockRepository,
+        deployment: mockDeployment,
       };
 
-      await service.processEvents({
-        ...processEventsArgs,
-        poolsByAddress,
-        poolCollectionsByAddress,
-      });
+      lastProcessedBlockService.getOrInit.mockResolvedValue(1000);
+      lastProcessedBlockService.update.mockResolvedValue(undefined);
 
-      const expected = [
-        {
-          ...resultMock,
-          pool: {
-            id: 1,
-            newPoolCollection: {
-              id: 5,
-            },
-            poolCollection: {
-              id: 3,
-            },
-            poolType: 2,
-            prevPoolCollection: {
-              id: 4,
-            },
-          },
+      mockContract = {
+        getPastEvents: jest.fn().mockResolvedValue([]),
+      };
 
-          poolType: 2,
-          poolCollection: { id: 1 },
-          prevPoolCollection: { id: 2 },
-          newPoolCollection: { id: 3 },
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+          getTransaction: jest.fn(),
         },
-      ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
     });
 
-    it('updates last processed block', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([]);
+    it('should process events with minimal configuration', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {},
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const result = await service.processEvents(processEventsArgs);
+
+      expect(lastProcessedBlockService.getOrInit).toHaveBeenCalledWith(
+        'ethereum-ethereum-TestEntity',
+        mockDeployment.startBlock,
+      );
+      expect(mockRepository.save).toHaveBeenCalled();
+      expect(lastProcessedBlockService.update).toHaveBeenCalledWith('ethereum-ethereum-TestEntity', 2000);
+      expect(result.length).toBeGreaterThan(0);
+    });
+
+    it('should skip pre-clearing when skipPreClearing is true', async () => {
+      const args = {
+        ...processEventsArgs,
+        skipPreClearing: true,
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.createQueryBuilder).not.toHaveBeenCalled();
+    });
+
+    it('should not skip pre-clearing by default', async () => {
       await service.processEvents(processEventsArgs);
-      expect(update).toHaveBeenCalledWith('', 1000);
+
+      expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
     });
 
-    it('parses constants', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([eventMock]);
-      await service.processEvents({
-        ...processEventsArgs,
-        constants: [{ key: 'foo', value: 'bar' }],
-      });
-      const expected = [
+    it('should process string fields', async () => {
+      const mockEvents = [
         {
-          ...resultMock,
-          foo: 'bar',
-        },
-      ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
-    });
-
-    it('tags poolCollection', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
-        {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            pool: 'pool1',
-          },
-        },
-      ]);
-      const poolsByAddress: any = {
-        pool1: {
-          id: 1,
-          poolCollection: { id: 1 },
-        },
-      };
-      poolCollectionByPoolForBlock.mockReturnValue({ id: 1 });
-      await service.processEvents({
-        ...processEventsArgs,
-        poolsByAddress,
-        tagPoolCollection: true,
-        poolCollectionByPoolForBlock,
-      });
-      const expected = [
-        {
-          ...resultMock,
-          poolCollection: { id: 1 },
-          pool: {
-            id: 1,
-            poolCollection: { id: 1 },
+            strategyId: 'strategy-123',
+            name: 'test-name',
           },
         },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        stringFields: ['strategyId', 'name'],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strategyId: 'strategy-123',
+          name: 'test-name',
+        }),
+      );
     });
 
-    it("normalizes amounts by the event's pool", async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should process number fields', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            pool: 'pool',
-            foo: '10',
-          },
-        },
-      ]);
-
-      const poolsByAddress: any = {
-        pool: {
-          id: 1,
-          decimals: 2,
-        },
-      };
-
-      await service.processEvents({
-        ...processEventsArgs,
-        poolsByAddress,
-        fields: ['foo'],
-        normalizeFields: ['foo'],
-      });
-      const expected = [
-        {
-          ...resultMock,
-          foo: '0.10',
-          pool: {
-            id: 1,
-            decimals: 2,
+            amount: '100',
+            count: '5',
           },
         },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        numberFields: ['amount', 'count'],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amount: 100,
+          count: 5,
+        }),
+      );
     });
 
-    it('normalizes amounts using a source map', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should process bigNumber fields', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            foo: '10',
-            sourceField: 'pool',
+            largeAmount: '1000000000000000000',
           },
         },
-      ]);
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
 
-      const poolsByAddress: any = {
-        pool: {
-          id: 1,
-          decimals: 2,
-        },
+      const args = {
+        ...processEventsArgs,
+        bigNumberFields: ['largeAmount'],
       };
 
-      await service.processEvents({
-        ...processEventsArgs,
-        fields: ['foo', 'sourceField'],
-        normalizeFields: ['foo'],
-        normalizeFieldsSourceMap: { foo: 'sourceField' },
-        poolsByAddress,
-      });
-      const expected = [
-        {
-          ...resultMock,
-          sourceField: 'pool',
-          foo: '0.10',
-        },
-      ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          largeAmount: BigNumber.from('1000000000000000000').toString(),
+        }),
+      );
     });
 
-    it('normalizes amounts using a provided constants', async () => {
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should process boolean fields', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            foo: '10',
-            sourceField: 'pool',
+            isActive: true,
+            isEnabled: false,
           },
         },
-      ]);
-
-      await service.processEvents({
-        ...processEventsArgs,
-        fields: ['foo'],
-        normalizeFields: ['foo'],
-        normalizeFieldsConstants: { foo: 2 },
-      });
-      const expected = [
-        {
-          ...resultMock,
-          foo: '0.10',
-        },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        booleanFields: ['isActive', 'isEnabled'],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          isActive: true,
+          isEnabled: false,
+        }),
+      );
     });
 
-    it('symbolizes a bnt field', async () => {
-      get.mockReturnValue(JSON.stringify([{ symbol: 'bnt', decimals: 2 }]));
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should process constants', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
-          returnValues: {
-            pool: 'pool',
-            bnt: '1000',
-          },
-        },
-      ]);
-
-      const poolsByAddress: any = {
-        pool: {
-          id: 2,
-          poolCollection: { id: 1 },
-          decimals: 18,
-        },
-      };
-
-      const blocksDictionary = {
-        10: new Date(1),
-      };
-
-      findQuotesForTimestamp.mockReturnValue({
-        bnt: new Date(1),
-      });
-
-      await service.processEvents({
-        ...processEventsArgs,
-        symbolize: [{ field: 'bnt', saveAs: 'boo' }],
-        fields: ['bnt'],
-        normalizeFields: ['bnt'],
-        poolsByAddress,
-        blocksDictionary,
-      });
-      const expected = [
-        {
-          ...resultMock,
-          bnt: '0.000000000000001000',
-          boo_bnt: '0.000000000000001000',
-          pool: { id: 2, decimals: 18, poolCollection: { id: 1 } },
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {},
         },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        constants: [
+          { key: 'type', value: 'TRADE' },
+          { key: 'version', value: 2 },
+        ],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'TRADE',
+          version: 2,
+        }),
+      );
     });
 
-    it('symbolizes using rates', async () => {
-      get.mockReturnValue(JSON.stringify([{ symbol: 'bnt', decimals: 2 }]));
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should extract owner from returnValues', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            pool: 'pool',
-            foo: '5',
+            owner: '0xOwnerAddress',
           },
         },
-      ]);
-
-      const poolsByAddress: any = {
-        pool: {
-          id: 2,
-          poolCollection: { id: 1 },
-          decimals: 18,
-        },
-      };
-
-      const blocksDictionary = {
-        10: new Date(1),
-      };
-
-      findQuotesForTimestamp.mockReturnValue({
-        bnt: new Date(1),
-      });
-
-      await service.processEvents({
-        ...processEventsArgs,
-        symbolize: [{ field: 'foo', saveAs: 'foo' }],
-        symbolizeWithRates: { 2: { 10: <Rate>{ bnt: '8.5' } } },
-        fields: ['foo'],
-        normalizeFields: ['foo'],
-        poolsByAddress,
-        blocksDictionary,
-      });
-      const expected = [
-        {
-          ...resultMock,
-          foo: '0.000000000000000005',
-          foo_bnt: '0.000000000000000043',
-          pool: { id: 2, decimals: 18, poolCollection: { id: 1 } },
-        },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      await service.processEvents(processEventsArgs);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          owner: '0xOwnerAddress',
+        }),
+      );
     });
 
-    it('symbolizes using bn rates', async () => {
-      get.mockReturnValue(JSON.stringify([{ symbol: 'bnt', decimals: 2 }]));
-      jest.spyOn(repository, 'create').mockImplementation((fields) => fields);
-      jest.spyOn(repository, 'save').mockImplementation();
-      jest.spyOn(service, 'fetchEventsFromBlockchain').mockResolvedValue([
+    it('should handle token0 and token1 with tokens dictionary', async () => {
+      const mockEvents = [
         {
-          ...eventMock,
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
           returnValues: {
-            pool: 'pool',
-            poolToken: 'pooToken',
-            foo: '5',
+            token0: '0xToken0',
+            token1: '0xToken1',
           },
         },
-      ]);
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
 
-      const poolsByAddress: any = {
-        pool: {
-          id: 2,
-          poolCollection: { id: 1 },
-          decimals: 18,
+      const mockToken0: Token = {
+        id: 1,
+        address: '0xToken0',
+        symbol: 'TKN0',
+        name: 'Token 0',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const mockToken1: Token = {
+        id: 2,
+        address: '0xToken1',
+        symbol: 'TKN1',
+        name: 'Token 1',
+        decimals: 6,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const args = {
+        ...processEventsArgs,
+        tokens: {
+          '0xToken0': mockToken0,
+          '0xToken1': mockToken1,
         },
       };
 
-      const blocksDictionary = {
-        10: new Date(1),
-      };
+      await service.processEvents(args);
 
-      findQuotesForTimestamp.mockReturnValue({
-        bnt: new Date(1),
-      });
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          token0: mockToken0,
+          token1: mockToken1,
+        }),
+      );
+    });
 
-      await service.processEvents({
-        ...processEventsArgs,
-        symbolize: [{ field: 'foo', saveAs: 'foo' }],
-        symbolizeWithBnRates: { 2: { 10: <BnRate>{ bnt: '8.5', tkn: '2.2' } } },
-        fields: ['foo'],
-        normalizeFields: ['foo'],
-        poolsByAddress,
-        blocksDictionary,
-      });
-      const expected = [
+    it('should handle token0 and token1 with pairs dictionary', async () => {
+      const mockEvents = [
         {
-          ...resultMock,
-          foo: '0.000000000000000005',
-          foo_bnt: '0.000000000000000094',
-          pool: { id: 2, decimals: 18, poolCollection: { id: 1 } },
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            token0: '0xToken0',
+            token1: '0xToken1',
+          },
         },
       ];
-      expect(repository.save).toHaveBeenCalledWith(expected);
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const mockToken0: Token = {
+        id: 1,
+        address: '0xToken0',
+        symbol: 'TKN0',
+        name: 'Token 0',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const mockToken1: Token = {
+        id: 2,
+        address: '0xToken1',
+        symbol: 'TKN1',
+        name: 'Token 1',
+        decimals: 6,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const mockBlock: Block = {
+        id: 1001,
+        blockchainType: BlockchainType.Ethereum,
+        timestamp: new Date(1234567890 * 1000),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      const mockPair: Pair = {
+        id: 1,
+        token0: mockToken0,
+        token1: mockToken1,
+        block: mockBlock,
+        name: 'TKN0-TKN1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        tokensTradedEvents: [],
+      };
+
+      const args = {
+        ...processEventsArgs,
+        pairsDictionary: {
+          '0xToken0': {
+            '0xToken1': mockPair,
+          },
+        },
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pair: mockPair,
+        }),
+      );
+    });
+
+    it('should tag timestamp from block when tagTimestampFromBlock is true', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {},
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+      const mockTimestamp = new Date(1234567890 * 1000);
+      blockService.getBlocksDictionary.mockResolvedValue({
+        1001: mockTimestamp,
+      });
+
+      const args = {
+        ...processEventsArgs,
+        tagTimestampFromBlock: true,
+      };
+
+      await service.processEvents(args);
+
+      expect(blockService.getBlocksDictionary).toHaveBeenCalledWith([1001], mockDeployment);
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          timestamp: mockTimestamp,
+        }),
+      );
+    });
+
+    it('should process date fields', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            startTime: 1609459200,
+            endTime: 1612137600,
+          },
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        dateFields: ['startTime', 'endTime'],
+      };
+
+      await service.processEvents(args);
+
+      const savedData = mockRepository.create.mock.calls[0][0];
+      expect(savedData.startTime).toBeDefined();
+      expect(savedData.endTime).toBeDefined();
+    });
+
+    it('should process source map with non-relation fields', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            srcField: 'sourceValue',
+          },
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        sourceMap: [{ key: 'destField', eventKey: 'srcField', isRelation: false }],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          destField: 'sourceValue',
+        }),
+      );
+    });
+
+    it('should process source map with relation fields', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            strategyId: '123',
+          },
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const args = {
+        ...processEventsArgs,
+        sourceMap: [{ key: 'strategy', eventKey: 'strategyId', isRelation: true }],
+      };
+
+      await service.processEvents(args);
+
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strategy: { id: 123 },
+        }),
+      );
+    });
+
+    it('should fetch caller ID when fetchCallerId is true', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {},
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+      mockWeb3.eth.getTransaction.mockResolvedValue({
+        from: '0xCallerAddress',
+      });
+
+      const args = {
+        ...processEventsArgs,
+        fetchCallerId: true,
+      };
+
+      await service.processEvents(args);
+
+      expect(mockWeb3.eth.getTransaction).toHaveBeenCalledWith('0xabc');
+      expect(mockRepository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          callerId: '0xCallerAddress',
+        }),
+      );
+    });
+
+    it('should execute custom functions', async () => {
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {},
+        },
+      ];
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      const customFn = jest.fn(async ({ event }) => ({
+        ...event,
+        customField: 'customValue',
+      }));
+
+      const args = {
+        ...processEventsArgs,
+        customFns: [customFn],
+      };
+
+      await service.processEvents(args);
+
+      expect(customFn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: expect.any(Object),
+          rawEvent: expect.any(Object),
+          configService: configService,
+          endBlock: 2000,
+        }),
+      );
+    });
+
+    it('should skip last processed block update when skipLastProcessedBlockUpdate is true', async () => {
+      const args = {
+        ...processEventsArgs,
+        skipLastProcessedBlockUpdate: true,
+      };
+
+      await service.processEvents(args);
+
+      expect(lastProcessedBlockService.update).not.toHaveBeenCalled();
+    });
+
+    it('should batch save events in chunks of 1000', async () => {
+      const mockEvents = Array.from({ length: 2500 }, (_, i) => ({
+        blockNumber: 1001 + i,
+        transactionIndex: 0,
+        transactionHash: `0xabc${i}`,
+        logIndex: i,
+        returnValues: {},
+      }));
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      await service.processEvents(processEventsArgs);
+
+      expect(mockRepository.save).toHaveBeenCalledTimes(3);
+      expect(mockRepository.save).toHaveBeenNthCalledWith(1, expect.any(Array));
+    });
+
+    it('should handle multiple range iterations', async () => {
+      const smallBatchDeployment = {
+        ...mockDeployment,
+        harvestEventsBatchSize: 100,
+        harvestConcurrency: 2,
+      };
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(1000);
+      mockContract.getPastEvents.mockResolvedValue([]);
+
+      const args = {
+        ...processEventsArgs,
+        endBlock: 1500,
+        deployment: smallBatchDeployment,
+      };
+
+      await service.processEvents(args);
+
+      expect(lastProcessedBlockService.update).toHaveBeenCalledWith('ethereum-ethereum-TestEntity', 1201);
+      expect(lastProcessedBlockService.update).toHaveBeenCalledWith('ethereum-ethereum-TestEntity', 1402);
+      expect(lastProcessedBlockService.update).toHaveBeenCalledWith('ethereum-ethereum-TestEntity', 1500);
+    });
+  });
+
+  describe('stringsWithMulticall', () => {
+    it('should delegate to stringsWithMulticallV2 for Ethereum', async () => {
+      const spy = jest.spyOn(service, 'stringsWithMulticallV2').mockResolvedValue(['ETH', 'BTC']);
+
+      const result = await service.stringsWithMulticall(['0xAddr1', '0xAddr2'], {}, 'symbol', mockDeployment);
+
+      expect(spy).toHaveBeenCalledWith(['0xAddr1', '0xAddr2'], {}, 'symbol', mockDeployment);
+      expect(result).toEqual(['ETH', 'BTC']);
+    });
+
+    it('should delegate to stringsWithMulticallV3 for non-Ethereum', async () => {
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+      const spy = jest.spyOn(service, 'stringsWithMulticallV3').mockResolvedValue(['SEI', 'USDC']);
+
+      const result = await service.stringsWithMulticall(['0xAddr1', '0xAddr2'], {}, 'symbol', seiDeployment);
+
+      expect(spy).toHaveBeenCalledWith(['0xAddr1', '0xAddr2'], {}, 'symbol', seiDeployment);
+      expect(result).toEqual(['SEI', 'USDC']);
+    });
+  });
+
+  describe('integersWithMulticall', () => {
+    it('should delegate to integersWithMulticallEthereum for Ethereum', async () => {
+      const spy = jest.spyOn(service, 'integersWithMulticallEthereum').mockResolvedValue([18, 6]);
+
+      const result = await service.integersWithMulticall(['0xAddr1', '0xAddr2'], {}, 'decimals', mockDeployment);
+
+      expect(spy).toHaveBeenCalledWith(['0xAddr1', '0xAddr2'], {}, 'decimals', mockDeployment);
+      expect(result).toEqual([18, 6]);
+    });
+
+    it('should delegate to integersWithMulticallSei for non-Ethereum', async () => {
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+      const spy = jest.spyOn(service, 'integersWithMulticallSei').mockResolvedValue([18, 6]);
+
+      const result = await service.integersWithMulticall(['0xAddr1', '0xAddr2'], {}, 'decimals', seiDeployment);
+
+      expect(spy).toHaveBeenCalledWith(['0xAddr1', '0xAddr2'], {}, 'decimals', seiDeployment);
+      expect(result).toEqual([18, 6]);
+    });
+  });
+
+  describe('stringsWithMulticallV2', () => {
+    it('should convert hex data to strings', async () => {
+      const mockData = [{ data: '0x455448' }, { data: '0x425443' }];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV2(['0xAddr1', '0xAddr2'], {}, 'symbol', mockDeployment);
+
+      expect(result).toHaveLength(2);
+      expect(typeof result[0]).toBe('string');
+    });
+  });
+
+  describe('integersWithMulticallEthereum', () => {
+    it('should convert hex data to integers', async () => {
+      const mockData = [{ data: '0x12' }, { data: '0x06' }];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallEthereum(
+        ['0xAddr1', '0xAddr2'],
+        {},
+        'decimals',
+        mockDeployment,
+      );
+
+      expect(result).toEqual([18, 6]);
+    });
+  });
+
+  describe('stringsWithMulticallV3', () => {
+    it('should convert hex strings to readable strings', async () => {
+      const mockData = ['0x455448', '0x425443'];
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV3(['0xAddr1', '0xAddr2'], {}, 'symbol', mockDeployment);
+
+      expect(result).toHaveLength(2);
+      expect(typeof result[0]).toBe('string');
+    });
+  });
+
+  describe('integersWithMulticallSei', () => {
+    it('should convert hex strings to integers', async () => {
+      const mockData = ['0x12', '0x06'];
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallSei(['0xAddr1', '0xAddr2'], {}, 'decimals', mockDeployment);
+
+      expect(result).toEqual([18, 6]);
+    });
+  });
+
+  describe('withMulticallEthereum', () => {
+    let mockContract: any;
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockContract = {
+        methods: {
+          decimals: jest.fn(),
+          aggregate: jest.fn(),
+        },
+        options: { address: '0xAddr' },
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should make multicall aggregate call', async () => {
+      const mockReturnData = [{ data: '0x12' }, { data: '0x06' }];
+      mockContract.methods.aggregate.mockReturnValue({
+        call: jest.fn().mockResolvedValue({ returnData: mockReturnData }),
+      });
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+      });
+
+      const mockAbi = { name: 'decimals', type: 'function' };
+
+      const result = await service.withMulticallEthereum(['0xAddr1', '0xAddr2'], mockAbi, 'decimals', mockDeployment);
+
+      expect(result).toEqual(mockReturnData);
+    });
+
+    it('should handle multiple batches', async () => {
+      const addresses = Array.from({ length: 2500 }, (_, i) => `0xAddr${i}`);
+      const mockReturnData = Array.from({ length: 1000 }, (_, i) => ({ data: `0x${i}` }));
+
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+      });
+      mockContract.methods.aggregate = jest.fn().mockReturnValue({
+        call: jest.fn().mockResolvedValue({ returnData: mockReturnData }),
+      });
+
+      const result = await service.withMulticallEthereum(addresses, {}, 'decimals', mockDeployment);
+
+      expect(mockContract.methods.aggregate).toHaveBeenCalledTimes(3);
+      expect(result).toHaveLength(3000);
+    });
+
+    it('should handle empty batches', async () => {
+      const result = await service.withMulticallEthereum([], {}, 'decimals', mockDeployment);
+
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('withMulticallSei', () => {
+    let mockContract: any;
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockContract = {
+        methods: {
+          decimals: jest.fn(),
+          aggregate: jest.fn(),
+        },
+        options: { address: '0xAddr' },
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should make multicall aggregate call for Sei', async () => {
+      const mockReturnData = ['0x12', '0x06'];
+      mockContract.methods.aggregate.mockReturnValue({
+        call: jest.fn().mockResolvedValue({ returnData: mockReturnData }),
+      });
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+      });
+
+      const mockAbi = { name: 'decimals', type: 'function' };
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const result = await service.withMulticallSei(['0xAddr1', '0xAddr2'], mockAbi, 'decimals', seiDeployment);
+
+      expect(result).toEqual(mockReturnData);
+    });
+
+    it('should handle multiple batches for Sei', async () => {
+      const addresses = Array.from({ length: 2500 }, (_, i) => `0xAddr${i}`);
+      const mockReturnData = Array.from({ length: 1000 }, (_, i) => `0x${i}`);
+
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+      });
+      mockContract.methods.aggregate = jest.fn().mockReturnValue({
+        call: jest.fn().mockResolvedValue({ returnData: mockReturnData }),
+      });
+
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const result = await service.withMulticallSei(addresses, {}, 'decimals', seiDeployment);
+
+      expect(mockContract.methods.aggregate).toHaveBeenCalledTimes(3);
+      expect(result).toHaveLength(3000);
+    });
+
+    it('should handle empty batches for Sei', async () => {
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const result = await service.withMulticallSei([], {}, 'decimals', seiDeployment);
+
+      expect(result).toEqual([]);
     });
   });
 });

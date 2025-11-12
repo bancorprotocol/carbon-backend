@@ -1,7 +1,7 @@
 #!/usr/bin/env ts-node
 
 import 'reflect-metadata';
-import { DataSource, In } from 'typeorm';
+import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import { Token } from '../token/token.entity';
 import { Pair } from '../pair/pair.entity';

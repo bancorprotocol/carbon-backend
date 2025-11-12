@@ -168,16 +168,18 @@ describe('Batch Order Integration Test', () => {
       lastProcessedBlock: 0,
     });
 
-    // Campaign contexts as expected by the service
-    const campaignContexts = [
+    // REAL events using simplified mock objects that match the interface
+    // Note: campaignContexts and events are defined inline for test setup
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _campaignContexts = [
       {
         campaign,
         strategyStates,
       },
     ];
 
-    // REAL events using simplified mock objects that match the interface
-    const events = {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _events = {
       createdEvents: [],
       updatedEvents: [
         {
@@ -259,7 +261,8 @@ describe('Batch Order Integration Test', () => {
     };
 
     // Time ranges for the batch
-    const batchStart = 157000000;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _batchStart = 157000000;
     const batchEnd = 157300000;
 
     console.log('🎯 TEST SETUP:');

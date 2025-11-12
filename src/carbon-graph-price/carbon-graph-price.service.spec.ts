@@ -864,8 +864,6 @@ describe('CarbonGraphPriceService', () => {
 
   describe('Integration Test - Real World Scenario', () => {
     test('should handle complex multi-token batch correctly', async () => {
-      const batchTimestamp = new Date('2024-01-01T10:00:00Z');
-
       const trades = [
         // Initial trades establish prices
         createMockTrade(USDC, WBTC, '100000000000', '100000000', new Date('2024-01-01T10:00:00Z')),

@@ -187,7 +187,8 @@ describe('Cross-Batch Temporal Contamination Test', () => {
     ];
 
     // EXACT events from user's bug report - chronological order
-    const events = {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _events = {
       createdEvents: [],
       updatedEvents: [
         {
@@ -495,7 +496,8 @@ describe('Cross-Batch Temporal Contamination Test', () => {
     expect(typeof service['processEpochBatch']).toBe('function');
 
     // Batch 2: later window that includes the FUTURE event
-    const futureEvent = {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _futureEvent = {
       id: 5883699,
       blockchainType: 'sei-network',
       exchangeId: 'sei',

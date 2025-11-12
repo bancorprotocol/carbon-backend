@@ -265,7 +265,7 @@ describe('DexScreenerV2Service', () => {
       await service.update(2100, mockDeployment, mockTokensByAddress);
 
       expect(queryBuilder.delete).toHaveBeenCalled();
-      expect(queryBuilder.where).toHaveBeenCalledWith('"blockNumber" >= :lastProcessedBlock', {
+      expect(queryBuilder.where).toHaveBeenCalledWith('"blockNumber" > :lastProcessedBlock', {
         lastProcessedBlock: 1999,
       });
       expect(queryBuilder.andWhere).toHaveBeenCalledWith('"blockchainType" = :blockchainType', {
@@ -312,6 +312,24 @@ describe('DexScreenerV2Service', () => {
 
       await service.update(2100, mockDeployment, mockTokensByAddress);
 
+      expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
+    });
+
+    it('should sort events by transaction index when in same block', async () => {
+      const event1 = createMockStrategyCreatedEvent();
+      event1.block.id = 2050;
+      event1.transactionIndex = 5;
+
+      const event2 = createMockStrategyUpdatedEvent();
+      event2.block.id = 2050;
+      event2.transactionIndex = 3;
+
+      strategyCreatedEventService.get.mockResolvedValue([event1]);
+      strategyUpdatedEventService.get.mockResolvedValue([event2]);
+
+      await service.update(2100, mockDeployment, mockTokensByAddress);
+
+      // Event2 should be processed before event1 due to lower transaction index
       expect(dexScreenerEventV2Repository.save).toHaveBeenCalled();
     });
   });
@@ -1665,6 +1683,26 @@ describe('DexScreenerV2Service', () => {
       expect(result).toHaveLength(1);
       expect(result[0].amount0).toBe('0');
       expect(result[0].amount1).toBe('0');
+    });
+  });
+
+  describe('getCachedPairs', () => {
+    it('should retrieve cached pairs from cache manager', async () => {
+      const mockPairs = { pair1: 'data1', pair2: 'data2' };
+      cacheManager.get.mockResolvedValue(mockPairs);
+
+      const result = await service.getCachedPairs(mockDeployment);
+
+      expect(cacheManager.get).toHaveBeenCalledWith('ethereum:ethereum:pairs');
+      expect(result).toEqual(mockPairs);
+    });
+
+    it('should return undefined when no cached pairs exist', async () => {
+      cacheManager.get.mockResolvedValue(undefined);
+
+      const result = await service.getCachedPairs(mockDeployment);
+
+      expect(result).toBeUndefined();
     });
   });
 });
