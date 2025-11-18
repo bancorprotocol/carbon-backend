@@ -74,6 +74,23 @@ steps:
     waitFor: ['fetch_secrets']
     id: 'run_migrations'
 
+  # Run the backfill script to populate strategy encoded orders
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        source /workspace/env.sh && \
+        docker run --rm \
+          -e DATABASE_URL="$$DATABASE_URL" \
+          -e CARBON_BACKEND_SQL_CERTIFICATION="$$CARBON_BACKEND_SQL_CERTIFICATION" \
+          -e NODE_ENV=production \
+          -e DATABASE_SSL_ENABLED=1 \
+          europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest \
+          npm run backfill:strategy-orders
+    waitFor: ['run_migrations']
+    id: 'run_backfill'
+
   # Deploy the harvester service
   - name: 'gcr.io/cloud-builders/gcloud'
     args:
@@ -158,7 +175,7 @@ steps:
         '--project=bancor-api',
         '--port=3000',
       ]
-    waitFor: ['run_migrations']
+    waitFor: ['run_backfill']
     id: 'deploy_harvester'
 
   # Deploy the endpoint service

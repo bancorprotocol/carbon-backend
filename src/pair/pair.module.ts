@@ -8,6 +8,8 @@ import { Pair } from './pair.entity';
 import { PairService } from './pair.service';
 import { PairController } from './pair.controller';
 import { PairCreatedEventModule } from '../events/pair-created-event/pair-created-event.module';
+import { PairTradingFeePpmUpdatedEventModule } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.module';
+import { TradingFeePpmUpdatedEventModule } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.module';
 
 @Module({
   imports: [
@@ -16,6 +18,8 @@ import { PairCreatedEventModule } from '../events/pair-created-event/pair-create
     RedisModule,
     HarvesterModule,
     PairCreatedEventModule,
+    PairTradingFeePpmUpdatedEventModule,
+    TradingFeePpmUpdatedEventModule,
   ],
   providers: [ConfigService, PairService],
   exports: [PairService, TypeOrmModule.forFeature([Pair])],
