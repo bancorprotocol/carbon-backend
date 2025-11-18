@@ -638,9 +638,11 @@ describe('CarbonPriceService', () => {
       } as HistoricQuote,
     };
 
-    const mockDeploymentRates = {}; // No existing prices for unknown tokens
+    let mockDeploymentRates: { [key: string]: any }; // No existing prices for unknown tokens
 
     beforeEach(() => {
+      // Reset mockDeploymentRates before each test to prevent test pollution
+      mockDeploymentRates = {};
       historicQuoteService.getLast.mockReset();
       historicQuoteService.addQuote.mockReset();
       quoteService.addOrUpdateQuote.mockReset();

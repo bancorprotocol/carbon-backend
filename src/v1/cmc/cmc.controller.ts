@@ -1,5 +1,5 @@
 import { CacheTTL } from '@nestjs/cache-manager';
-import { Controller, Get, Header, Query, Param } from '@nestjs/common';
+import { Controller, Get, Header, Query } from '@nestjs/common';
 import { HistoricalTradesDto } from './historical_trades.dto';
 import { TokensTradedEventService } from '../../events/tokens-traded-event/tokens-traded-event.service';
 import { PairService } from '../../pair/pair.service';

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Repository } from 'typeorm';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { TokenService, TokensByAddress } from './token.service';
+import { TokenService } from './token.service';
 import { Token } from './token.entity';
 import { HarvesterService } from '../harvester/harvester.service';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';

@@ -13,7 +13,6 @@ import { StrategyCreatedEventService } from '../../events/strategy-created-event
 import { StrategyUpdatedEventService } from '../../events/strategy-updated-event/strategy-updated-event.service';
 import { StrategyDeletedEventService } from '../../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../../events/voucher-transfer-event/voucher-transfer-event.service';
-import { StrategyCreatedEvent } from '../../events/strategy-created-event/strategy-created-event.entity';
 import { BlockchainType, ExchangeId, Deployment } from '../../deployment/deployment.service';
 import { Pair } from '../../pair/pair.entity';
 import { Token } from '../../token/token.entity';
@@ -459,7 +458,7 @@ describe('MerklProcessorService', () => {
       };
 
       // Test the capping logic by calling the private method
-      const result = (service as any).calculateSubEpochRewards(
+      (service as any).calculateSubEpochRewards(
         subEpochData,
         new Decimal('100000000000000000000'), // 100 tokens reward pool (would exceed limit)
         mockCampaign,
@@ -825,7 +824,7 @@ describe('MerklProcessorService', () => {
         };
 
         // The key test: reward per sub-epoch should be campaign total / total sub-epochs
-        const result = (service as any).calculateSubEpochRewards(
+        (service as any).calculateSubEpochRewards(
           subEpochData,
           expectedRewardPerSubEpoch, // This should be 100 tokens
           testCampaign,
@@ -854,7 +853,7 @@ describe('MerklProcessorService', () => {
           tokenRewards: new Map([['strategy-1', { token0: new Decimal('50'), token1: new Decimal('50') }]]),
         });
 
-        const generateSubEpochsSpy = jest.spyOn(service as any, 'generateSubEpochsForEpoch').mockReturnValue([
+        jest.spyOn(service as any, 'generateSubEpochsForEpoch').mockReturnValue([
           {
             timestamp: Date.now(),
             order0TargetPrice: new Decimal(1),

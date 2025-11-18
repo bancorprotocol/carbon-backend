@@ -9,7 +9,6 @@ import Decimal from 'decimal.js';
 
 describe('CampaignService', () => {
   let service: CampaignService;
-  let repository: Repository<Campaign>;
 
   const mockRepository = {
     save: jest.fn(),

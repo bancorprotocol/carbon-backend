@@ -1,4 +1,4 @@
-import { registerDecorator, ValidationOptions, ValidationArguments } from 'class-validator';
+import { registerDecorator, ValidationOptions } from 'class-validator';
 
 export function isTickerId(validationOptions?: ValidationOptions) {
   return (object: object, propertyName: string) => {
@@ -8,7 +8,7 @@ export function isTickerId(validationOptions?: ValidationOptions) {
       propertyName: propertyName,
       options: validationOptions,
       validator: {
-        validate(value: any, args: ValidationArguments) {
+        validate(value: any) {
           if (typeof value !== 'string') {
             return false;
           }
@@ -16,7 +16,7 @@ export function isTickerId(validationOptions?: ValidationOptions) {
           const ethereumAddressRegex = /^0x[a-fA-F0-9]{40}_0x[a-fA-F0-9]{40}$/;
           return ethereumAddressRegex.test(value);
         },
-        defaultMessage(args: ValidationArguments) {
+        defaultMessage() {
           return 'Invalid ticker_id format';
         },
       },

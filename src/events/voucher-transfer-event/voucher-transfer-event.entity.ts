@@ -8,10 +8,7 @@ import {
   Unique,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { Pair } from '../../pair/pair.entity';
 import { Block } from '../../block/block.entity';
-import { Token } from '../../token/token.entity';
-import { Strategy } from '../../strategy/strategy.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'voucher-transfer-events' })

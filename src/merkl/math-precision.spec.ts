@@ -271,7 +271,7 @@ describe('Merkl Mathematical Precision Tests', () => {
 
   describe('Eligible Liquidity Calculations', () => {
     it('should calculate eligible liquidity exactly as expected for all test cases', () => {
-      Object.entries(TEST_DATA).forEach(([lpId, testCase]) => {
+      Object.entries(TEST_DATA).forEach(([, testCase]) => {
         if (testCase.calculations.sellOrder.eligibleLiquidity) {
           const sellEligible = new Decimal(testCase.calculations.sellOrder.eligibleLiquidity);
           const sellTotal = new Decimal(testCase.baseToken.weiQuantity);
@@ -303,7 +303,7 @@ describe('Merkl Mathematical Precision Tests', () => {
         { a: '100', b: '200', z: '1000', boundary: '999999999999', description: 'Very high boundary' },
       ];
 
-      testScenarios.forEach(({ a, b, z, boundary, description }) => {
+      testScenarios.forEach(({ a, b, z, boundary }) => {
         const aDecimal = new Decimal(a);
         const bDecimal = new Decimal(b);
         const zDecimal = new Decimal(z);
@@ -427,14 +427,6 @@ describe('Merkl Mathematical Precision Tests', () => {
     });
 
     it('should verify all numbers maintain required precision', () => {
-      const requiresPrecision = [
-        'rewardZoneBoundary',
-        'eligibleLiquidity',
-        'ineligibleLiquidity',
-        'buyOrderReward',
-        'sellOrderReward',
-      ];
-
       Object.values(TEST_DATA).forEach((testCase) => {
         // Check calculations precision
         if (testCase.calculations.sellOrder.eligibleLiquidity) {

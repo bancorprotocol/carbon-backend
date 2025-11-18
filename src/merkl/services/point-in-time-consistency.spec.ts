@@ -92,10 +92,7 @@ describe('Point-in-Time State Consistency - PERMANENT REGRESSION TESTS', () => {
   }
 
   // Simulate the fixed processEpoch logic
-  const simulateFixedProcessEpoch = (
-    subEpochData: SubEpochData,
-    tolerancePercentage: number = 0.02,
-  ): SubEpochToSave[] => {
+  const simulateFixedProcessEpoch = (subEpochData: SubEpochData, tolerancePercentage = 0.02): SubEpochToSave[] => {
     const results: SubEpochToSave[] = [];
     const toleranceFactor = new Decimal(1 - tolerancePercentage).sqrt();
 

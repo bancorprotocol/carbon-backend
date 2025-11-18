@@ -7,7 +7,6 @@ import { BlockchainType, ExchangeId, Deployment } from '../deployment/deployment
 
 describe('WalletPairBalanceService', () => {
   let service: WalletPairBalanceService;
-  let strategyRepository: Repository<Strategy>;
 
   const mockStrategyRepository = {
     query: jest.fn(),
