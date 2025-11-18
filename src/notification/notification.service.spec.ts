@@ -214,7 +214,10 @@ describe('NotificationService', () => {
       const deploymentWithDisabledEvents = {
         ...mockDeployment,
         notifications: {
-          ...(mockDeployment.notifications || {}),
+          explorerUrl: mockDeployment.notifications.explorerUrl,
+          carbonWalletUrl: mockDeployment.notifications.carbonWalletUrl,
+          title: mockDeployment.notifications.title,
+          telegram: mockDeployment.notifications.telegram,
           disabledEvents: [EventTypes.TokensTradedEvent],
         },
       };

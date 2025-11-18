@@ -13,6 +13,7 @@ import { Token } from '../token/token.entity';
 
 describe('QuoteService', () => {
   let service: QuoteService;
+  let repository: Repository<Quote>;
 
   const mockQuoteRepository = {
     find: jest.fn(),
