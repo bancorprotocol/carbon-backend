@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { EncodedStrategy, SeedDataResponse } from './seed-data.dto';
 import { StrategyWithOwner } from '../../strategy/strategy.service';
 
-const SCHEME_VERSION = 1;
+const SCHEME_VERSION = 7;
 
 @Injectable()
 export class SeedDataService {
