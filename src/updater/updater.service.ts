@@ -11,7 +11,6 @@ import { RoiService } from '../v1/roi/roi.service';
 import { CoingeckoService } from '../v1/coingecko/coingecko.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
-import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { AnalyticsService } from '../v1/analytics/analytics.service';
 import { DexScreenerV2Service } from '../v1/dex-screener/dex-screener-v2.service';
 import { TvlService } from '../tvl/tvl.service';
@@ -49,7 +48,6 @@ export class UpdaterService {
     private coingeckoService: CoingeckoService,
     private tradingFeePpmUpdatedEventService: TradingFeePpmUpdatedEventService,
     private pairTradingFeePpmUpdatedEventService: PairTradingFeePpmUpdatedEventService,
-    private voucherTransferEventService: VoucherTransferEventService,
     private analyticsService: AnalyticsService,
     private dexScreenerV2Service: DexScreenerV2Service,
     private tvlService: TvlService,
@@ -180,9 +178,6 @@ export class UpdaterService {
       // pair trading fee events
       await this.pairTradingFeePpmUpdatedEventService.update(endBlock, pairs, tokens, deployment);
       console.log(`CARBON SERVICE - Finished updating pair trading fee events for ${deployment.exchangeId}`);
-
-      await this.voucherTransferEventService.update(endBlock, deployment);
-      console.log(`CARBON SERVICE - Finished updating voucher transfer events for ${deployment.exchangeId}`);
 
       await this.activityV2Service.update(endBlock, deployment, tokens);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);

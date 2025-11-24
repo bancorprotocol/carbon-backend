@@ -12,6 +12,7 @@ describe('CoinGeckoController', () => {
   let pairService: jest.Mocked<PairService>;
   let coingeckoService: jest.Mocked<CoingeckoService>;
   let deploymentService: jest.Mocked<DeploymentService>;
+  let quoteService: QuoteService;
 
   const mockDeployment: Deployment = {
     blockchainType: BlockchainType.Ethereum,

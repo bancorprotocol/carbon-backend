@@ -10,6 +10,7 @@ import { PairsDictionary } from '../pair/pair.service';
 describe('VolumeService', () => {
   let service: VolumeService;
   let dataSource: jest.Mocked<DataSource>;
+  let lastProcessedBlockService: LastProcessedBlockService;
   let historicQuoteService: jest.Mocked<HistoricQuoteService>;
 
   const mockDeployment: Deployment = {

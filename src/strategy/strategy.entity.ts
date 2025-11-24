@@ -70,6 +70,15 @@ export class Strategy {
   @Column()
   marginalRate1: string;
 
+  @Column({ type: 'text', nullable: true })
+  encodedOrder0: string;
+
+  @Column({ type: 'text', nullable: true })
+  encodedOrder1: string;
+
+  @Column({ nullable: true })
+  owner: string;
+
   @CreateDateColumn()
   createdAt: Date;
 

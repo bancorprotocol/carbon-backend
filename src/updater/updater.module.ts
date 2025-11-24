@@ -55,7 +55,6 @@ import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price
     PairTradingFeePpmUpdatedEventModule,
     ActivityModule,
     HistoricQuoteModule,
-    VoucherTransferEventModule,
     AnalyticsModule,
     DexScreenerModule,
     DexScreenerV2Module,

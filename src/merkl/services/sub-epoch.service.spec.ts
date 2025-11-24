@@ -6,6 +6,7 @@ import { SubEpoch } from '../entities/sub-epoch.entity';
 
 describe('SubEpochService', () => {
   let service: SubEpochService;
+  let repository: any;
   let mockQueryBuilder: any;
 
   beforeEach(async () => {
