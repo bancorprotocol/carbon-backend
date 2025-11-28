@@ -26,6 +26,14 @@ describe('SeedDataService', () => {
           token1Address: '0xTokenB',
           order0: JSON.stringify({ y: '100', z: '100', A: '200', B: '300' }),
           order1: JSON.stringify({ y: '200', z: '200', A: '400', B: '500' }),
+          liquidity0: '100',
+          lowestRate0: '0.1',
+          highestRate0: '0.2',
+          marginalRate0: '0.15',
+          liquidity1: '200',
+          lowestRate1: '5',
+          highestRate1: '10',
+          marginalRate1: '7.5',
         },
       ];
 
@@ -35,7 +43,7 @@ describe('SeedDataService', () => {
 
       const result = await service.buildSeedData(1000, mockStrategies, mockTradingFees);
 
-      expect(result).toHaveProperty('schemeVersion', 1);
+      expect(result).toHaveProperty('schemeVersion', 7);
       expect(result).toHaveProperty('latestBlockNumber', 1000);
       expect(result).toHaveProperty('strategiesByPair');
       expect(result).toHaveProperty('tradingFeePPMByPair');
@@ -50,6 +58,14 @@ describe('SeedDataService', () => {
         token1Address: '0xTokenB',
         order0: JSON.stringify({ y: '100', z: '100', A: '200', B: '300' }),
         order1: JSON.stringify({ y: '200', z: '200', A: '400', B: '500' }),
+        liquidity0: '100',
+        lowestRate0: '0.1',
+        highestRate0: '0.2',
+        marginalRate0: '0.15',
+        liquidity1: '200',
+        lowestRate1: '5',
+        highestRate1: '10',
+        marginalRate1: '7.5',
       }));
 
       const mockTradingFees = {
@@ -75,6 +91,14 @@ describe('SeedDataService', () => {
           token1Address: '0xTokenB',
           order0: JSON.stringify({ y: '100', z: '100', A: '200', B: '300' }),
           order1: JSON.stringify({ y: '200', z: '200', A: '400', B: '500' }),
+          liquidity0: '100',
+          lowestRate0: '0.1',
+          highestRate0: '0.2',
+          marginalRate0: '0.15',
+          liquidity1: '200',
+          lowestRate1: '5',
+          highestRate1: '10',
+          marginalRate1: '7.5',
         },
         {
           strategyId: '2',
@@ -83,6 +107,14 @@ describe('SeedDataService', () => {
           token1Address: '0xTokenB',
           order0: JSON.stringify({ y: '150', z: '150', A: '250', B: '350' }),
           order1: JSON.stringify({ y: '250', z: '250', A: '450', B: '550' }),
+          liquidity0: '150',
+          lowestRate0: '0.12',
+          highestRate0: '0.22',
+          marginalRate0: '0.17',
+          liquidity1: '250',
+          lowestRate1: '5.5',
+          highestRate1: '10.5',
+          marginalRate1: '8',
         },
       ];
 
@@ -107,6 +139,14 @@ describe('SeedDataService', () => {
           token1Address: '0xZZZ',
           order0: JSON.stringify({ y: '100', z: '100', A: '200', B: '300' }),
           order1: JSON.stringify({ y: '200', z: '200', A: '400', B: '500' }),
+          liquidity0: '100',
+          lowestRate0: '0.1',
+          highestRate0: '0.2',
+          marginalRate0: '0.15',
+          liquidity1: '200',
+          lowestRate1: '5',
+          highestRate1: '10',
+          marginalRate1: '7.5',
         },
       ];
 
@@ -122,5 +162,3 @@ describe('SeedDataService', () => {
     });
   });
 });
-
-

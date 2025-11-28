@@ -13,5 +13,3 @@ import { LastProcessedBlockModule } from '../../last-processed-block/last-proces
   exports: [SeedDataService],
 })
 export class SeedDataModule {}
-
-

@@ -13,6 +13,8 @@ import { StateModule } from './state/state.module';
 import { MerklModule } from './merkl/merkl.module';
 import { WalletPairBalanceV1Module } from './wallet-pair-balance/wallet-pair-balance.module';
 import { SeedDataModule } from './seed-data/seed-data.module';
+import { TokensModule } from './tokens/tokens.module';
+import { StrategiesModule } from './strategies/strategies.module';
 
 @Module({
   imports: [
@@ -29,6 +31,8 @@ import { SeedDataModule } from './seed-data/seed-data.module';
     MerklModule,
     WalletPairBalanceV1Module,
     SeedDataModule,
+    TokensModule,
+    StrategiesModule,
   ],
   controllers: [V1Controller],
 })
