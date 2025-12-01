@@ -60,6 +60,7 @@ steps:
   # Run the migration using Docker before deploying
   - name: 'gcr.io/cloud-builders/docker'
     entrypoint: 'bash'
+    timeout: 14400s # 4 hours for migrations
     args:
       - '-c'
       - |
@@ -254,6 +255,8 @@ steps:
 
 images:
   - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest'
+
+timeout: 18000s # 5 hours
 
 options:
   machineType: 'E2_HIGHCPU_8'

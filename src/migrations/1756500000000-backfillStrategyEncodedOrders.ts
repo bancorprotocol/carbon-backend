@@ -8,7 +8,7 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
   public async up(queryRunner: QueryRunner): Promise<void> {
     console.log('Starting backfill of strategy encoded orders and owners...');
 
-    const batchSize = 20;
+    const batchSize = 300;
     let offset = 0;
     let totalProcessed = 0;
     let totalErrors = 0;
