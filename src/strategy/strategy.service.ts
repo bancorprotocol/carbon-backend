@@ -10,27 +10,11 @@ import { StrategyDeletedEventService } from '../events/strategy-deleted-event/st
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
 import { PairsDictionary } from '../pair/pair.service';
 import { TokensByAddress } from '../token/token.service';
-import { BigNumber } from '@ethersproject/bignumber';
 import { Deployment } from '../deployment/deployment.service';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
 import { StrategyUpdatedEvent } from '../events/strategy-updated-event/strategy-updated-event.entity';
 import { StrategyDeletedEvent } from '../events/strategy-deleted-event/strategy-deleted-event.entity';
-
-const ONE = 2 ** 48;
-
-type DecodedOrder = {
-  liquidity: string;
-  lowestRate: string;
-  highestRate: string;
-  marginalRate: string;
-};
-
-type EncodedOrder = {
-  y: string;
-  z: string;
-  A: string;
-  B: string;
-};
+import { parseOrder, processOrders } from '../activity/activity.utils';
 
 @Injectable()
 export class StrategyService {
@@ -143,8 +127,13 @@ export class StrategyService {
 
     const strategies = [];
     events.forEach((e) => {
-      const order0 = this.decodeOrder(JSON.parse(e.order0));
-      const order1 = this.decodeOrder(JSON.parse(e.order1));
+      // Use the same decoding logic as activity API
+      const parsedOrder0 = parseOrder(e.order0);
+      const parsedOrder1 = parseOrder(e.order1);
+      const decimals0 = new Decimal(e.token0.decimals);
+      const decimals1 = new Decimal(e.token1.decimals);
+      const processedOrders = processOrders(parsedOrder0, parsedOrder1, decimals0, decimals1);
+
       const strategyIndex = existingStrategies.findIndex((s) => s.strategyId === e.strategyId);
 
       let newStrategy;
@@ -155,14 +144,14 @@ export class StrategyService {
         newStrategy.token1 = e.token1;
         newStrategy.block = e.block;
         newStrategy.pair = e.pair;
-        newStrategy.liquidity0 = order0.liquidity;
-        newStrategy.lowestRate0 = order0.lowestRate;
-        newStrategy.highestRate0 = order0.highestRate;
-        newStrategy.marginalRate0 = order0.marginalRate;
-        newStrategy.liquidity1 = order1.liquidity;
-        newStrategy.lowestRate1 = order1.lowestRate;
-        newStrategy.highestRate1 = order1.highestRate;
-        newStrategy.marginalRate1 = order1.marginalRate;
+        newStrategy.liquidity0 = processedOrders.liquidity0.toString();
+        newStrategy.lowestRate0 = processedOrders.sellPriceA.toString();
+        newStrategy.highestRate0 = processedOrders.sellPriceB.toString();
+        newStrategy.marginalRate0 = processedOrders.sellPriceMarg.toString();
+        newStrategy.liquidity1 = processedOrders.liquidity1.toString();
+        newStrategy.lowestRate1 = processedOrders.buyPriceA.toString();
+        newStrategy.highestRate1 = processedOrders.buyPriceB.toString();
+        newStrategy.marginalRate1 = processedOrders.buyPriceMarg.toString();
         newStrategy.encodedOrder0 = e.order0;
         newStrategy.encodedOrder1 = e.order1;
         newStrategy.deleted = deletionEvent;
@@ -178,14 +167,14 @@ export class StrategyService {
           token1: e.token1,
           block: e.block,
           pair: e.pair,
-          liquidity0: order0.liquidity,
-          lowestRate0: order0.lowestRate,
-          highestRate0: order0.highestRate,
-          marginalRate0: order0.marginalRate,
-          liquidity1: order1.liquidity,
-          lowestRate1: order1.lowestRate,
-          highestRate1: order1.highestRate,
-          marginalRate1: order1.marginalRate,
+          liquidity0: processedOrders.liquidity0.toString(),
+          lowestRate0: processedOrders.sellPriceA.toString(),
+          highestRate0: processedOrders.sellPriceB.toString(),
+          marginalRate0: processedOrders.sellPriceMarg.toString(),
+          liquidity1: processedOrders.liquidity1.toString(),
+          lowestRate1: processedOrders.buyPriceA.toString(),
+          highestRate1: processedOrders.buyPriceB.toString(),
+          marginalRate1: processedOrders.buyPriceMarg.toString(),
           encodedOrder0: e.order0,
           encodedOrder1: e.order1,
           owner: 'owner' in e ? e.owner : null,
@@ -219,27 +208,6 @@ export class StrategyService {
     return strategies.sort((a, b) => b.block.id - a.block.id);
   }
 
-  private decodeOrder(order: EncodedOrder): DecodedOrder {
-    const y = new Decimal(order.y);
-    const z = new Decimal(order.z);
-    const A = new Decimal(this.decodeFloat(BigNumber.from(order.A)));
-    const B = new Decimal(this.decodeFloat(BigNumber.from(order.B)));
-    return {
-      liquidity: y.toString(),
-      lowestRate: this.decodeRate(B).toString(),
-      highestRate: this.decodeRate(B.add(A)).toString(),
-      marginalRate: this.decodeRate(y.eq(z) ? B.add(A) : B.add(A.mul(y).div(z))).toString(),
-    };
-  }
-
-  private decodeRate(value: Decimal) {
-    return value.div(ONE).pow(2);
-  }
-
-  private decodeFloat(value: BigNumber) {
-    return value.mod(ONE).shl(value.div(ONE).toNumber()).toString();
-  }
-
   async getStrategiesWithOwners(deployment: Deployment, blockId: number): Promise<StrategyWithOwner[]> {
     // Super fast query - just read from the denormalized strategy table
     // Owner is kept up-to-date via updateOwnersFromTransferEvents
@@ -265,6 +233,14 @@ export class StrategyService {
       token1Address: s.token1.address,
       order0: s.encodedOrder0,
       order1: s.encodedOrder1,
+      liquidity0: s.liquidity0,
+      lowestRate0: s.lowestRate0,
+      highestRate0: s.highestRate0,
+      marginalRate0: s.marginalRate0,
+      liquidity1: s.liquidity1,
+      lowestRate1: s.lowestRate1,
+      highestRate1: s.highestRate1,
+      marginalRate1: s.marginalRate1,
     }));
   }
 }
@@ -276,4 +252,12 @@ export interface StrategyWithOwner {
   token1Address: string;
   order0: string;
   order1: string;
+  liquidity0: string;
+  lowestRate0: string;
+  highestRate0: string;
+  marginalRate0: string;
+  liquidity1: string;
+  lowestRate1: string;
+  highestRate1: string;
+  marginalRate1: string;
 }

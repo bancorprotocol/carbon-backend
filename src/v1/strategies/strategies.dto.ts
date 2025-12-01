@@ -1,8 +1,8 @@
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
-export class SeedDataQueryDto {
+export class StrategiesQueryDto {
   @ApiProperty({
     description: 'Page number for pagination (0-indexed)',
     required: false,
@@ -26,31 +26,24 @@ export class SeedDataQueryDto {
   pageSize?: number = 0;
 }
 
-export interface EncodedOrder {
-  y: string;
-  z: string;
-  A: string;
-  B: string;
+export interface Order {
+  budget: string;
+  min: string;
+  max: string;
+  marginal: string;
 }
 
-export interface EncodedStrategy {
+export interface Strategy {
   id: string;
   owner: string;
-  token0: string;
-  token1: string;
-  order0: EncodedOrder;
-  order1: EncodedOrder;
+  base: string;
+  quote: string;
+  buy: Order;
+  sell: Order;
 }
 
-export interface SeedDataResponse {
-  schemeVersion: number;
-  latestBlockNumber: number;
-  strategiesByPair: {
-    [pairKey: string]: EncodedStrategy[];
-  };
-  tradingFeePPMByPair: {
-    [pairKey: string]: number;
-  };
+export interface StrategiesResponse {
+  strategies: Strategy[];
   pagination?: {
     page: number;
     pageSize: number;
@@ -59,3 +52,4 @@ export interface SeedDataResponse {
     hasMore: boolean;
   };
 }
+
