@@ -3,17 +3,18 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
 export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInterface {
   name = 'BackfillStrategyEncodedOrders1756500000000';
 
+  transaction = false;
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     console.log('Starting backfill of strategy encoded orders and owners...');
 
-    // Process in batches
-    const batchSize = 100;
+    const batchSize = 20;
     let offset = 0;
     let totalProcessed = 0;
     let totalErrors = 0;
+    let totalSkipped = 0;
 
     while (true) {
-      // Fetch strategies in batches
       const strategies = await queryRunner.query(
         `
         SELECT 
@@ -32,10 +33,9 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
         break;
       }
 
-      // Process each strategy
+      // Process all strategies in batch
       for (const strategy of strategies) {
         try {
-          // Get latest encoded orders
           const latestEventResult = await queryRunner.query(
             `
             WITH latest_events AS (
@@ -84,7 +84,7 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
           );
 
           if (latestEventResult.length === 0) {
-            // Skip strategies with no events
+            totalSkipped++;
             continue;
           }
 
@@ -92,7 +92,6 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
           const encodedOrder0 = latestEvent.order0;
           const encodedOrder1 = latestEvent.order1;
 
-          // Get latest owner from transfer events
           const latestOwnerResult = await queryRunner.query(
             `
             SELECT "to" as owner
@@ -109,12 +108,11 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
           const owner = latestOwnerResult.length > 0 ? latestOwnerResult[0].owner : latestEvent.owner;
 
           if (!encodedOrder0 || !encodedOrder1) {
-            // Skip strategies with missing encoded orders
+            totalSkipped++;
             continue;
           }
 
-          // Update strategy with encoded orders and owner only
-          // The next migration will handle decoding the values
+          // Update commits immediately - lock held for milliseconds
           await queryRunner.query(
             `
             UPDATE strategies
@@ -131,15 +129,21 @@ export class BackfillStrategyEncodedOrders1756500000000 implements MigrationInte
         } catch (error) {
           console.error(`Error processing strategy ${strategy.strategyId}:`, error.message);
           totalErrors++;
-          // Continue to next strategy instead of failing entire migration
         }
       }
 
-      console.log(`Processed batch: ${totalProcessed} strategies updated, ${totalErrors} errors (offset: ${offset})`);
       offset += batchSize;
+
+      if (offset % 100 === 0) {
+        console.log(
+          `Progress: ${totalProcessed} updated, ${totalSkipped} skipped, ${totalErrors} errors (offset: ${offset})`,
+        );
+      }
     }
 
-    console.log(`Backfill complete: ${totalProcessed} strategies updated, ${totalErrors} errors total`);
+    console.log(
+      `Backfill complete: ${totalProcessed} strategies updated, ${totalSkipped} skipped, ${totalErrors} errors`,
+    );
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
