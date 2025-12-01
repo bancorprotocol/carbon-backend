@@ -1273,4 +1273,283 @@ describe('HarvesterService', () => {
       expect(result).toEqual([]);
     });
   });
+
+  describe('processEvents with missing pairs/tokens (invalid ERC20 handling)', () => {
+    let mockRepository: jest.Mocked<Repository<any>>;
+    let processEventsArgs: ProcessEventsArgs;
+    let mockContract: any;
+    let mockWeb3: any;
+
+    beforeEach(() => {
+      mockRepository = {
+        create: jest.fn((data) => data),
+        save: jest.fn().mockResolvedValue([]),
+        createQueryBuilder: jest.fn().mockReturnValue({
+          delete: jest.fn().mockReturnThis(),
+          where: jest.fn().mockReturnThis(),
+          andWhere: jest.fn().mockReturnThis(),
+          execute: jest.fn().mockResolvedValue({}),
+        }),
+      } as any;
+
+      lastProcessedBlockService.getOrInit.mockResolvedValue(1000);
+      lastProcessedBlockService.update.mockResolvedValue(undefined);
+
+      mockContract = {
+        getPastEvents: jest.fn().mockResolvedValue([]),
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockContract),
+          getTransaction: jest.fn(),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should not crash when pair is missing due to invalid token', async () => {
+      const mockToken0: Token = {
+        id: 1,
+        address: '0xtoken0',
+        symbol: 'TKN0',
+        name: 'Token 0',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const mockToken1: Token = {
+        id: 2,
+        address: '0xtoken1',
+        symbol: 'TKN1',
+        name: 'Token 1',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const mockPair: Partial<Pair> = {
+        id: 1,
+        token0: mockToken0,
+        token1: mockToken1,
+        name: 'TKN0_TKN1',
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        block: {} as Block,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Simulate scenario where one pair exists but another doesn't
+      // (e.g., because one had invalid tokens with no decimals)
+      const pairsDictionary = {
+        '0xtoken0': {
+          '0xtoken1': mockPair as Pair,
+        },
+        // '0xtoken2' is missing - pair wasn't created due to invalid token
+      };
+
+      const tokens = {
+        '0xtoken0': mockToken0,
+        '0xtoken1': mockToken1,
+        // '0xtoken2' is missing - invalid token was skipped
+      };
+
+      const mockEvents = [
+        // Valid event with existing pair
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            strategyId: '1',
+            token0: '0xtoken0',
+            token1: '0xtoken1',
+            owner: '0xowner1',
+          },
+        },
+        // Event with missing pair (should not crash)
+        {
+          blockNumber: 1002,
+          transactionIndex: 1,
+          transactionHash: '0xdef',
+          logIndex: 0,
+          returnValues: {
+            strategyId: '2',
+            token0: '0xtoken2', // This token doesn't exist
+            token1: '0xtoken1',
+            owner: '0xowner2',
+          },
+        },
+      ];
+
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      processEventsArgs = {
+        entity: 'strategy-created-events',
+        contractName: ContractsNames.CarbonController,
+        eventName: 'StrategyCreated',
+        endBlock: 2000,
+        repository: mockRepository,
+        deployment: mockDeployment,
+        pairsDictionary,
+        tokens,
+        stringFields: ['strategyId'],
+      };
+
+      // This should not throw an error
+      await expect(service.processEvents(processEventsArgs)).resolves.not.toThrow();
+
+      // Verify both events were processed (even though one has missing pair)
+      expect(mockRepository.save).toHaveBeenCalled();
+      const savedEvents = mockRepository.save.mock.calls[0][0];
+      expect(savedEvents).toHaveLength(2);
+
+      // First event should have pair assigned
+      expect(savedEvents[0].pair).toEqual(mockPair);
+      expect(savedEvents[0].token0).toBe(mockToken0);
+      expect(savedEvents[0].token1).toBe(mockToken1);
+
+      // Second event should have undefined pair (not crash)
+      expect(savedEvents[1].pair).toBeUndefined();
+      expect(savedEvents[1].token0).toBeUndefined();
+      expect(savedEvents[1].token1).toBe(mockToken1);
+    });
+
+    it('should not crash when both tokens in pair are missing', async () => {
+      const pairsDictionary = {
+        // Empty - no pairs created
+      };
+
+      const tokens = {
+        // Empty - no tokens created
+      };
+
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            strategyId: '1',
+            token0: '0xmissingtoken0',
+            token1: '0xmissingtoken1',
+            owner: '0xowner1',
+          },
+        },
+      ];
+
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      processEventsArgs = {
+        entity: 'strategy-created-events',
+        contractName: ContractsNames.CarbonController,
+        eventName: 'StrategyCreated',
+        endBlock: 2000,
+        repository: mockRepository,
+        deployment: mockDeployment,
+        pairsDictionary,
+        tokens,
+        stringFields: ['strategyId'],
+      };
+
+      // This should not throw an error
+      await expect(service.processEvents(processEventsArgs)).resolves.not.toThrow();
+
+      // Event should be saved with undefined pair and tokens
+      expect(mockRepository.save).toHaveBeenCalled();
+      const savedEvents = mockRepository.save.mock.calls[0][0];
+      expect(savedEvents).toHaveLength(1);
+      expect(savedEvents[0].pair).toBeUndefined();
+      expect(savedEvents[0].token0).toBeUndefined();
+      expect(savedEvents[0].token1).toBeUndefined();
+    });
+
+    it('should handle partial pair dictionary (only one direction exists)', async () => {
+      const mockToken0: Token = {
+        id: 1,
+        address: '0xtoken0',
+        symbol: 'TKN0',
+        name: 'Token 0',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      const mockToken1: Token = {
+        id: 2,
+        address: '0xtoken1',
+        symbol: 'TKN1',
+        name: 'Token 1',
+        decimals: 18,
+        blockchainType: BlockchainType.Ethereum,
+        exchangeId: ExchangeId.OGEthereum,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      // Partial dictionary - has token0 entry but missing token1 sub-entry
+      const pairsDictionary = {
+        '0xtoken0': {
+          // Missing '0xtoken1' entry
+        },
+      };
+
+      const tokens = {
+        '0xtoken0': mockToken0,
+        '0xtoken1': mockToken1,
+      };
+
+      const mockEvents = [
+        {
+          blockNumber: 1001,
+          transactionIndex: 0,
+          transactionHash: '0xabc',
+          logIndex: 0,
+          returnValues: {
+            strategyId: '1',
+            token0: '0xtoken0',
+            token1: '0xtoken1',
+            owner: '0xowner1',
+          },
+        },
+      ];
+
+      mockContract.getPastEvents.mockResolvedValue(mockEvents);
+
+      processEventsArgs = {
+        entity: 'strategy-created-events',
+        contractName: ContractsNames.CarbonController,
+        eventName: 'StrategyCreated',
+        endBlock: 2000,
+        repository: mockRepository,
+        deployment: mockDeployment,
+        pairsDictionary,
+        tokens,
+        stringFields: ['strategyId'],
+      };
+
+      // This should not throw an error
+      await expect(service.processEvents(processEventsArgs)).resolves.not.toThrow();
+
+      // Event should be saved with undefined pair but valid tokens
+      expect(mockRepository.save).toHaveBeenCalled();
+      const savedEvents = mockRepository.save.mock.calls[0][0];
+      expect(savedEvents).toHaveLength(1);
+      expect(savedEvents[0].pair).toBeUndefined();
+      expect(savedEvents[0].token0).toBe(mockToken0);
+      expect(savedEvents[0].token1).toBe(mockToken1);
+    });
+  });
 });

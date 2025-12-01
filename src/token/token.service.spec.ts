@@ -559,6 +559,362 @@ describe('TokenService', () => {
     });
   });
 
+  describe('createFromAddresses - handling invalid ERC20 tokens', () => {
+    it('should skip tokens with invalid decimals (NaN)', async () => {
+      const addresses = ['0xValidToken', '0xInvalidToken', '0xAnotherValidToken'];
+
+      // Mock repository to return no existing tokens
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Mock multicall responses - invalid token returns NaN for decimals
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addresses) => {
+        return addresses.map((addr) => {
+          if (addr === '0xInvalidToken') return NaN;
+          if (addr === '0xValidToken') return 18;
+          if (addr === '0xAnotherValidToken') return 6;
+          return 18;
+        });
+      });
+
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addresses, abi, method) => {
+        if (method === 'symbol') {
+          return addresses.map((addr) =>
+            addr === '0xInvalidToken' ? '' : addr === '0xValidToken' ? 'VALID' : 'VALID2',
+          );
+        } else {
+          return addresses.map((addr) =>
+            addr === '0xInvalidToken' ? '' : addr === '0xValidToken' ? 'Valid Token' : 'Another Valid Token',
+          );
+        }
+      });
+
+      // Call the private method via update
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+        {
+          token0: addresses[2],
+          token1: addresses[0],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should only create 2 tokens (skipping the one with NaN decimals)
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(2);
+
+      // Check that the two valid tokens were created
+      const addresses_created = saveCall.map((t) => t.address);
+      expect(addresses_created).toContain('0xValidToken');
+      expect(addresses_created).toContain('0xAnotherValidToken');
+      expect(addresses_created).not.toContain('0xInvalidToken');
+
+      // Verify decimals
+      const validToken = saveCall.find((t) => t.address === '0xValidToken');
+      const anotherValidToken = saveCall.find((t) => t.address === '0xAnotherValidToken');
+      expect(validToken.decimals).toBe(18);
+      expect(anotherValidToken.decimals).toBe(6);
+    });
+
+    it('should create tokens with zero decimals (valid edge case)', async () => {
+      const addresses = ['0xValidToken', '0xZeroDecimalToken'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Zero decimals should now be allowed
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => (addr === '0xZeroDecimalToken' ? 0 : 18));
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => (addr === '0xZeroDecimalToken' ? 'ZERO' : 'VALID'));
+        } else {
+          return addrs.map((addr) => (addr === '0xZeroDecimalToken' ? 'Zero Decimal Token' : 'Valid Token'));
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should create both tokens (including zero decimals)
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(2);
+
+      const addresses_created = saveCall.map((t) => t.address);
+      expect(addresses_created).toContain('0xValidToken');
+      expect(addresses_created).toContain('0xZeroDecimalToken');
+
+      const zeroDecimalToken = saveCall.find((t) => t.address === '0xZeroDecimalToken');
+      expect(zeroDecimalToken.decimals).toBe(0);
+    });
+
+    it('should skip tokens with undefined decimals', async () => {
+      const addresses = ['0xValidToken', '0xUndefinedDecimalToken'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Undefined decimals should be skipped
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => (addr === '0xUndefinedDecimalToken' ? undefined : 18)) as number[];
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => (addr === '0xUndefinedDecimalToken' ? '' : 'VALID'));
+        } else {
+          return addrs.map((addr) => (addr === '0xUndefinedDecimalToken' ? '' : 'Valid Token'));
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should only create 1 token
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(1);
+      expect(saveCall[0]).toMatchObject({ address: '0xValidToken', decimals: 18 });
+    });
+
+    it('should skip tokens with negative decimals', async () => {
+      const addresses = ['0xValidToken', '0xNegativeDecimalToken'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Negative decimals should be skipped
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => (addr === '0xNegativeDecimalToken' ? -1 : 18));
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => (addr === '0xNegativeDecimalToken' ? 'NEG' : 'VALID'));
+        } else {
+          return addrs.map((addr) => (addr === '0xNegativeDecimalToken' ? 'Negative Token' : 'Valid Token'));
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should only create 1 token
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(1);
+      expect(saveCall[0]).toMatchObject({ address: '0xValidToken', decimals: 18 });
+    });
+
+    it('should skip tokens with null decimals', async () => {
+      const addresses = ['0xValidToken', '0xNullDecimalToken'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Null decimals should be skipped
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => (addr === '0xNullDecimalToken' ? null : 18)) as number[];
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => (addr === '0xNullDecimalToken' ? '' : 'VALID'));
+        } else {
+          return addrs.map((addr) => (addr === '0xNullDecimalToken' ? '' : 'Valid Token'));
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should only create 1 token (null is skipped)
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(1);
+      expect(saveCall[0]).toMatchObject({ address: '0xValidToken', decimals: 18 });
+    });
+
+    it('should skip tokens with Infinity decimals', async () => {
+      const addresses = ['0xValidToken', '0xInfinityDecimalToken'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // Infinity decimals should be skipped
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => (addr === '0xInfinityDecimalToken' ? Infinity : 18));
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => (addr === '0xInfinityDecimalToken' ? '' : 'VALID'));
+        } else {
+          return addrs.map((addr) => (addr === '0xInfinityDecimalToken' ? '' : 'Valid Token'));
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should only create 1 token (Infinity is skipped)
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(1);
+      expect(saveCall[0]).toMatchObject({ address: '0xValidToken', decimals: 18 });
+    });
+
+    it('should create all tokens when all have valid decimals', async () => {
+      const addresses = ['0xToken1', '0xToken2', '0xToken3'];
+
+      jest.spyOn(tokenRepository, 'find').mockResolvedValue([]);
+      jest.spyOn(tokenRepository, 'create').mockImplementation((entity) => entity as Token);
+      jest.spyOn(tokenRepository, 'save').mockResolvedValue(undefined);
+
+      // All valid decimals
+      jest.spyOn(harvesterService, 'integersWithMulticall').mockImplementation(async (addrs) => {
+        return addrs.map((addr) => {
+          if (addr === '0xToken1') return 18;
+          if (addr === '0xToken2') return 6;
+          if (addr === '0xToken3') return 8;
+          return 18;
+        });
+      });
+      jest.spyOn(harvesterService, 'stringsWithMulticall').mockImplementation(async (addrs, abi, method) => {
+        if (method === 'symbol') {
+          return addrs.map((addr) => {
+            if (addr === '0xToken1') return 'TKN1';
+            if (addr === '0xToken2') return 'TKN2';
+            if (addr === '0xToken3') return 'TKN3';
+            return 'TKN';
+          });
+        } else {
+          return addrs.map((addr) => {
+            if (addr === '0xToken1') return 'Token 1';
+            if (addr === '0xToken2') return 'Token 2';
+            if (addr === '0xToken3') return 'Token 3';
+            return 'Token';
+          });
+        }
+      });
+
+      jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
+      jest.spyOn(lastProcessedBlockService, 'update').mockResolvedValue(undefined);
+      jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([
+        {
+          token0: addresses[0],
+          token1: addresses[1],
+          block: mockBlock as Block,
+        } as any,
+        {
+          token0: addresses[2],
+          token1: addresses[0],
+          block: mockBlock as Block,
+        } as any,
+      ]);
+      jest.spyOn(vortexTokensTradedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(arbitrageExecutedEventServiceV2, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexTradingResetEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(vortexFundsWithdrawnEventService, 'get').mockResolvedValue([]);
+      jest.spyOn(protectionRemovedEventService, 'get').mockResolvedValue([]);
+
+      await service.update(1100, mockDeployment);
+
+      // Should create all 3 tokens
+      const saveCall = (tokenRepository.save as jest.Mock).mock.calls[0][0];
+      expect(saveCall.length).toBe(3);
+    });
+  });
+
   describe('getOrCreateTokenByAddress', () => {
     it('should return existing token if found', async () => {
       const mockToken = { ...mockTokenEntity, address: '0xexisting' };

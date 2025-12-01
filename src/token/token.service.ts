@@ -219,6 +219,10 @@ export class TokenService implements OnModuleInit {
     // create new tokens
     const newTokens = [];
     for (let i = 0; i < newAddresses.length; i++) {
+      // Skip tokens with invalid decimals (NaN, undefined, null, Infinity, or negative)
+      if (!Number.isFinite(decimals[i]) || decimals[i] < 0) {
+        continue;
+      }
       newTokens.push(
         this.token.create({
           address: newAddresses[i],
