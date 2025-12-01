@@ -1,6 +1,6 @@
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Pair } from './pair.entity';
 import { HarvesterService } from '../harvester/harvester.service';
 import { decimalsABI, symbolABI } from '../abis/erc20.abi';
@@ -23,6 +23,7 @@ export interface PairsDictionary {
 
 @Injectable()
 export class PairService {
+  private readonly logger = new Logger(PairService.name);
   constructor(
     @InjectRepository(Pair) private pair: Repository<Pair>,
     private harvesterService: HarvesterService,
@@ -56,8 +57,10 @@ export class PairService {
     const pairs = [];
     events.forEach((e) => {
       if (!tokens[e.token1] || !tokens[e.token0]) {
-        console.log('Token not found', e.token1, e.token0);
+        this.logger.warn('Token not found', e.token1, e.token0);
+        return;
       }
+
       pairs.push(
         this.pair.create({
           token0: tokens[e.token0],

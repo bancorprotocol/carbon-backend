@@ -266,7 +266,12 @@ export class HarvesterService {
             }
 
             if (e.returnValues['token0'] && e.returnValues['token1'] && args.pairsDictionary) {
-              newEvent['pair'] = args.pairsDictionary[e.returnValues['token0']][e.returnValues['token1']];
+              // Safely lookup pair - check if both dictionary levels exist to prevent crashes
+              // when pairs weren't created due to invalid tokens (e.g., missing decimals)
+              const token0Dict = args.pairsDictionary[e.returnValues['token0']];
+              if (token0Dict) {
+                newEvent['pair'] = token0Dict[e.returnValues['token1']];
+              }
             }
 
             if (args.stringFields) {
