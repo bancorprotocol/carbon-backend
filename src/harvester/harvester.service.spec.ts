@@ -1085,7 +1085,10 @@ describe('HarvesterService', () => {
 
   describe('stringsWithMulticallV2', () => {
     it('should convert hex data to strings', async () => {
-      const mockData = [{ data: '0x455448' }, { data: '0x425443' }];
+      const mockData = [
+        { data: '0x455448', success: true },
+        { data: '0x425443', success: true },
+      ];
       jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
 
       const result = await service.stringsWithMulticallV2(['0xAddr1', '0xAddr2'], {}, 'symbol', mockDeployment);
@@ -1093,11 +1096,58 @@ describe('HarvesterService', () => {
       expect(result).toHaveLength(2);
       expect(typeof result[0]).toBe('string');
     });
+
+    it('should return empty string for failed multicall results', async () => {
+      const mockData = [
+        { data: '0x455448', success: true },
+        { data: '0x', success: false }, // Failed call
+        { data: '0x555344', success: true },
+      ];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV2(
+        ['0xValidToken', '0xInvalidContract', '0xAnotherValidToken'],
+        {},
+        'symbol',
+        mockDeployment,
+      );
+
+      expect(result).toHaveLength(3);
+      expect(result[0]).toBeTruthy(); // Valid symbol
+      expect(result[1]).toBe(''); // Failed call returns empty string
+      expect(result[2]).toBeTruthy(); // Valid symbol
+    });
+
+    it('should handle mixed success and failure results', async () => {
+      const mockData = [
+        { data: '0x544b4e31', success: true }, // 'TKN1'
+        { data: '0x', success: false },
+        { data: '0x544b4e32', success: true }, // 'TKN2'
+        { data: '0x', success: false },
+      ];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV2(
+        ['0xToken1', '0xContract1', '0xToken2', '0xContract2'],
+        {},
+        'symbol',
+        mockDeployment,
+      );
+
+      expect(result).toHaveLength(4);
+      expect(result[0]).toBeTruthy();
+      expect(result[1]).toBe('');
+      expect(result[2]).toBeTruthy();
+      expect(result[3]).toBe('');
+    });
   });
 
   describe('integersWithMulticallEthereum', () => {
     it('should convert hex data to integers', async () => {
-      const mockData = [{ data: '0x12' }, { data: '0x06' }];
+      const mockData = [
+        { data: '0x12', success: true },
+        { data: '0x06', success: true },
+      ];
       jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
 
       const result = await service.integersWithMulticallEthereum(
@@ -1108,6 +1158,44 @@ describe('HarvesterService', () => {
       );
 
       expect(result).toEqual([18, 6]);
+    });
+
+    it('should return NaN for failed multicall results', async () => {
+      const mockData = [
+        { data: '0x12', success: true },
+        { data: '0x', success: false }, // Failed call
+        { data: '0x06', success: true },
+      ];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallEthereum(
+        ['0xValidToken', '0xInvalidContract', '0xAnotherValidToken'],
+        {},
+        'decimals',
+        mockDeployment,
+      );
+
+      expect(result).toEqual([18, NaN, 6]);
+      expect(Number.isNaN(result[1])).toBe(true);
+    });
+
+    it('should handle all failed calls', async () => {
+      const mockData = [
+        { data: '0x', success: false },
+        { data: '0x', success: false },
+      ];
+      jest.spyOn(service, 'withMulticallEthereum').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallEthereum(
+        ['0xNonERC20Contract1', '0xNonERC20Contract2'],
+        {},
+        'decimals',
+        mockDeployment,
+      );
+
+      expect(result).toEqual([NaN, NaN]);
+      expect(Number.isNaN(result[0])).toBe(true);
+      expect(Number.isNaN(result[1])).toBe(true);
     });
   });
 
@@ -1121,6 +1209,32 @@ describe('HarvesterService', () => {
       expect(result).toHaveLength(2);
       expect(typeof result[0]).toBe('string');
     });
+
+    it('should return empty string for null values from failed calls', async () => {
+      const mockData = ['0x455448', null, '0x555344']; // null indicates failed call
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV3(
+        ['0xValidToken', '0xInvalidContract', '0xAnotherValidToken'],
+        {},
+        'symbol',
+        mockDeployment,
+      );
+
+      expect(result).toHaveLength(3);
+      expect(result[0]).toBeTruthy(); // Valid symbol
+      expect(result[1]).toBe(''); // Failed call returns empty string
+      expect(result[2]).toBeTruthy(); // Valid symbol
+    });
+
+    it('should handle all null values', async () => {
+      const mockData = [null, null];
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.stringsWithMulticallV3(['0xContract1', '0xContract2'], {}, 'symbol', mockDeployment);
+
+      expect(result).toEqual(['', '']);
+    });
   });
 
   describe('integersWithMulticallSei', () => {
@@ -1131,6 +1245,36 @@ describe('HarvesterService', () => {
       const result = await service.integersWithMulticallSei(['0xAddr1', '0xAddr2'], {}, 'decimals', mockDeployment);
 
       expect(result).toEqual([18, 6]);
+    });
+
+    it('should return NaN for null values from failed calls', async () => {
+      const mockData = ['0x12', null, '0x06']; // null indicates failed call
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallSei(
+        ['0xValidToken', '0xInvalidContract', '0xAnotherValidToken'],
+        {},
+        'decimals',
+        mockDeployment,
+      );
+
+      expect(result).toEqual([18, NaN, 6]);
+      expect(Number.isNaN(result[1])).toBe(true);
+    });
+
+    it('should handle all null values', async () => {
+      const mockData = [null, null, null];
+      jest.spyOn(service, 'withMulticallSei').mockResolvedValue(mockData);
+
+      const result = await service.integersWithMulticallSei(
+        ['0xContract1', '0xContract2', '0xContract3'],
+        {},
+        'decimals',
+        mockDeployment,
+      );
+
+      expect(result).toEqual([NaN, NaN, NaN]);
+      result.forEach((val) => expect(Number.isNaN(val)).toBe(true));
     });
   });
 
@@ -1271,6 +1415,104 @@ describe('HarvesterService', () => {
       const result = await service.withMulticallSei([], {}, 'decimals', seiDeployment);
 
       expect(result).toEqual([]);
+    });
+
+    it('should fallback to individual calls when multicall fails for Sei', async () => {
+      const addresses = ['0xValidToken', '0xInvalidContract', '0xAnotherValidToken'];
+
+      // Mock aggregate to throw an error (simulating multicall failure)
+      mockContract.methods.aggregate.mockReturnValue({
+        call: jest.fn().mockRejectedValue(new Error('Multicall3: call failed')),
+      });
+
+      // Mock decimals method for individual calls
+      const decimalsMethod = jest.fn();
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+        call: decimalsMethod,
+      });
+
+      // First call succeeds, second fails, third succeeds
+      decimalsMethod
+        .mockResolvedValueOnce('18')
+        .mockRejectedValueOnce(new Error('Invalid contract'))
+        .mockResolvedValueOnce('6');
+
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.withMulticallSei(addresses, {}, 'decimals', seiDeployment);
+
+      // Should return successful results and null for failed calls
+      expect(result).toEqual(['18', null, '6']);
+
+      // Verify console.warn was called
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining('Multicall failed for batch of 3 addresses'));
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should handle all failed individual calls when multicall fails for Sei', async () => {
+      const addresses = ['0xNonERC20Contract1', '0xNonERC20Contract2'];
+
+      // Mock aggregate to throw an error
+      mockContract.methods.aggregate.mockReturnValue({
+        call: jest.fn().mockRejectedValue(new Error('Multicall3: call failed')),
+      });
+
+      // Mock decimals method to fail for all individual calls
+      const decimalsMethod = jest.fn().mockRejectedValue(new Error('Invalid contract'));
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+        call: decimalsMethod,
+      });
+
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.withMulticallSei(addresses, {}, 'decimals', seiDeployment);
+
+      // Should return null for all failed calls
+      expect(result).toEqual([null, null]);
+
+      consoleWarnSpy.mockRestore();
+    });
+
+    it('should successfully complete multicall without fallback when all calls succeed for Sei', async () => {
+      const addresses = ['0xToken1', '0xToken2', '0xToken3'];
+      const mockReturnData = ['0x12', '0x06', '0x08'];
+
+      mockContract.methods.aggregate.mockReturnValue({
+        call: jest.fn().mockResolvedValue({ returnData: mockReturnData }),
+      });
+      mockContract.methods.decimals = jest.fn().mockReturnValue({
+        encodeABI: jest.fn().mockReturnValue('0xencodedABI'),
+      });
+
+      const seiDeployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+      };
+
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+
+      const result = await service.withMulticallSei(addresses, {}, 'decimals', seiDeployment);
+
+      // Should return all results without fallback
+      expect(result).toEqual(mockReturnData);
+
+      // console.warn should not be called (no fallback needed)
+      expect(consoleWarnSpy).not.toHaveBeenCalled();
+
+      consoleWarnSpy.mockRestore();
     });
   });
 
