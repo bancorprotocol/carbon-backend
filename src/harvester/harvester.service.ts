@@ -390,7 +390,13 @@ export class HarvesterService {
 
   async stringsWithMulticallV2(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
     const data = await this.withMulticallEthereum(addresses, abi, fn, deployment);
-    return data.map((r) => hexToString(r.data).replace(/[^a-zA-Z0-9]/g, ''));
+    return data.map((r) => {
+      // If the call failed, return empty string to indicate invalid data
+      if (!r.success) {
+        return '';
+      }
+      return hexToString(r.data).replace(/[^a-zA-Z0-9]/g, '');
+    });
   }
 
   async integersWithMulticallEthereum(
@@ -400,17 +406,35 @@ export class HarvesterService {
     deployment: Deployment,
   ): Promise<number[]> {
     const data = await this.withMulticallEthereum(addresses, abi, fn, deployment);
-    return data.map((r) => parseInt(r.data));
+    return data.map((r) => {
+      // If the call failed, return NaN to indicate invalid data
+      if (!r.success) {
+        return NaN;
+      }
+      return parseInt(r.data);
+    });
   }
 
   async stringsWithMulticallV3(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<string[]> {
     const data = await this.withMulticallSei(addresses, abi, fn, deployment);
-    return data.map((r) => hexToString(r).replace(/[^a-zA-Z0-9]/g, ''));
+    return data.map((r) => {
+      // If the call failed (returned null), return empty string to indicate invalid data
+      if (r === null) {
+        return '';
+      }
+      return hexToString(r).replace(/[^a-zA-Z0-9]/g, '');
+    });
   }
 
   async integersWithMulticallSei(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<number[]> {
     const data = await this.withMulticallSei(addresses, abi, fn, deployment);
-    return data.map((r) => parseInt(r));
+    return data.map((r) => {
+      // If the call failed (returned null), return NaN to indicate invalid data
+      if (r === null) {
+        return NaN;
+      }
+      return parseInt(r);
+    });
   }
   async withMulticallEthereum(addresses: string[], abi: any, fn: string, deployment: Deployment): Promise<any> {
     const web3 = new Web3(deployment.rpcEndpoint);
@@ -447,8 +471,23 @@ export class HarvesterService {
       });
 
       if (calls.length > 0) {
-        const result = await multicall.methods.aggregate(calls).call();
-        data = data.concat(result.returnData);
+        try {
+          const result = await multicall.methods.aggregate(calls).call();
+          data = data.concat(result.returnData);
+        } catch (error) {
+          // Multicall failed, fall back to individual calls to identify which ones fail
+          console.warn(`Multicall failed for batch of ${batch.length} addresses, falling back to individual calls`);
+          for (const address of batch) {
+            try {
+              const contract = new web3.eth.Contract([abi], address);
+              const result = await contract.methods[fn]().call();
+              data.push(result);
+            } catch (individualError) {
+              // Push a marker for failed calls (will be handled by the caller)
+              data.push(null);
+            }
+          }
+        }
       }
     }
     return data;
