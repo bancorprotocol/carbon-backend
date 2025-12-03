@@ -8,6 +8,7 @@ import { StrategyService, StrategyWithOwner } from '../../strategy/strategy.serv
 import { BlockService } from '../../block/block.service';
 import { Block } from '../../block/block.entity';
 import { Quote } from '../../quote/quote.entity';
+import { toChecksumAddress } from 'web3-utils';
 
 describe('TokensController', () => {
   let controller: TokensController;
@@ -34,13 +35,19 @@ describe('TokensController', () => {
     contracts: {},
   };
 
+  // Use real-looking lowercase addresses that will be checksummed
+  const token1LowercaseAddress = '0xdac17f958d2ee523a2206206994597c13d831ec7'; // USDT
+  const token2LowercaseAddress = '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'; // USDC
+  const token3LowercaseAddress = '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2'; // WETH
+  const token4LowercaseAddress = '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599'; // WBTC
+
   const mockTokens: Token[] = [
     {
       id: 1,
-      address: '0xToken1Address',
-      symbol: 'TKN1',
-      name: 'Token One',
-      decimals: 18,
+      address: token1LowercaseAddress,
+      symbol: 'USDT',
+      name: 'Tether USD',
+      decimals: 6,
       blockchainType: BlockchainType.Ethereum,
       exchangeId: ExchangeId.OGEthereum,
       createdAt: new Date(),
@@ -48,9 +55,9 @@ describe('TokensController', () => {
     },
     {
       id: 2,
-      address: '0xToken2Address',
-      symbol: 'TKN2',
-      name: 'Token Two',
+      address: token2LowercaseAddress,
+      symbol: 'USDC',
+      name: 'USD Coin',
       decimals: 6,
       blockchainType: BlockchainType.Ethereum,
       exchangeId: ExchangeId.OGEthereum,
@@ -121,20 +128,35 @@ describe('TokensController', () => {
 
       expect(result).toEqual([
         {
-          address: '0xToken1Address',
-          symbol: 'TKN1',
-          name: 'Token One',
-          decimals: 18,
+          address: toChecksumAddress(token1LowercaseAddress),
+          symbol: 'USDT',
+          name: 'Tether USD',
+          decimals: 6,
         },
         {
-          address: '0xToken2Address',
-          symbol: 'TKN2',
-          name: 'Token Two',
+          address: toChecksumAddress(token2LowercaseAddress),
+          symbol: 'USDC',
+          name: 'USD Coin',
           decimals: 6,
         },
       ]);
       expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGEthereum);
       expect(tokenService.all).toHaveBeenCalledWith(mockDeployment);
+    });
+
+    it('should return checksummed addresses', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      tokenService.all.mockResolvedValue(mockTokens);
+
+      const result = await controller.getTokens(ExchangeId.OGEthereum);
+
+      // Verify all addresses are checksummed (mixed case, not all lowercase)
+      result.forEach((token) => {
+        // A checksummed address has mixed case (unless it's all lowercase which means no checksum)
+        expect(token.address).toBe(toChecksumAddress(token.address));
+        // Verify it's not all lowercase (which would indicate no checksumming)
+        expect(token.address).not.toBe(token.address.toLowerCase());
+      });
     });
 
     it('should return empty array when no tokens exist', async () => {
@@ -155,10 +177,11 @@ describe('TokensController', () => {
         exchangeId: ExchangeId.OGSei,
       };
 
+      const seiTokenAddress = '0x3894085ef7ff0f0aedf52e2a2704928d1ec074f1';
       const seiTokens: Token[] = [
         {
           id: 3,
-          address: '0xSeiTokenAddress',
+          address: seiTokenAddress,
           symbol: 'SEI',
           name: 'Sei Token',
           decimals: 18,
@@ -176,7 +199,7 @@ describe('TokensController', () => {
 
       expect(result).toEqual([
         {
-          address: '0xSeiTokenAddress',
+          address: toChecksumAddress(seiTokenAddress),
           symbol: 'SEI',
           name: 'Sei Token',
           decimals: 18,
@@ -216,8 +239,8 @@ describe('TokensController', () => {
       {
         strategyId: '1',
         owner: '0xOwner1',
-        token0Address: '0xToken1Address',
-        token1Address: '0xToken2Address',
+        token0Address: token1LowercaseAddress,
+        token1Address: token2LowercaseAddress,
         order0: 'encoded0',
         order1: 'encoded1',
         liquidity0: '10',
@@ -232,8 +255,8 @@ describe('TokensController', () => {
       {
         strategyId: '2',
         owner: '0xOwner2',
-        token0Address: '0xToken2Address',
-        token1Address: '0xToken3Address',
+        token0Address: token2LowercaseAddress,
+        token1Address: token3LowercaseAddress,
         order0: 'encoded0',
         order1: 'encoded1',
         liquidity0: '5000',
@@ -248,7 +271,7 @@ describe('TokensController', () => {
     ];
 
     const mockQuotes = {
-      '0xToken1Address': {
+      [token1LowercaseAddress]: {
         id: 1,
         blockchainType: BlockchainType.Ethereum,
         provider: 'coingecko',
@@ -258,7 +281,7 @@ describe('TokensController', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Quote,
-      '0xToken2Address': {
+      [token2LowercaseAddress]: {
         id: 2,
         blockchainType: BlockchainType.Ethereum,
         provider: 'coingecko',
@@ -268,29 +291,29 @@ describe('TokensController', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Quote,
-      '0xToken3Address': {
+      [token3LowercaseAddress]: {
         id: 3,
         blockchainType: BlockchainType.Ethereum,
         provider: 'coingecko',
         timestamp: new Date(),
-        token: { ...mockTokens[0], address: '0xToken3Address' },
+        token: { ...mockTokens[0], address: token3LowercaseAddress },
         usd: '100.50',
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Quote,
-      '0xToken4Address': {
+      [token4LowercaseAddress]: {
         id: 4,
         blockchainType: BlockchainType.Ethereum,
         provider: 'coingecko',
         timestamp: new Date(),
-        token: { ...mockTokens[0], address: '0xToken4Address' },
+        token: { ...mockTokens[0], address: token4LowercaseAddress },
         usd: '50.25',
         createdAt: new Date(),
         updatedAt: new Date(),
       } as Quote,
     };
 
-    it('should return prices for tokens used in non-deleted strategies', async () => {
+    it('should return prices for tokens used in non-deleted strategies with checksummed addresses', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
       blockService.getLastBlock.mockResolvedValue(mockBlock);
       strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategies);
@@ -299,14 +322,29 @@ describe('TokensController', () => {
       const result = await controller.getTokensPrices(ExchangeId.OGEthereum);
 
       expect(result).toEqual({
-        '0xToken1Address': 1.5,
-        '0xToken2Address': 2.75,
-        '0xToken3Address': 100.5,
+        [toChecksumAddress(token1LowercaseAddress)]: 1.5,
+        [toChecksumAddress(token2LowercaseAddress)]: 2.75,
+        [toChecksumAddress(token3LowercaseAddress)]: 100.5,
       });
       expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGEthereum);
       expect(blockService.getLastBlock).toHaveBeenCalledWith(mockDeployment);
       expect(strategyService.getStrategiesWithOwners).toHaveBeenCalledWith(mockDeployment, mockBlock.id);
       expect(quoteService.allByAddress).toHaveBeenCalledWith(mockDeployment);
+    });
+
+    it('should return checksummed address keys in prices response', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      blockService.getLastBlock.mockResolvedValue(mockBlock);
+      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategies);
+      quoteService.allByAddress.mockResolvedValue(mockQuotes);
+
+      const result = await controller.getTokensPrices(ExchangeId.OGEthereum);
+
+      // Verify all address keys are checksummed
+      Object.keys(result).forEach((address) => {
+        expect(address).toBe(toChecksumAddress(address));
+        expect(address).not.toBe(address.toLowerCase());
+      });
     });
 
     it('should exclude tokens not used in any strategy', async () => {
@@ -318,7 +356,7 @@ describe('TokensController', () => {
       const result = await controller.getTokensPrices(ExchangeId.OGEthereum);
 
       // Token4 is in quotes but not in any strategy, so it should be excluded
-      expect(result).not.toHaveProperty('0xToken4Address');
+      expect(result).not.toHaveProperty(toChecksumAddress(token4LowercaseAddress));
       expect(Object.keys(result)).toHaveLength(3);
     });
 
@@ -363,8 +401,8 @@ describe('TokensController', () => {
         {
           strategyId: '1',
           owner: '0xOwner1',
-          token0Address: '0xTOKEN1ADDRESS', // uppercase
-          token1Address: '0xToken2Address', // mixed case
+          token0Address: token1LowercaseAddress.toUpperCase(), // uppercase
+          token1Address: toChecksumAddress(token2LowercaseAddress), // checksummed (mixed case)
           order0: 'encoded0',
           order1: 'encoded1',
           liquidity0: '10',
@@ -385,11 +423,11 @@ describe('TokensController', () => {
 
       const result = await controller.getTokensPrices(ExchangeId.OGEthereum);
 
-      // Should match despite case differences
-      expect(result).toHaveProperty('0xToken1Address');
-      expect(result).toHaveProperty('0xToken2Address');
-      expect(result['0xToken1Address']).toBe(1.5);
-      expect(result['0xToken2Address']).toBe(2.75);
+      // Should match despite case differences and return checksummed addresses
+      expect(result).toHaveProperty(toChecksumAddress(token1LowercaseAddress));
+      expect(result).toHaveProperty(toChecksumAddress(token2LowercaseAddress));
+      expect(result[toChecksumAddress(token1LowercaseAddress)]).toBe(1.5);
+      expect(result[toChecksumAddress(token2LowercaseAddress)]).toBe(2.75);
     });
 
     it('should handle duplicate tokens across multiple strategies', async () => {
@@ -397,8 +435,8 @@ describe('TokensController', () => {
         {
           strategyId: '1',
           owner: '0xOwner1',
-          token0Address: '0xToken1Address',
-          token1Address: '0xToken2Address',
+          token0Address: token1LowercaseAddress,
+          token1Address: token2LowercaseAddress,
           order0: 'encoded0',
           order1: 'encoded1',
           liquidity0: '10',
@@ -413,8 +451,8 @@ describe('TokensController', () => {
         {
           strategyId: '2',
           owner: '0xOwner2',
-          token0Address: '0xToken1Address', // duplicate
-          token1Address: '0xToken2Address', // duplicate
+          token0Address: token1LowercaseAddress, // duplicate
+          token1Address: token2LowercaseAddress, // duplicate
           order0: 'encoded0',
           order1: 'encoded1',
           liquidity0: '10',
@@ -435,10 +473,10 @@ describe('TokensController', () => {
 
       const result = await controller.getTokensPrices(ExchangeId.OGEthereum);
 
-      // Should include each token only once
+      // Should include each token only once with checksummed addresses
       expect(result).toEqual({
-        '0xToken1Address': 1.5,
-        '0xToken2Address': 2.75,
+        [toChecksumAddress(token1LowercaseAddress)]: 1.5,
+        [toChecksumAddress(token2LowercaseAddress)]: 2.75,
       });
     });
 
@@ -457,9 +495,9 @@ describe('TokensController', () => {
       const result = await controller.getTokensPrices(ExchangeId.OGSei);
 
       expect(result).toEqual({
-        '0xToken1Address': 1.5,
-        '0xToken2Address': 2.75,
-        '0xToken3Address': 100.5,
+        [toChecksumAddress(token1LowercaseAddress)]: 1.5,
+        [toChecksumAddress(token2LowercaseAddress)]: 2.75,
+        [toChecksumAddress(token3LowercaseAddress)]: 100.5,
       });
       expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGSei);
     });

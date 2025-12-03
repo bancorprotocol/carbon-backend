@@ -3,6 +3,91 @@ import { parseOrder, processOrders } from './activity.utils';
 import { ProcessedOrders } from './activity.types';
 
 describe('ActivityV2 Utilities', () => {
+  describe('Decimal precision configuration', () => {
+    it('should maintain high precision for very small numbers', () => {
+      // This test verifies that the Decimal.js configuration maintains precision
+      // for numbers like 0.0000000000000006507933332773792928809...
+      const sampleOrderJson0 = {
+        y: '34993279133544987885948',
+        z: '34993279133544987885948',
+        A: '4503599627369472',
+        B: '57149867462115',
+      };
+      const sampleOrderJson1 = {
+        y: '29394173322282207054332469326543456',
+        z: '29394173322282207054332469326543456',
+        A: '4503599627369472',
+        B: '57424927034998',
+      };
+      const decimals0 = 18;
+      const decimals1 = 18;
+
+      const order0 = parseOrder(JSON.stringify(sampleOrderJson0));
+      const order1 = parseOrder(JSON.stringify(sampleOrderJson1));
+      const decimals0_d = new Decimal(decimals0);
+      const decimals1_d = new Decimal(decimals1);
+
+      const processed: ProcessedOrders = processOrders(order0, order1, decimals0_d, decimals1_d);
+
+      // Verify that toString() returns a non-exponential format with high precision
+      const sellPriceAStr = processed.sellPriceA.toString();
+      const buyPriceAStr = processed.buyPriceA.toString();
+
+      // These should NOT be in exponential notation (no 'e' in the string)
+      expect(sellPriceAStr).not.toContain('e');
+      expect(buyPriceAStr).not.toContain('e');
+
+      // The values should have many decimal places (more than the default 20 significant digits)
+      // The actual precision depends on the input, but they should be stored as full decimal strings
+      expect(sellPriceAStr.length).toBeGreaterThan(20);
+      expect(buyPriceAStr.length).toBeGreaterThan(20);
+    });
+
+    it('should maintain high precision for liquidity values', () => {
+      const sampleOrderJson0 = {
+        y: '34993279133544987885948',
+        z: '34993279133544987885948',
+        A: '4503599627369472',
+        B: '57149867462115',
+      };
+      const sampleOrderJson1 = {
+        y: '29394173322282207054332469326543456',
+        z: '29394173322282207054332469326543456',
+        A: '4503599627369472',
+        B: '57424927034998',
+      };
+
+      const order0 = parseOrder(JSON.stringify(sampleOrderJson0));
+      const order1 = parseOrder(JSON.stringify(sampleOrderJson1));
+      const decimals0_d = new Decimal(18);
+      const decimals1_d = new Decimal(18);
+
+      const processed: ProcessedOrders = processOrders(order0, order1, decimals0_d, decimals1_d);
+
+      // Verify liquidity maintains full precision
+      const liquidity0Str = processed.liquidity0.toString();
+      const liquidity1Str = processed.liquidity1.toString();
+
+      // Liquidity0 should be 34993.279133544987885948 (full precision)
+      expect(liquidity0Str).toBe('34993.279133544987885948');
+
+      // Liquidity1 should be 29394173322282207.054332469326543456 (full precision)
+      expect(liquidity1Str).toBe('29394173322282207.054332469326543456');
+    });
+
+    it('should not truncate precision when converting to string', () => {
+      // Test with numbers that would lose precision with default Decimal settings
+      const smallDecimal = new Decimal('0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625');
+      const smallStr = smallDecimal.toString();
+
+      // Should NOT be in exponential notation
+      expect(smallStr).not.toContain('e');
+
+      // Should maintain full precision (the string should equal the original)
+      expect(smallStr).toBe('0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625');
+    });
+  });
+
   describe('process orders', () => {
     const testCase1 = {
       sampleOrderJson0: {

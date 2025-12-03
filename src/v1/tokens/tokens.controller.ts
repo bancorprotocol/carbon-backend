@@ -1,5 +1,6 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
+import { toChecksumAddress } from 'web3-utils';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { TokenService } from '../../token/token.service';
@@ -33,7 +34,7 @@ export class TokensController {
     const tokens = await this.tokenService.all(deployment);
 
     return tokens.map((token) => ({
-      address: token.address,
+      address: toChecksumAddress(token.address),
       decimals: token.decimals,
       symbol: token.symbol,
       name: token.name,
@@ -70,7 +71,7 @@ export class TokensController {
     const result: Record<string, number> = {};
     Object.entries(quotesByAddress).forEach(([address, quote]) => {
       if (tokenAddresses.has(address.toLowerCase())) {
-        result[address] = parseFloat(quote.usd);
+        result[toChecksumAddress(address)] = parseFloat(quote.usd);
       }
     });
 
