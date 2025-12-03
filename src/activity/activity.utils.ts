@@ -8,6 +8,13 @@ import { ActivityV2 } from './activity-v2.entity';
 import { TokensByAddress } from '../token/token.service';
 import { StrategyStatesMap } from './activity.types';
 
+// Configure Decimal.js for maximum precision
+Decimal.set({
+  precision: 100,
+  toExpNeg: -100,
+  toExpPos: 100,
+});
+
 export function parseOrder(orderJson: string): OrderData {
   const order = JSON.parse(orderJson);
   return {
