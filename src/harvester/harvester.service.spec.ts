@@ -1794,4 +1794,188 @@ describe('HarvesterService', () => {
       expect(savedEvents[0].token1).toBe(mockToken1);
     });
   });
+
+  describe('genericMulticall', () => {
+    let mockMulticallContract: any;
+    let mockWeb3: any;
+
+    const ethereumDeployment: Deployment = {
+      blockchainType: BlockchainType.Ethereum,
+      exchangeId: ExchangeId.OGEthereum,
+      rpcEndpoint: 'https://eth-mainnet.example.com',
+      startBlock: 1000,
+      harvestConcurrency: 5,
+      harvestEventsBatchSize: 1000,
+      harvestSleep: 0,
+      multicallAddress: '0xMulticallAddress',
+      gasToken: {
+        name: 'Ethereum',
+        symbol: 'ETH',
+        address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      },
+      contracts: {
+        [ContractsNames.CarbonController]: {
+          address: '0xCarbonControllerAddress',
+        },
+      },
+    };
+
+    const seiDeployment: Deployment = {
+      ...ethereumDeployment,
+      blockchainType: BlockchainType.Sei,
+      exchangeId: ExchangeId.OGSei,
+    };
+
+    beforeEach(() => {
+      mockMulticallContract = {
+        methods: {
+          aggregate: jest.fn().mockReturnValue({
+            call: jest.fn(),
+          }),
+        },
+      };
+
+      mockWeb3 = {
+        eth: {
+          Contract: jest.fn().mockReturnValue(mockMulticallContract),
+          call: jest.fn(),
+          getBlockNumber: jest.fn().mockResolvedValue(12345678n),
+        },
+      };
+
+      const Web3 = require('web3');
+      Web3.mockImplementation(() => mockWeb3);
+    });
+
+    it('should route to Ethereum multicall for Ethereum deployment', async () => {
+      mockMulticallContract.methods.aggregate().call.mockResolvedValue({
+        returnData: [
+          { success: true, data: '0x123' },
+          { success: true, data: '0x456' },
+        ],
+      });
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, ethereumDeployment);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ success: true, data: '0x123' });
+      expect(result.results[1]).toEqual({ success: true, data: '0x456' });
+      expect(result.blockNumber).toBe(12345678);
+    });
+
+    it('should route to Sei multicall for Sei deployment', async () => {
+      mockMulticallContract.methods.aggregate().call.mockResolvedValue({
+        returnData: ['0x123', '0x456'],
+      });
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, seiDeployment);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ success: true, data: '0x123' });
+      expect(result.results[1]).toEqual({ success: true, data: '0x456' });
+      expect(result.blockNumber).toBe(12345678);
+    });
+
+    it('should handle Ethereum multicall failure gracefully', async () => {
+      mockMulticallContract.methods.aggregate().call.mockRejectedValue(new Error('RPC error'));
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, ethereumDeployment);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ success: false, data: '0x' });
+      expect(result.results[1]).toEqual({ success: false, data: '0x' });
+      expect(result.blockNumber).toBe(12345678);
+    });
+
+    it('should fallback to individual calls on Sei when multicall fails', async () => {
+      mockMulticallContract.methods.aggregate().call.mockRejectedValue(new Error('Multicall failed'));
+      mockWeb3.eth.call.mockResolvedValueOnce('0x111').mockResolvedValueOnce('0x222');
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, seiDeployment);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ success: true, data: '0x111' });
+      expect(result.results[1]).toEqual({ success: true, data: '0x222' });
+      expect(result.blockNumber).toBe(12345678);
+      expect(mockWeb3.eth.call).toHaveBeenCalledTimes(2);
+    });
+
+    it('should handle individual call failures on Sei fallback', async () => {
+      mockMulticallContract.methods.aggregate().call.mockRejectedValue(new Error('Multicall failed'));
+      mockWeb3.eth.call.mockResolvedValueOnce('0x111').mockRejectedValueOnce(new Error('Individual call failed'));
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, seiDeployment);
+
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ success: true, data: '0x111' });
+      expect(result.results[1]).toEqual({ success: false, data: '0x' });
+      expect(result.blockNumber).toBe(12345678);
+    });
+
+    it('should return empty results array when no calls provided', async () => {
+      const result = await service.genericMulticall('0xContractAddress', [], ethereumDeployment);
+
+      expect(result.results).toEqual([]);
+      expect(result.blockNumber).toBe(12345678);
+      expect(mockMulticallContract.methods.aggregate).not.toHaveBeenCalled();
+    });
+
+    it('should handle Ethereum returnData without success field', async () => {
+      // Some multicall implementations return just the data string
+      mockMulticallContract.methods.aggregate().call.mockResolvedValue({
+        returnData: ['0x123', '0x456'],
+      });
+
+      const encodedCalls = ['0xabc', '0xdef'];
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, ethereumDeployment);
+
+      expect(result.results).toHaveLength(2);
+      // Should default success to true when not explicitly set
+      expect(result.results[0].success).toBe(true);
+      expect(result.results[1].success).toBe(true);
+      expect(result.blockNumber).toBe(12345678);
+    });
+
+    it('should batch large number of calls', async () => {
+      // Create 600 calls (should be split into 2 batches of 500 and 100)
+      const encodedCalls = Array.from({ length: 600 }, (_, i) => `0x${i.toString(16)}`);
+
+      mockMulticallContract.methods
+        .aggregate()
+        .call.mockResolvedValueOnce({
+          returnData: Array.from({ length: 500 }, () => ({ success: true, data: '0xbatch1' })),
+        })
+        .mockResolvedValueOnce({
+          returnData: Array.from({ length: 100 }, () => ({ success: true, data: '0xbatch2' })),
+        });
+
+      const result = await service.genericMulticall('0xContractAddress', encodedCalls, ethereumDeployment);
+
+      expect(result.results).toHaveLength(600);
+      expect(result.blockNumber).toBe(12345678);
+      expect(mockMulticallContract.methods.aggregate().call).toHaveBeenCalledTimes(2);
+    });
+
+    it('should use the same block number for all batches ensuring consistent state', async () => {
+      const encodedCalls = ['0xabc', '0xdef'];
+      mockMulticallContract.methods.aggregate().call.mockResolvedValue({
+        returnData: [
+          { success: true, data: '0x123' },
+          { success: true, data: '0x456' },
+        ],
+      });
+
+      await service.genericMulticall('0xContractAddress', encodedCalls, ethereumDeployment);
+
+      // Verify getBlockNumber was called first
+      expect(mockWeb3.eth.getBlockNumber).toHaveBeenCalled();
+      // Verify the multicall was called with the block number
+      expect(mockMulticallContract.methods.aggregate().call).toHaveBeenCalledWith({}, 12345678);
+    });
+  });
 });

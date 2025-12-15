@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { EncodedStrategy, SeedDataResponse } from './seed-data.dto';
-import { StrategyWithOwner } from '../../strategy/strategy.service';
+import { StrategyRealtimeWithOwner } from '../../strategy-realtime/strategy-realtime.service';
 
 const SCHEME_VERSION = 7;
 
@@ -8,7 +8,7 @@ const SCHEME_VERSION = 7;
 export class SeedDataService {
   async buildSeedData(
     latestBlockNumber: number,
-    strategiesWithOwners: StrategyWithOwner[],
+    strategiesWithOwners: StrategyRealtimeWithOwner[],
     tradingFeePPMByPair: { [pairKey: string]: number },
     page = 0,
     pageSize = 0,

@@ -2,36 +2,23 @@ import { Controller, Get, Header, Query } from '@nestjs/common';
 import { CacheTTL } from '@nestjs/cache-manager';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
-import { StrategyService } from '../../strategy/strategy.service';
-import { BlockService } from '../../block/block.service';
+import { StrategyRealtimeService } from '../../strategy-realtime/strategy-realtime.service';
 import { StrategiesQueryDto, StrategiesResponse, Strategy } from './strategies.dto';
 
 @Controller({ version: '1', path: ':exchangeId?/strategies' })
 export class StrategiesController {
-  constructor(
-    private deploymentService: DeploymentService,
-    private strategyService: StrategyService,
-    private blockService: BlockService,
-  ) {}
+  constructor(private deploymentService: DeploymentService, private strategyRealtimeService: StrategyRealtimeService) {}
 
   @Get()
-  @CacheTTL(60 * 1000) // Cache for 60 seconds
-  @Header('Cache-Control', 'public, max-age=60')
+  @CacheTTL(10 * 1000) // Cache for 10 seconds
+  @Header('Cache-Control', 'public, max-age=10')
   @ApiExchangeIdParam()
   async getStrategies(
     @ExchangeIdParam() exchangeId: ExchangeId,
     @Query() query: StrategiesQueryDto,
   ): Promise<StrategiesResponse> {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
-
-    // Get the latest block for this deployment
-    const lastBlock = await this.blockService.getLastBlock(deployment);
-    if (!lastBlock) {
-      return { strategies: [] };
-    }
-
-    // Get all non-deleted strategies with decoded orders
-    const allStrategies = await this.strategyService.getStrategiesWithOwners(deployment, lastBlock.id);
+    const { strategies: allStrategies } = await this.strategyRealtimeService.getStrategiesWithOwners(deployment);
 
     // Map strategies to the response format using already-decoded values
     // Note: buy = order1 (uses quote token), sell = order0 (uses base token)

@@ -26,6 +26,7 @@ import { SubdomainCacheInterceptor } from './cache.interceptor';
 import { CarbonPriceModule } from './carbon-price/carbon-price.module';
 import { MerklModule } from './merkl/merkl.module';
 import { WalletPairBalanceModule } from './wallet-pair-balance/wallet-pair-balance.module';
+import { StrategyRealtimeModule } from './strategy-realtime/strategy-realtime.module';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { WalletPairBalanceModule } from './wallet-pair-balance/wallet-pair-balan
     CarbonPriceModule,
     MerklModule,
     WalletPairBalanceModule,
+    StrategyRealtimeModule,
   ],
 
   providers: [

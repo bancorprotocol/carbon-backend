@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { StrategiesController } from './strategies.controller';
 import { DeploymentModule } from '../../deployment/deployment.module';
-import { StrategyModule } from '../../strategy/strategy.module';
-import { BlockModule } from '../../block/block.module';
+import { StrategyRealtimeModule } from '../../strategy-realtime/strategy-realtime.module';
 
 @Module({
-  imports: [DeploymentModule, StrategyModule, BlockModule],
+  imports: [DeploymentModule, StrategyRealtimeModule],
   controllers: [StrategiesController],
 })
 export class StrategiesModule {}

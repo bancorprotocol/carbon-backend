@@ -28,13 +28,16 @@ import { CarbonGraphPriceService } from '../carbon-graph-price/carbon-graph-pric
 import { QuoteService } from '../quote/quote.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
+import { StrategyRealtimeService } from '../strategy-realtime/strategy-realtime.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
+export const CARBON_IS_UPDATING_REALTIME = 'carbon:isUpdatingRealtime';
 
 @Injectable()
 export class UpdaterService {
   private isUpdating: Record<string, boolean> = {};
   private isUpdatingAnalytics: Record<string, boolean> = {};
+  private isUpdatingRealtime: Record<string, boolean> = {};
 
   constructor(
     private configService: ConfigService,
@@ -65,6 +68,7 @@ export class UpdaterService {
     private quoteService: QuoteService,
     private historicQuoteService: HistoricQuoteService,
     private merklProcessorService: MerklProcessorService,
+    private strategyRealtimeService: StrategyRealtimeService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -74,6 +78,12 @@ export class UpdaterService {
         const updateInterval = 5000; // Customize the interval as needed
         this.scheduleDeploymentUpdate(deployment, updateInterval);
       });
+
+      // Schedule realtime strategy updates on a separate, faster interval
+      deployments.forEach((deployment) => {
+        const realtimeInterval = 3000; // Poll contract every 3 seconds for realtime data
+        this.scheduleRealtimeStrategyUpdate(deployment, realtimeInterval);
+      });
     }
   }
 
@@ -81,6 +91,41 @@ export class UpdaterService {
     setInterval(async () => {
       await this.updateDeployment(deployment);
     }, interval);
+  }
+
+  private scheduleRealtimeStrategyUpdate(deployment: Deployment, interval: number) {
+    setInterval(async () => {
+      await this.updateRealtimeStrategies(deployment);
+    }, interval);
+  }
+
+  async updateRealtimeStrategies(deployment: Deployment): Promise<void> {
+    const deploymentKey = `${deployment.blockchainType}:${deployment.exchangeId}`;
+    if (this.isUpdatingRealtime[deploymentKey]) return;
+
+    const isUpdating = await this.redis.client.get(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`);
+    if (isUpdating === '1' && process.env.NODE_ENV === 'production') return;
+
+    const t = Date.now();
+    try {
+      this.isUpdatingRealtime[deploymentKey] = true;
+      const lockDuration = parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 30;
+      await this.redis.client.setex(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`, lockDuration, 1);
+
+      // Get tokens for this deployment (needed for decimal info)
+      const tokens = await this.tokenService.allByAddress(deployment);
+
+      // Update realtime strategies from contract
+      await this.strategyRealtimeService.update(deployment, tokens);
+
+      console.log(`CARBON SERVICE - Finished realtime strategy update for ${deploymentKey} in:`, Date.now() - t, 'ms');
+      this.isUpdatingRealtime[deploymentKey] = false;
+      await this.redis.client.set(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`, 0);
+    } catch (error) {
+      console.log(`error in realtime strategy updater for ${deploymentKey}`, error, Date.now() - t);
+      this.isUpdatingRealtime[deploymentKey] = false;
+      await this.redis.client.set(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`, 0);
+    }
   }
 
   async updateDeployment(deployment: Deployment): Promise<void> {

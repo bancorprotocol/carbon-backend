@@ -492,4 +492,132 @@ export class HarvesterService {
     }
     return data;
   }
+
+  /**
+   * Generic multicall method for calling the same contract with different encoded call data.
+   * Unlike the other multicall methods which call the same function on multiple addresses,
+   * this method calls multiple different functions (or same function with different params)
+   * on a single contract address.
+   *
+   * @param contractAddress - The target contract address
+   * @param encodedCalls - Array of pre-encoded call data (use contract.methods.functionName(params).encodeABI())
+   * @param deployment - Deployment configuration
+   * @returns Object containing array of results and the block number at which the calls were executed
+   */
+  async genericMulticall(
+    contractAddress: string,
+    encodedCalls: string[],
+    deployment: Deployment,
+  ): Promise<{ results: { success: boolean; data: string }[]; blockNumber: number }> {
+    if (deployment.blockchainType === BlockchainType.Ethereum) {
+      return this.genericMulticallEthereum(contractAddress, encodedCalls, deployment);
+    } else {
+      return this.genericMulticallSei(contractAddress, encodedCalls, deployment);
+    }
+  }
+
+  private async genericMulticallEthereum(
+    contractAddress: string,
+    encodedCalls: string[],
+    deployment: Deployment,
+  ): Promise<{ results: { success: boolean; data: string }[]; blockNumber: number }> {
+    const web3 = new Web3(deployment.rpcEndpoint);
+    const multicall: any = new web3.eth.Contract(MulticallAbiEthereum, deployment.multicallAddress);
+
+    // Fetch current block number first to ensure all batches read from the same state
+    const blockNumber = Number(await web3.eth.getBlockNumber());
+
+    const batches = _.chunk(encodedCalls, 500); // Smaller batches for complex calls
+
+    // Execute all batches in parallel
+    const batchResults = await Promise.all(
+      batches.map(async (batch) => {
+        const calls = batch.map((callData) => [contractAddress, callData]);
+
+        if (calls.length === 0) {
+          return [];
+        }
+
+        try {
+          // Pass block number to ensure consistent state across all batches
+          const result = await multicall.methods.aggregate(calls, false).call({}, blockNumber);
+          return result.returnData.map((r: any) => ({
+            success: r.success !== false && r.success !== undefined ? r.success : true,
+            data: r.data || r,
+          }));
+        } catch (error) {
+          console.warn(`Ethereum multicall failed for batch of ${batch.length} calls:`, error.message);
+          // Mark all calls in this batch as failed
+          return batch.map(() => ({ success: false, data: '0x' }));
+        }
+      }),
+    );
+
+    // Flatten results while maintaining order
+    const results = batchResults.flat();
+
+    return { results, blockNumber };
+  }
+
+  private async genericMulticallSei(
+    contractAddress: string,
+    encodedCalls: string[],
+    deployment: Deployment,
+  ): Promise<{ results: { success: boolean; data: string }[]; blockNumber: number }> {
+    const web3 = new Web3(deployment.rpcEndpoint);
+    const multicall: any = new web3.eth.Contract(multicallAbiSei, deployment.multicallAddress);
+
+    // Fetch current block number first to ensure all batches read from the same state
+    const blockNumber = Number(await web3.eth.getBlockNumber());
+
+    const batches = _.chunk(encodedCalls, 500); // Smaller batches for complex calls
+
+    // Execute all batches in parallel
+    const batchResults = await Promise.all(
+      batches.map(async (batch) => {
+        const calls = batch.map((callData) => ({
+          target: contractAddress,
+          callData: callData,
+        }));
+
+        if (calls.length === 0) {
+          return [];
+        }
+
+        try {
+          // Pass block number to ensure consistent state across all batches
+          const result = await multicall.methods.aggregate(calls).call({}, blockNumber);
+          return result.returnData.map((data: string) => ({
+            success: true,
+            data: data,
+          }));
+        } catch (error) {
+          console.warn(`Sei multicall failed for batch of ${batch.length} calls, falling back to individual calls`);
+          // Fallback to individual calls using raw eth_call at the same block (in parallel)
+          const individualResults = await Promise.all(
+            batch.map(async (callData) => {
+              try {
+                const result = await web3.eth.call(
+                  {
+                    to: contractAddress,
+                    data: callData,
+                  },
+                  blockNumber,
+                );
+                return { success: true, data: result };
+              } catch (individualError) {
+                return { success: false, data: '0x' };
+              }
+            }),
+          );
+          return individualResults;
+        }
+      }),
+    );
+
+    // Flatten results while maintaining order
+    const results = batchResults.flat();
+
+    return { results, blockNumber };
+  }
 }

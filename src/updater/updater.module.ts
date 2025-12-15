@@ -35,6 +35,7 @@ import { ProtectionRemovedEventModule } from '../events/protection-removed-event
 import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
 import { MerklModule } from '../merkl/merkl.module';
 import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price.module';
+import { StrategyRealtimeModule } from '../strategy-realtime/strategy-realtime.module';
 
 @Module({
   imports: [
@@ -73,6 +74,7 @@ import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price
     MerklModule,
     CarbonGraphPriceModule,
     HistoricQuoteModule,
+    StrategyRealtimeModule,
   ],
   providers: [UpdaterService],
 })
