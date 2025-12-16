@@ -1,16 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { StrategiesController } from './strategies.controller';
 import { DeploymentService, ExchangeId, BlockchainType, Deployment } from '../../deployment/deployment.service';
-import { StrategyService, StrategyWithOwner } from '../../strategy/strategy.service';
-import { BlockService } from '../../block/block.service';
-import { Block } from '../../block/block.entity';
+import { StrategyRealtimeService, StrategyRealtimeWithOwner } from '../../strategy-realtime/strategy-realtime.service';
 import { StrategiesQueryDto } from './strategies.dto';
 
 describe('StrategiesController', () => {
   let controller: StrategiesController;
   let deploymentService: jest.Mocked<DeploymentService>;
-  let strategyService: jest.Mocked<StrategyService>;
-  let blockService: jest.Mocked<BlockService>;
+  let strategyRealtimeService: jest.Mocked<StrategyRealtimeService>;
 
   const mockDeployment: Deployment = {
     blockchainType: BlockchainType.Ethereum,
@@ -29,15 +26,7 @@ describe('StrategiesController', () => {
     contracts: {},
   };
 
-  const mockBlock: Block = {
-    id: 1000,
-    timestamp: new Date(),
-    blockchainType: BlockchainType.Ethereum,
-    createdAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const mockStrategiesWithOrders: StrategyWithOwner[] = [
+  const mockStrategies: StrategyRealtimeWithOwner[] = [
     {
       strategyId: '1',
       owner: '0xOwner1',
@@ -83,15 +72,9 @@ describe('StrategiesController', () => {
           },
         },
         {
-          provide: StrategyService,
+          provide: StrategyRealtimeService,
           useValue: {
             getStrategiesWithOwners: jest.fn(),
-          },
-        },
-        {
-          provide: BlockService,
-          useValue: {
-            getLastBlock: jest.fn(),
           },
         },
       ],
@@ -99,8 +82,7 @@ describe('StrategiesController', () => {
 
     controller = module.get<StrategiesController>(StrategiesController);
     deploymentService = module.get(DeploymentService);
-    strategyService = module.get(StrategyService);
-    blockService = module.get(BlockService);
+    strategyRealtimeService = module.get(StrategyRealtimeService);
   });
 
   afterEach(() => {
@@ -112,10 +94,12 @@ describe('StrategiesController', () => {
   });
 
   describe('getStrategies', () => {
-    it('should return all non-deleted strategies with decoded orders', async () => {
+    it('should return all strategies with decoded orders', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategiesWithOrders);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -142,26 +126,15 @@ describe('StrategiesController', () => {
       expect(result.pagination).toBeUndefined();
 
       expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGEthereum);
-      expect(blockService.getLastBlock).toHaveBeenCalledWith(mockDeployment);
-      expect(strategyService.getStrategiesWithOwners).toHaveBeenCalledWith(mockDeployment, mockBlock.id);
-    });
-
-    it('should return empty array when no last block exists', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(null);
-
-      const query: StrategiesQueryDto = {};
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      expect(result).toEqual({ strategies: [] });
-      expect(blockService.getLastBlock).toHaveBeenCalledWith(mockDeployment);
-      expect(strategyService.getStrategiesWithOwners).not.toHaveBeenCalled();
+      expect(strategyRealtimeService.getStrategiesWithOwners).toHaveBeenCalledWith(mockDeployment);
     });
 
     it('should return empty array when no strategies exist', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue([]);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [],
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -171,8 +144,10 @@ describe('StrategiesController', () => {
 
     it('should correctly map base and quote (token0 and token1)', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategiesWithOrders);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -188,8 +163,10 @@ describe('StrategiesController', () => {
 
     it('should map order1 to buy and order0 to sell', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategiesWithOrders);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -203,8 +180,10 @@ describe('StrategiesController', () => {
 
     it('should have all order fields as strings', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategiesWithOrders);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -229,8 +208,10 @@ describe('StrategiesController', () => {
       };
 
       deploymentService.getDeploymentByExchangeId.mockReturnValue(seiDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(mockStrategiesWithOrders);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGSei, query);
@@ -240,7 +221,7 @@ describe('StrategiesController', () => {
     });
 
     it('should handle multiple strategies correctly', async () => {
-      const manyStrategies: StrategyWithOwner[] = Array.from({ length: 10 }, (_, i) => ({
+      const manyStrategies: StrategyRealtimeWithOwner[] = Array.from({ length: 10 }, (_, i) => ({
         strategyId: `${i + 1}`,
         owner: `0xOwner${i + 1}`,
         token0Address: '0xToken1Address',
@@ -258,8 +239,10 @@ describe('StrategiesController', () => {
       }));
 
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = {};
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -273,7 +256,7 @@ describe('StrategiesController', () => {
   });
 
   describe('Pagination', () => {
-    const manyStrategies: StrategyWithOwner[] = Array.from({ length: 25 }, (_, i) => ({
+    const manyStrategies: StrategyRealtimeWithOwner[] = Array.from({ length: 25 }, (_, i) => ({
       strategyId: `${i + 1}`,
       owner: `0xOwner${i + 1}`,
       token0Address: '0xToken1Address',
@@ -292,8 +275,10 @@ describe('StrategiesController', () => {
 
     it('should return paginated results when pageSize is specified', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = { page: 0, pageSize: 10 };
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -312,8 +297,10 @@ describe('StrategiesController', () => {
 
     it('should return second page of results', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = { page: 1, pageSize: 10 };
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -332,8 +319,10 @@ describe('StrategiesController', () => {
 
     it('should return last page with remaining items', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = { page: 2, pageSize: 10 };
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -352,8 +341,10 @@ describe('StrategiesController', () => {
 
     it('should return all strategies when pageSize is 0', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = { page: 0, pageSize: 0 };
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
@@ -364,8 +355,10 @@ describe('StrategiesController', () => {
 
     it('should return empty array for page beyond available data', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      blockService.getLastBlock.mockResolvedValue(mockBlock);
-      strategyService.getStrategiesWithOwners.mockResolvedValue(manyStrategies);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: manyStrategies,
+        blockNumber: 12345678,
+      });
 
       const query: StrategiesQueryDto = { page: 10, pageSize: 10 };
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
