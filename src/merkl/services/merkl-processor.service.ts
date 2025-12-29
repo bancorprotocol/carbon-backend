@@ -1823,10 +1823,19 @@ export class MerklProcessorService {
   /**
    * Retrieves the USD exchange rate for a token at a specific point in time.
    *
+   * Returns the most recent rate that exists BEFORE the target timestamp to ensure
+   * consistency within subepochs - prices created during processing won't affect
+   * earlier subepochs.
+   *
+   * If no rate exists before the target timestamp (e.g., for new tokens), falls back
+   * to the FIRST (earliest) rate after the target. This is deterministic because
+   * prices are only added in real-time (no backfilling), so the first rate after
+   * a given timestamp will never change.
+   *
    * @param priceCache - Price cache containing historical USD rates
    * @param tokenAddress - Contract address of the token
    * @param targetTimestamp - Timestamp to get rate for
-   * @returns USD exchange rate at the specified time
+   * @returns USD exchange rate, or 0 if no rates exist at all
    */
   private getUsdRateForTimestamp(priceCache: PriceCache, tokenAddress: string, targetTimestamp: number): number {
     const normalizedAddress = tokenAddress.toLowerCase();
@@ -1838,19 +1847,41 @@ export class MerklProcessorService {
       return 0;
     }
 
-    // Locate the rate entry with timestamp nearest to the target time
-    let closest = tokenRates[0];
-    let minDiff = Math.abs(closest.timestamp - targetTimestamp);
+    // Primary: Find the most recent rate that exists BEFORE the target timestamp
+    // This ensures consistency within subepochs even if new prices are created during processing
+    let mostRecentBefore: { timestamp: number; usd: number } | null = null;
+    // Fallback: Find the earliest rate AFTER the target timestamp (for new tokens without history)
+    let earliestAfter: { timestamp: number; usd: number } | null = null;
 
     for (const rate of tokenRates) {
-      const diff = Math.abs(rate.timestamp - targetTimestamp);
-      if (diff < minDiff) {
-        minDiff = diff;
-        closest = rate;
+      if (rate.timestamp < targetTimestamp) {
+        // Rate is before target - track the most recent one
+        if (mostRecentBefore === null || rate.timestamp > mostRecentBefore.timestamp) {
+          mostRecentBefore = rate;
+        }
+      } else {
+        // Rate is at or after target - track the earliest one (for fallback)
+        if (earliestAfter === null || rate.timestamp < earliestAfter.timestamp) {
+          earliestAfter = rate;
+        }
       }
     }
 
-    return closest.usd;
+    // Prefer rate before target, fallback to earliest after target
+    if (mostRecentBefore !== null) {
+      return mostRecentBefore.usd;
+    }
+
+    if (earliestAfter !== null) {
+      this.logger.warn(
+        `No USD rates found before timestamp ${targetTimestamp} for token ${tokenAddress}, using earliest rate after target`,
+      );
+      return earliestAfter.usd;
+    }
+
+    // No rates at all (should not happen if tokenRates is non-empty, but handle defensively)
+    this.logger.warn(`No USD rates found for token ${tokenAddress}`);
+    return 0;
   }
 
   /**
