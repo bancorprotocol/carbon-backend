@@ -350,17 +350,17 @@ describe('MerklProcessorService - Deterministic Processing', () => {
   });
 
   describe('USD Rate Lookup Determinism', () => {
-    it('should select USD rates deterministically when timestamps are tied', () => {
-      // Create a price cache with tied timestamps
+    it('should select USD rates deterministically using the most recent rate before target', () => {
+      // Create a price cache with rates before and after the target timestamp
       const priceCache = {
         rates: new Map([
           [
             '0xtoken0',
             [
               { timestamp: 1000, usd: 1.0001 },
-              { timestamp: 1002, usd: 1.0003 }, // Same distance from 1001
-              { timestamp: 1000, usd: 1.0002 }, // Same distance from 1001
-              { timestamp: 1000, usd: 1.0004 }, // Duplicate timestamp, different rate
+              { timestamp: 1002, usd: 1.0003 }, // After target 1001, excluded
+              { timestamp: 1000, usd: 1.0002 }, // Before target, same timestamp as first
+              { timestamp: 1000, usd: 1.0004 }, // Before target, same timestamp as first
             ],
           ],
         ]),
@@ -369,30 +369,30 @@ describe('MerklProcessorService - Deterministic Processing', () => {
 
       const getUsdRateMethod = (service as any).getUsdRateForTimestamp.bind(service);
 
-      // Test with target timestamp 1001 (equidistant from 1000 and 1002)
+      // Test with target timestamp 1001 - only rates BEFORE 1001 are considered
       const results = [];
       for (let i = 0; i < 5; i++) {
         results.push(getUsdRateMethod(priceCache, '0xtoken0', 1001));
       }
 
-      // All results should be identical
+      // All results should be identical (deterministic)
       for (let i = 1; i < results.length; i++) {
         expect(results[i]).toBe(results[0]);
       }
 
-      // Current implementation returns the first rate with minimum distance (1.0001)
+      // Returns the first rate found at timestamp 1000 (the most recent before 1001)
       expect(results[0]).toBe(1.0001);
     });
 
-    it('should prefer higher USD rate when timestamps are identical', () => {
+    it('should fallback to earliest rate after target when no rates exist before', () => {
       const priceCache = {
         rates: new Map([
           [
             '0xtoken0',
             [
-              { timestamp: 1000, usd: 1.0001 },
-              { timestamp: 1000, usd: 1.0004 }, // Same timestamp, higher rate
-              { timestamp: 1000, usd: 1.0002 }, // Same timestamp, lower rate
+              { timestamp: 1000, usd: 1.0001 }, // Earliest rate at or after target
+              { timestamp: 1000, usd: 1.0004 }, // Same timestamp as target
+              { timestamp: 1000, usd: 1.0002 }, // Same timestamp as target
             ],
           ],
         ]),
@@ -406,12 +406,14 @@ describe('MerklProcessorService - Deterministic Processing', () => {
         results.push(getUsdRateMethod(priceCache, '0xtoken0', 1000));
       }
 
-      // All results should be identical and use the highest rate
+      // All results should be identical (deterministic)
       for (let i = 1; i < results.length; i++) {
         expect(results[i]).toBe(results[0]);
       }
 
-      expect(results[0]).toBe(1.0001); // Current implementation returns first rate found
+      // No rates exist BEFORE timestamp 1000, so fallback to earliest at/after target
+      // Returns the first one found at timestamp 1000
+      expect(results[0]).toBe(1.0001);
     });
   });
 });

@@ -909,4 +909,101 @@ describe('MerklProcessorService', () => {
       });
     });
   });
+
+  describe('USD Rate Lookup', () => {
+    it('should return the last available price BEFORE the target timestamp, not the nearest', () => {
+      // Create a price cache with rates before and after the target timestamp
+      const priceCache = {
+        rates: new Map([
+          [
+            '0xtoken0',
+            [
+              { timestamp: 1000, usd: 1.0 },
+              { timestamp: 1200, usd: 1.5 }, // Last rate BEFORE 1500
+              { timestamp: 1800, usd: 2.0 }, // Closer to 1500 but AFTER it
+            ],
+          ],
+        ]),
+        timeWindow: { start: 900, end: 2000 },
+      };
+
+      const getUsdRateMethod = (service as any).getUsdRateForTimestamp.bind(service);
+
+      // Target timestamp is 1500
+      // Distance from 1200: 300
+      // Distance from 1800: 300 (same distance, but 1800 is AFTER)
+      // The method should return 1.5 (rate at 1200), not 2.0 (rate at 1800)
+      const result = getUsdRateMethod(priceCache, '0xtoken0', 1500);
+
+      expect(result).toBe(1.5); // Should use the last rate BEFORE the target, not the nearest
+    });
+
+    it('should return the most recent rate when multiple rates exist before target', () => {
+      const priceCache = {
+        rates: new Map([
+          [
+            '0xtoken0',
+            [
+              { timestamp: 1000, usd: 1.0 },
+              { timestamp: 1100, usd: 1.2 },
+              { timestamp: 1200, usd: 1.5 }, // Most recent BEFORE 1500
+              { timestamp: 2000, usd: 3.0 }, // After target
+            ],
+          ],
+        ]),
+        timeWindow: { start: 900, end: 2500 },
+      };
+
+      const getUsdRateMethod = (service as any).getUsdRateForTimestamp.bind(service);
+
+      const result = getUsdRateMethod(priceCache, '0xtoken0', 1500);
+
+      expect(result).toBe(1.5); // Should use the most recent rate before target
+    });
+
+    it('should fallback to earliest rate after target when no rates exist before', () => {
+      const priceCache = {
+        rates: new Map([
+          [
+            '0xtoken0',
+            [
+              { timestamp: 2000, usd: 2.0 }, // Earliest rate after target
+              { timestamp: 2500, usd: 2.5 },
+            ],
+          ],
+        ]),
+        timeWindow: { start: 1800, end: 3000 },
+      };
+
+      const getUsdRateMethod = (service as any).getUsdRateForTimestamp.bind(service);
+
+      const result = getUsdRateMethod(priceCache, '0xtoken0', 1500);
+
+      // No rates before target, should fallback to earliest rate after target (2.0 at timestamp 2000)
+      expect(result).toBe(2.0);
+    });
+
+    it('should handle exact timestamp match by using rates strictly before', () => {
+      const priceCache = {
+        rates: new Map([
+          [
+            '0xtoken0',
+            [
+              { timestamp: 1000, usd: 1.0 },
+              { timestamp: 1500, usd: 1.5 }, // Exact match with target
+              { timestamp: 2000, usd: 2.0 },
+            ],
+          ],
+        ]),
+        timeWindow: { start: 900, end: 2500 },
+      };
+
+      const getUsdRateMethod = (service as any).getUsdRateForTimestamp.bind(service);
+
+      // Target is 1500, but we want rates BEFORE 1500, so should return 1.0 (at 1000)
+      const result = getUsdRateMethod(priceCache, '0xtoken0', 1500);
+
+      expect(result).toBe(1.0); // Should use rate before, not at target timestamp
+    });
+  });
 });
