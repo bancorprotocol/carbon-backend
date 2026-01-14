@@ -27,6 +27,7 @@ export class MarketRateController {
     [BlockchainType.Coti]: [],
     [BlockchainType.Iota]: [],
     [BlockchainType.Tac]: [],
+    [BlockchainType.Bnb]: [],
   };
 
   constructor(

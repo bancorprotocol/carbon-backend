@@ -304,7 +304,7 @@ export class MerklProcessorService {
 
     // Execute processing for each epoch batch in temporal sequence
     for (const epochBatch of epochBatchesToProcess) {
-      await this.processEpochBatch(epochBatch, deployment, globalPriceCache, endBlock);
+      await this.processEpochBatch(epochBatch, deployment, globalPriceCache, endBlock, globalEndTimestamp);
     }
 
     // Update campaign status for completed campaigns
@@ -317,11 +317,11 @@ export class MerklProcessorService {
    * This method implements intelligent epoch selection by:
    * - Identifying all epochs within the global processing timeframe
    * - Filtering out already processed epochs to avoid duplicate work
-   * - Including a buffer of recent epochs to handle late-arriving events
    * - Sorting all selected epochs chronologically for deterministic processing
    *
-   * The reprocessing buffer ensures that if new events arrive for recently processed
-   * time periods, those epochs will be recalculated to maintain accuracy.
+   * Sub-epochs are only created after their timestamp has passed, ensuring all
+   * blockchain events are indexed before processing. This eliminates the need
+   * for reprocessing and guarantees data accuracy on first processing.
    *
    * @param campaigns - List of active campaigns to process
    * @param globalStartTimestamp - Earliest timestamp to consider for processing
@@ -346,17 +346,16 @@ export class MerklProcessorService {
       // Retrieve the most recently processed epoch number for this campaign
       const lastProcessedEpochNumber = await this.subEpochService.getLastProcessedEpochNumber(campaign.id);
 
-      // Include recent epochs for reprocessing to handle late-arriving events
-      // This ensures data consistency when events are received out of chronological order
-      const reprocessBuffer = 2; // Number of recent epochs to reprocess
-      const cutoffEpoch = Math.max(0, lastProcessedEpochNumber - reprocessBuffer);
+      // No reprocessing needed - sub-epochs are only created after their timestamp,
+      // ensuring all events are indexed before processing. Each sub-epoch is processed once.
+      const cutoffEpoch = lastProcessedEpochNumber;
 
       // Select epochs that require processing (recent + unprocessed)
       const epochsToProcess = allEpochs.filter((epoch) => epoch.epochNumber > cutoffEpoch);
 
       this.logger.log(
         `Campaign ${campaign.id}: ${allEpochs.length} total epochs, ${epochsToProcess.length} to process ` +
-          `(last processed: ${lastProcessedEpochNumber}, cutoff: ${cutoffEpoch}, buffer: ${reprocessBuffer})`,
+          `(last processed: ${lastProcessedEpochNumber})`,
       );
 
       for (const epoch of epochsToProcess) {
@@ -405,6 +404,7 @@ export class MerklProcessorService {
    * @param deployment - Blockchain deployment configuration
    * @param globalPriceCache - Pre-built cache of USD rates for the entire processing timeframe
    * @param endBlock - Maximum block number to consider for event retrieval
+   * @param globalEndTimestamp - Maximum timestamp for sub-epoch generation (ensures we only process past timestamps)
    *
    * @throws {Error} When epoch processing fails or budget calculations are invalid
    *
@@ -416,6 +416,7 @@ export class MerklProcessorService {
     deployment: Deployment,
     globalPriceCache: PriceCache,
     endBlock: number,
+    globalEndTimestamp: number,
   ): Promise<void> {
     const { epochInfo, campaign, globalEpochId } = epochBatch;
 
@@ -458,6 +459,7 @@ export class MerklProcessorService {
       campaignDistributedAmounts,
       campaignTotalAmounts,
       totalCampaignSubEpochs,
+      globalEndTimestamp, // Limits sub-epoch generation to past timestamps only
     );
 
     this.logger.log(`Completed epoch batch: ${globalEpochId}`);
@@ -1109,6 +1111,7 @@ export class MerklProcessorService {
    * @param campaignDistributedAmounts - Tracking of distributed rewards per campaign
    * @param campaignTotalAmounts - Total budget available per campaign
    * @param totalCampaignSubEpochs - Total number of sub-epochs across the entire campaign
+   * @param maxProcessingTimestamp - Maximum timestamp for sub-epoch generation (only process past timestamps)
    */
   private async processEpoch(
     campaign: Campaign,
@@ -1119,6 +1122,7 @@ export class MerklProcessorService {
     campaignDistributedAmounts: Map<number, Decimal>,
     campaignTotalAmounts: Map<number, Decimal>,
     totalCampaignSubEpochs: number,
+    maxProcessingTimestamp: number,
   ): Promise<void> {
     this.logger.log(`Processing epoch ${epoch.epochNumber} for campaign ${campaign.id}`);
 
@@ -1141,7 +1145,15 @@ export class MerklProcessorService {
     }
 
     // Create time-based snapshots within the epoch for reward calculation
-    const subEpochs = this.generateSubEpochsForEpoch(epoch, strategyStates, campaign, priceCache, batchEvents);
+    // Only generates sub-epochs with timestamps < maxProcessingTimestamp to ensure all events are indexed
+    const subEpochs = this.generateSubEpochsForEpoch(
+      epoch,
+      strategyStates,
+      campaign,
+      priceCache,
+      batchEvents,
+      maxProcessingTimestamp,
+    );
 
     if (subEpochs.length === 0) return;
 
@@ -1310,11 +1322,16 @@ export class MerklProcessorService {
   /**
    * Generates sub-epoch snapshots throughout an epoch for reward calculations.
    *
+   * Sub-epochs are only generated for timestamps that have already passed (< maxProcessingTimestamp).
+   * This ensures all blockchain events are indexed before processing, eliminating race conditions
+   * and guaranteeing data accuracy on first processing without need for reprocessing.
+   *
    * @param epoch - Epoch timing and information
    * @param strategyStates - Initial strategy states for the epoch
    * @param campaign - Campaign configuration
    * @param priceCache - USD price data for target price calculations
    * @param batchEvents - Events to replay during snapshot generation
+   * @param maxProcessingTimestamp - Maximum timestamp for sub-epoch generation (derived from endBlock)
    * @returns Array of sub-epoch snapshots with strategy states and prices
    */
   private generateSubEpochsForEpoch(
@@ -1323,6 +1340,7 @@ export class MerklProcessorService {
     campaign: Campaign,
     priceCache: PriceCache,
     batchEvents: BatchEvents,
+    maxProcessingTimestamp: number,
   ): SubEpochData[] {
     const subEpochs: SubEpochData[] = [];
 
@@ -1339,6 +1357,9 @@ export class MerklProcessorService {
     const epochStartTimestamp = currentTime;
     const epochEndTimestamp = epoch.endTimestamp.getTime();
     const campaignEndTimestamp = campaign.endDate.getTime();
+    // Only process sub-epochs with timestamps before the current processing time
+    // This ensures all blockchain events are indexed before we process each sub-epoch
+    const effectiveEndTimestamp = Math.min(epochEndTimestamp, maxProcessingTimestamp);
 
     // Initialize strategy states by applying relevant historical events
     // Limited to events within the campaign's active timeframe
@@ -1353,8 +1374,9 @@ export class MerklProcessorService {
     }
 
     // Create snapshots at predetermined intervals throughout the epoch
+    // Uses effectiveEndTimestamp to ensure we only process past timestamps
     let intervalIndex = 0;
-    while (currentTime < epochEndTimestamp && intervalIndex < snapshotIntervals.length) {
+    while (currentTime < effectiveEndTimestamp && intervalIndex < snapshotIntervals.length) {
       // Avoid processing beyond the campaign's end time
       if (currentTime >= campaignEndTimestamp) {
         break;
