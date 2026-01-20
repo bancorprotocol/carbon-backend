@@ -90,17 +90,10 @@ export class WalletPairBalanceService {
       // Map strategy liquidity to canonical token0/token1 based on lexicographic ordering
       const canonicalToken0Balance = isToken0Smaller ? row.liquidity0Sum : row.liquidity1Sum;
       const canonicalToken1Balance = isToken0Smaller ? row.liquidity1Sum : row.liquidity0Sum;
-      const canonicalToken0Decimals = isToken0Smaller ? row.token0Decimals : row.token1Decimals;
-      const canonicalToken1Decimals = isToken0Smaller ? row.token1Decimals : row.token0Decimals;
 
-      // Normalize token amounts using decimals
-      const token0Balance = new Decimal(canonicalToken0Balance || '0')
-        .dividedBy(new Decimal(10).pow(canonicalToken0Decimals))
-        .toFixed();
-
-      const token1Balance = new Decimal(canonicalToken1Balance || '0')
-        .dividedBy(new Decimal(10).pow(canonicalToken1Decimals))
-        .toFixed();
+      // Liquidity values are already normalized (human-readable) in the database
+      const token0Balance = new Decimal(canonicalToken0Balance || '0').toFixed();
+      const token1Balance = new Decimal(canonicalToken1Balance || '0').toFixed();
 
       acc[pairKey].wallets[row.walletAddress.toLowerCase()] = {
         token0Balance: token0Balance,

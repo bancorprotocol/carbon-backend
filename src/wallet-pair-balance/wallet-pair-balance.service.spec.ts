@@ -51,6 +51,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should handle single wallet with single pair (tokens in lexicographic order)', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -61,8 +62,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0x2222222222222222222222222222222222222222', // larger
           token1Symbol: 'TOKEN1',
           token1Decimals: 6,
-          liquidity0Sum: '1000000000000000000', // 1 TOKEN0 in wei
-          liquidity1Sum: '500000', // 0.5 TOKEN1 in wei
+          liquidity0Sum: '1', // already normalized
+          liquidity1Sum: '0.5', // already normalized
         },
       ];
 
@@ -89,6 +90,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should handle tokens in reverse lexicographic order (strategy token0 > token1)', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -99,8 +101,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0x1111111111111111111111111111111111111111', // smaller (strategy token1)
           token1Symbol: 'TOKEN1',
           token1Decimals: 18,
-          liquidity0Sum: '500000', // 0.5 TOKEN0 in wei (strategy liquidity0)
-          liquidity1Sum: '1000000000000000000', // 1 TOKEN1 in wei (strategy liquidity1)
+          liquidity0Sum: '0.5', // already normalized (strategy liquidity0)
+          liquidity1Sum: '1', // already normalized (strategy liquidity1)
         },
       ];
 
@@ -129,6 +131,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should aggregate multiple wallets for the same pair', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -139,8 +142,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
           token1Symbol: 'TOKENB',
           token1Decimals: 18,
-          liquidity0Sum: '1000000000000000000',
-          liquidity1Sum: '2000000000000000000',
+          liquidity0Sum: '1',
+          liquidity1Sum: '2',
         },
         {
           pairId: 1,
@@ -151,8 +154,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
           token1Symbol: 'TOKENB',
           token1Decimals: 18,
-          liquidity0Sum: '500000000000000000',
-          liquidity1Sum: '1500000000000000000',
+          liquidity0Sum: '0.5',
+          liquidity1Sum: '1.5',
         },
       ];
 
@@ -183,6 +186,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should handle multiple pairs', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -193,8 +197,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
           token1Symbol: 'TOKENB',
           token1Decimals: 18,
-          liquidity0Sum: '1000000000000000000',
-          liquidity1Sum: '2000000000000000000',
+          liquidity0Sum: '1',
+          liquidity1Sum: '2',
         },
         {
           pairId: 2,
@@ -205,8 +209,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0xdddddddddddddddddddddddddddddddddddddddd',
           token1Symbol: 'TOKEND',
           token1Decimals: 8,
-          liquidity0Sum: '1000000',
-          liquidity1Sum: '50000000',
+          liquidity0Sum: '1',
+          liquidity1Sum: '0.5',
         },
       ];
 
@@ -224,6 +228,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should handle zero balances correctly', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -235,7 +240,7 @@ describe('WalletPairBalanceService', () => {
           token1Symbol: 'TOKEN1',
           token1Decimals: 6,
           liquidity0Sum: '0',
-          liquidity1Sum: '500000',
+          liquidity1Sum: '0.5',
         },
       ];
 
@@ -299,19 +304,21 @@ describe('WalletPairBalanceService', () => {
       });
     });
 
-    it('should handle different token decimals correctly', async () => {
+    it('should preserve normalized liquidity values from the database', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
+      // This test verifies that values are NOT divided by decimals again
       const mockQueryResult = [
         {
           pairId: 1,
           walletAddress: '0x1234567890123456789012345678901234567890',
           token0Address: '0x1111111111111111111111111111111111111111',
           token0Symbol: 'WETH',
-          token0Decimals: 18, // 18 decimals
+          token0Decimals: 18,
           token1Address: '0x2222222222222222222222222222222222222222',
           token1Symbol: 'USDC',
-          token1Decimals: 6, // 6 decimals
-          liquidity0Sum: '1500000000000000000', // 1.5 WETH
-          liquidity1Sum: '2500000000', // 2500 USDC
+          token1Decimals: 6,
+          liquidity0Sum: '1.5', // already normalized
+          liquidity1Sum: '2500', // already normalized
         },
       ];
 
@@ -319,6 +326,7 @@ describe('WalletPairBalanceService', () => {
 
       const result = await service.getLatestBalances(mockDeployment);
 
+      // Values should be passed through as-is (no decimals conversion)
       expect(result).toEqual({
         '0x1111111111111111111111111111111111111111_0x2222222222222222222222222222222222222222': {
           token0Address: '0x1111111111111111111111111111111111111111',
@@ -338,6 +346,7 @@ describe('WalletPairBalanceService', () => {
     });
 
     it('should normalize addresses to lowercase', async () => {
+      // Liquidity values are already normalized (human-readable) in the database
       const mockQueryResult = [
         {
           pairId: 1,
@@ -348,8 +357,8 @@ describe('WalletPairBalanceService', () => {
           token1Address: '0x2222222222222222222222222222222222222222'.toUpperCase(),
           token1Symbol: 'TOKEN1',
           token1Decimals: 18,
-          liquidity0Sum: '1000000000000000000',
-          liquidity1Sum: '2000000000000000000',
+          liquidity0Sum: '1',
+          liquidity1Sum: '2',
         },
       ];
 
@@ -400,6 +409,74 @@ describe('WalletPairBalanceService', () => {
         BlockchainType.Sei,
         ExchangeId.OGSei,
       ]);
+    });
+
+    it('should handle large normalized values correctly (e.g., 247000 COTI)', async () => {
+      // This test verifies the fix for the bug where 247000 was being
+      // incorrectly divided by 10^18, resulting in 0.000000000000247
+      const mockQueryResult = [
+        {
+          pairId: 1,
+          walletAddress: '0x33e120e1c0790880BD1CF08248d947A7fa2D7Ecd',
+          token0Address: '0x1111111111111111111111111111111111111111',
+          token0Symbol: 'gCOTI',
+          token0Decimals: 18,
+          token1Address: '0x2222222222222222222222222222222222222222',
+          token1Symbol: 'COTI',
+          token1Decimals: 18,
+          liquidity0Sum: '0', // already normalized
+          liquidity1Sum: '247000', // already normalized - 247,000 COTI
+        },
+      ];
+
+      mockStrategyRepository.query.mockResolvedValue(mockQueryResult);
+
+      const result = await service.getLatestBalances(mockDeployment);
+
+      // The value should be preserved as 247000, NOT converted to 0.000000000000247
+      expect(result).toEqual({
+        '0x1111111111111111111111111111111111111111_0x2222222222222222222222222222222222222222': {
+          token0Address: '0x1111111111111111111111111111111111111111',
+          token0Symbol: 'gCOTI',
+          token0Decimals: 18,
+          token1Address: '0x2222222222222222222222222222222222222222',
+          token1Symbol: 'COTI',
+          token1Decimals: 18,
+          wallets: {
+            '0x33e120e1c0790880bd1cf08248d947a7fa2d7ecd': {
+              token0Balance: '0',
+              token1Balance: '247000',
+            },
+          },
+        },
+      });
+    });
+
+    it('should handle high precision decimal values from database', async () => {
+      // Database stores normalized values with high precision
+      const mockQueryResult = [
+        {
+          pairId: 1,
+          walletAddress: '0x1234567890123456789012345678901234567890',
+          token0Address: '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+          token0Symbol: 'TOKEN0',
+          token0Decimals: 18,
+          token1Address: '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          token1Symbol: 'TOKEN1',
+          token1Decimals: 18,
+          liquidity0Sum: '16191.056562229417588987', // high precision normalized value
+          liquidity1Sum: '3241.00000000000002086', // high precision normalized value
+        },
+      ];
+
+      mockStrategyRepository.query.mockResolvedValue(mockQueryResult);
+
+      const result = await service.getLatestBalances(mockDeployment);
+
+      expect(result['0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'].wallets['0x1234567890123456789012345678901234567890']).toEqual({
+        token0Balance: '16191.056562229417588987',
+        token1Balance: '3241.00000000000002086',
+      });
     });
   });
 });
