@@ -151,16 +151,21 @@ export class CoingeckoService {
           where p."blockchainType" = '${deployment.blockchainType}' and p."exchangeId" = '${deployment.exchangeId}'
       ),
       raw_strategies as (
+          -- Note: All values in strategies table are already in final human-readable format
+          -- Liquidity: normalized (divided by 10^decimals)
+          -- Rate0 (sellPrice): already the ask price = (1/rawRate) * 10^(dec0-dec1)
+          -- Rate1 (buyPrice): already the bid price = rawRate * 10^(dec0-dec1)
+          -- NO conversion needed - use values directly
           Select 
               s."id", s."deleted", 
               s."liquidity0"::double precision, 
-              s."lowestRate0"::double precision/POW(10, t0.decimals-t1.decimals) as "lowestRate0",
-              s."highestRate0"::double precision/POW(10, t0.decimals-t1.decimals) as "highestRate0",
-              s."marginalRate0"::double precision/POW(10, t0.decimals-t1.decimals) as "marginalRate0",
+              s."lowestRate0"::double precision as "lowestRate0",
+              s."highestRate0"::double precision as "highestRate0",
+              s."marginalRate0"::double precision as "marginalRate0",
               s."liquidity1"::double precision, 
-              s."lowestRate1"::double precision/POW(10, t1.decimals-t0.decimals) as "lowestRate1",
-              s."highestRate1"::double precision/POW(10, t1.decimals-t0.decimals) as "highestRate1",
-              s."marginalRate1"::double precision/POW(10, t1.decimals-t0.decimals) as "marginalRate1",
+              s."lowestRate1"::double precision as "lowestRate1",
+              s."highestRate1"::double precision as "highestRate1",
+              s."marginalRate1"::double precision as "marginalRate1",
               s."pairId", s."token0Id", s."token1Id", CAST(t0.address as varchar) || '_' || CAST(t1.address as varchar) as pair_alpha,
               s."token0Id", t0.address as token0, t0.decimals as decimals0, 
               s."token1Id", t1.address as token1, t1.decimals as decimals1
@@ -174,17 +179,29 @@ export class CoingeckoService {
           where s."blockchainType" = '${deployment.blockchainType}' and s."exchangeId" = '${deployment.exchangeId}'
       ),
       order_flipping as (
+          -- When native_pair != pair_alpha, we need to:
+          -- 1. Swap liquidity0 <-> liquidity1 (tokens switch positions)
+          -- 2. Swap AND INVERT rates (price direction changes: token0/token1 becomes token1/token0)
+          -- 3. When inverting: lowest becomes 1/highest (range inverts direction)
+          -- Example: If stored rate is 2000 USDT/ETH, flipped rate is 1/2000 = 0.0005 ETH/USDT
           Select s.id, s.deleted, p.name as pair_name, p.native_pair, p."pairId", 
           p."token0Id", p.token0, p.symbol0, p.decimals0, 
           p."token1Id", p.token1, p.symbol1, p.decimals1, 
           CASE WHEN native_pair = pair_alpha THEN s."liquidity0" ELSE s."liquidity1" END as "liquidity0_new",
           CASE WHEN native_pair = pair_alpha THEN s."liquidity1" ELSE s."liquidity0" END as "liquidity1_new",
-          CASE WHEN native_pair = pair_alpha THEN s."lowestRate0" ELSE s."lowestRate1" END as "lowestRate0_new",
-          CASE WHEN native_pair = pair_alpha THEN s."lowestRate1" ELSE s."lowestRate0" END as "lowestRate1_new",
-          CASE WHEN native_pair = pair_alpha THEN s."highestRate0" ELSE s."highestRate1" END as "highestRate0_new",
-          CASE WHEN native_pair = pair_alpha THEN s."highestRate1" ELSE s."highestRate0" END as "highestRate1_new",
-          CASE WHEN native_pair = pair_alpha THEN s."marginalRate0" ELSE s."marginalRate1" END as "marginalRate0_new",
-          CASE WHEN native_pair = pair_alpha THEN s."marginalRate1" ELSE s."marginalRate0" END as "marginalRate1_new"
+          -- When flipping: invert rates (1/rate) and swap lowest<->highest because range direction inverts
+          CASE WHEN native_pair = pair_alpha THEN s."lowestRate0" 
+               WHEN s."highestRate1" > 0 THEN 1.0/s."highestRate1" ELSE 0 END as "lowestRate0_new",
+          CASE WHEN native_pair = pair_alpha THEN s."lowestRate1" 
+               WHEN s."highestRate0" > 0 THEN 1.0/s."highestRate0" ELSE 0 END as "lowestRate1_new",
+          CASE WHEN native_pair = pair_alpha THEN s."highestRate0" 
+               WHEN s."lowestRate1" > 0 THEN 1.0/s."lowestRate1" ELSE 0 END as "highestRate0_new",
+          CASE WHEN native_pair = pair_alpha THEN s."highestRate1" 
+               WHEN s."lowestRate0" > 0 THEN 1.0/s."lowestRate0" ELSE 0 END as "highestRate1_new",
+          CASE WHEN native_pair = pair_alpha THEN s."marginalRate0" 
+               WHEN s."marginalRate1" > 0 THEN 1.0/s."marginalRate1" ELSE 0 END as "marginalRate0_new",
+          CASE WHEN native_pair = pair_alpha THEN s."marginalRate1" 
+               WHEN s."marginalRate0" > 0 THEN 1.0/s."marginalRate0" ELSE 0 END as "marginalRate1_new"
           from raw_pairs p
           left join raw_strategies s on p."pairId" = s."pairId"
           where deleted = False
@@ -201,8 +218,9 @@ export class CoingeckoService {
               o."highestRate1_new" as "highestRate1",
               o."marginalRate0_new" as "marginalRate0",
               o."marginalRate1_new" as "marginalRate1",
-              CASE WHEN liquidity0_new = 0 THEN 0 ELSE liquidity0_new/POW(10,decimals0) END as "liquidity0_real",
-              CASE WHEN liquidity1_new = 0 THEN 0 ELSE liquidity1_new/POW(10,decimals1) END as "liquidity1_real"
+              -- Note: liquidity values are already normalized (human-readable) in the strategies table
+              liquidity0_new as "liquidity0_real",
+              liquidity1_new as "liquidity1_real"
           from order_flipping o
           left join quotes q0 on q0."tokenId" = o."token0Id"  
           left join quotes q1 on q1."tokenId" = o."token1Id"
@@ -225,48 +243,68 @@ export class CoingeckoService {
       add_sqrts as (
           select *,
               POW(s."lowestRate0"::double precision,0.5) as lowestRate0_sqrt,
+              POW(s."highestRate0"::double precision,0.5) as highestRate0_sqrt,
               POW(s."marginalRate0"::double precision,0.5) as marginalRate0_sqrt,
               POW(s."lowestRate1"::double precision,0.5) as lowestRate1_sqrt,
+              POW(s."highestRate1"::double precision,0.5) as highestRate1_sqrt,
               POW(s."marginalRate1"::double precision,0.5) as marginalRate1_sqrt
           from marginalRates s
       ),
       pair_mins_maxs as (
-          select native_pair as native_pairs, min(s."lowestRate0") as minRate0_low, max(s."marginalRate0") as maxRate0_marg, min(s."lowestRate1") as minRate1_low,  max(s."marginalRate1") as maxRate1_marg
+          -- Get best prices (with liquidity) for depth calculation
+          -- Rate0 (ask): MIN marginalRate0 where liquidity0 > 0 = best ask
+          -- Rate1 (bid): MAX marginalRate1 where liquidity1 > 0 = best bid
+          select native_pair as native_pairs, 
+                 min(s."lowestRate0") FILTER (WHERE s."lowestRate0" > 0 AND s.liquidity0 > 0) as minRate0_low,
+                 min(s."marginalRate0") FILTER (WHERE s."marginalRate0" > 0 AND s.liquidity0 > 0) as minRate0_marg,
+                 max(s."marginalRate0") FILTER (WHERE s.liquidity0 > 0) as maxRate0_marg,
+                 min(s."lowestRate1") FILTER (WHERE s."lowestRate1" > 0 AND s.liquidity1 > 0) as minRate1_low,  
+                 max(s."marginalRate1") FILTER (WHERE s.liquidity1 > 0) as maxRate1_marg
           from marginalRates s
           group by 1
       ),
       add_2percs as (
+          -- 2% depth target: liquidity from marginal price to ±2%
+          -- plus2 (Rate0/ask): from best ask (MIN) to +2% = MIN * 1.02
+          -- minus2 (Rate1/bid): from best bid (MAX) to -2% = MAX * 0.98
           select *,
-              POW( maxRate0_marg::double precision * (100-2)/100, 0.5) as rate0_min2perc_sqrt, -- this is a rate increase of 2%
+              POW( minRate0_marg::double precision * (100+2)/100, 0.5) as rate0_min2perc_sqrt,
               POW( maxRate1_marg::double precision * (100-2)/100, 0.5) as rate1_min2perc_sqrt
           from pair_mins_maxs
       ),
       add_volume_per_order as (
+          -- 2% Depth: liquidity in [marginal, highest] for asks, [lowest, marginal] for bids
           select *,
               CASE 
-                  WHEN rate0_min2perc_sqrt <= lowestRate0_sqrt then liquidity0::double precision
-                  WHEN rate0_min2perc_sqrt >= marginalRate0_sqrt then 0
-                  ELSE liquidity0::double precision * (marginalRate0_sqrt - rate0_min2perc_sqrt) / (marginalRate0_sqrt - lowestRate0_sqrt)
+                  WHEN rate0_min2perc_sqrt IS NULL OR highestRate0_sqrt = 0 OR marginalRate0_sqrt = 0 then 0
+                  WHEN rate0_min2perc_sqrt >= highestRate0_sqrt then liquidity0::double precision
+                  WHEN rate0_min2perc_sqrt <= marginalRate0_sqrt then 0
+                  WHEN highestRate0_sqrt = marginalRate0_sqrt then liquidity0::double precision
+                  ELSE liquidity0::double precision * (rate0_min2perc_sqrt - marginalRate0_sqrt) / (highestRate0_sqrt - marginalRate0_sqrt)
               END as volume0_min2perc,
               CASE 
+                  WHEN rate1_min2perc_sqrt IS NULL OR lowestRate1_sqrt = 0 OR marginalRate1_sqrt = 0 then 0
                   WHEN rate1_min2perc_sqrt <= lowestRate1_sqrt then liquidity1::double precision
                   WHEN rate1_min2perc_sqrt >= marginalRate1_sqrt then 0
+                  WHEN marginalRate1_sqrt = lowestRate1_sqrt then liquidity1::double precision
                   ELSE liquidity1::double precision * (marginalRate1_sqrt - rate1_min2perc_sqrt) / (marginalRate1_sqrt - lowestRate1_sqrt)
               END as volume1_min2perc
           from add_sqrts s
           left join add_2percs p on p.native_pairs = s.native_pair
       ),
       add_volume_per_order_prices as (
+          -- Note: volume values are derived from liquidity which is already normalized
+          -- Use LOWER() for case-insensitive address comparison (addresses may be checksummed differently)
           select *, q0.usd as price0, q1.usd as price1, 
-          volume0_min2perc/POW(10,t0.decimals) as volume0_min2perc_real,
-          volume0_min2perc/POW(10,t0.decimals) * q0.usd::double precision as volume0_min2perc_usd,
-          volume1_min2perc/POW(10,t1.decimals) as volume1_min2perc_real,
-          volume1_min2perc/POW(10,t1.decimals) * q1.usd::double precision as volume1_min2perc_usd
+          volume0_min2perc as volume0_min2perc_real,
+          volume0_min2perc * q0.usd::double precision as volume0_min2perc_usd,
+          volume1_min2perc as volume1_min2perc_real,
+          volume1_min2perc * q1.usd::double precision as volume1_min2perc_usd
           from add_volume_per_order p
-          left join tokens t0 on t0.address = p.token0 and t0."blockchainType" = '${
+          left join tokens t0 on LOWER(t0.address) = LOWER(p.token0) and t0."blockchainType" = '${
             deployment.blockchainType
           }' and t0."exchangeId" = '${deployment.exchangeId}'
-          left join tokens t1 on t1.address = p.token1 and t1."blockchainType" = '${
+          left join tokens t1 on LOWER(t1.address) = LOWER(p.token1) and t1."blockchainType" = '${
             deployment.blockchainType
           }' and t1."exchangeId" = '${deployment.exchangeId}'
           left join quotes q0 on q0."tokenId" = t0."id" and q0."blockchainType" = '${deployment.blockchainType}'
@@ -278,12 +316,14 @@ export class CoingeckoService {
           group by 1
       ),
       rate0s as (
-          select native_pair, min(1/m."marginalRate0"::double precision) as ask
+          -- marginalRate0 is already inverted, min gives best (lowest) ask price
+          select native_pair, min(m."marginalRate0"::double precision) as ask
           from marginalRates m 
           where m."marginalRate0"::double precision > 0 and liquidity0::double precision > 0
           group by 1
       ),
       rate1s as (
+          -- marginalRate1 is already inverted, max gives best (highest) bid price
           select native_pair, max(m."marginalRate1"::double precision) as bid
           from marginalRates m
           where m."marginalRate1"::double precision > 0 and liquidity1::double precision > 0 
@@ -312,6 +352,7 @@ export class CoingeckoService {
         }
       }
     });
+
     return result;
   }
 }

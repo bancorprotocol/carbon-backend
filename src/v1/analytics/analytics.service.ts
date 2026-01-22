@@ -84,10 +84,11 @@ export class AnalyticsService {
     LEFT JOIN quotes q1 ON swd."token0Id" = q1."tokenId" AND q1."blockchainType" = '${deployment.blockchainType}'
     LEFT JOIN quotes q2 ON swd."token1Id" = q2."tokenId" AND q2."blockchainType" = '${deployment.blockchainType}'
 ), strategies_with_liquidity AS (
-    SELECT (liquidity0 / POW(10, decimals0) * price0) AS liquidity 
+    -- Note: liquidity values are already normalized (human-readable) in the strategies table
+    SELECT (liquidity0 * price0) AS liquidity 
     FROM strategies_with_prices 
     UNION 
-    SELECT (liquidity1 / POW(10, decimals1) * price1) AS liquidity 
+    SELECT (liquidity1 * price1) AS liquidity 
     FROM strategies_with_prices
 ), sum_liquidity AS (
     SELECT SUM(liquidity) AS current_liquidity 

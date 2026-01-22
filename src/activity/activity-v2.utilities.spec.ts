@@ -77,14 +77,18 @@ describe('ActivityV2 Utilities', () => {
 
     it('should not truncate precision when converting to string', () => {
       // Test with numbers that would lose precision with default Decimal settings
-      const smallDecimal = new Decimal('0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625');
+      const smallDecimal = new Decimal(
+        '0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625',
+      );
       const smallStr = smallDecimal.toString();
 
       // Should NOT be in exponential notation
       expect(smallStr).not.toContain('e');
 
       // Should maintain full precision (the string should equal the original)
-      expect(smallStr).toBe('0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625');
+      expect(smallStr).toBe(
+        '0.0000000000000006507933332773792928809083689620633450013953424928558888495899736881256103515625',
+      );
     });
   });
 
@@ -185,6 +189,133 @@ describe('ActivityV2 Utilities', () => {
         expect(processed.buyPriceA.toNumber()).toBeCloseTo(expectedProcessed.buyPriceA, tolerance);
         expect(processed.buyPriceMarg.toNumber()).toBeCloseTo(expectedProcessed.buyPriceMarg, tolerance);
         expect(processed.buyPriceB.toNumber()).toBeCloseTo(expectedProcessed.buyPriceB, tolerance);
+      });
+    });
+  });
+
+  /**
+   * CONTRACT TESTS: Output Format Verification
+   *
+   * These tests document and enforce the output format of processOrders().
+   * The values stored in the strategies table MUST be in normalized format.
+   *
+   * If these tests fail, it means the output format has changed, which will
+   * break downstream consumers (coingecko, analytics, wallet-pair-balance APIs).
+   *
+   * DO NOT change these tests without updating ALL consumers.
+   */
+  describe('CONTRACT: processOrders output format', () => {
+    describe('liquidity values are NORMALIZED (divided by 10^decimals)', () => {
+      it('should output liquidity in human-readable format, not raw blockchain format', () => {
+        // Given: A raw blockchain value of 247,000 tokens with 18 decimals
+        // Raw value = 247000 * 10^18 = 247000000000000000000000
+        const rawBlockchainValue = '247000000000000000000000';
+        const decimals = 18;
+
+        const order0 = parseOrder(
+          JSON.stringify({
+            y: rawBlockchainValue,
+            z: rawBlockchainValue,
+            A: '0',
+            B: '0',
+          }),
+        );
+        const order1 = parseOrder(JSON.stringify({ y: '0', z: '0', A: '0', B: '0' }));
+
+        const processed = processOrders(order0, order1, new Decimal(decimals), new Decimal(decimals));
+
+        // CRITICAL ASSERTION: liquidity0 should be 247000 (human-readable)
+        // NOT 247000000000000000000000 (raw blockchain value)
+        expect(processed.liquidity0.toString()).toBe('247000');
+
+        // If this test fails with "247000000000000000000000", the normalization was removed
+        // and ALL downstream consumers will show values that are 10^18 too large
+      });
+
+      it('should handle different decimal places correctly', () => {
+        // USDC has 6 decimals: 1000 USDC raw = 1000000000
+        const usdcRaw = '1000000000'; // 1000 USDC in raw format
+        const usdcDecimals = 6;
+
+        const order0 = parseOrder(JSON.stringify({ y: usdcRaw, z: usdcRaw, A: '0', B: '0' }));
+        const order1 = parseOrder(JSON.stringify({ y: '0', z: '0', A: '0', B: '0' }));
+
+        const processed = processOrders(order0, order1, new Decimal(usdcDecimals), new Decimal(18));
+
+        // Should be 1000, not 1000000000
+        expect(processed.liquidity0.toString()).toBe('1000');
+      });
+    });
+
+    describe('rate values are NORMALIZED (adjusted by decimals difference)', () => {
+      it('should apply decimal multiplier to rates', () => {
+        // This test verifies that rates include the decimal adjustment multiplier.
+        // The multiplier is 10^(decimals1 - decimals0) for sell prices.
+        //
+        // If we use the same decimals for both tokens, the multiplier is 1,
+        // so we can verify the base rate calculation works.
+        const order0 = parseOrder(
+          JSON.stringify({
+            y: '1000000000000000000',
+            z: '1000000000000000000',
+            A: '0',
+            B: '70368744177664', // B value that produces a known rate
+          }),
+        );
+        const order1 = parseOrder(JSON.stringify({ y: '0', z: '0', A: '0', B: '0' }));
+
+        // Same decimals = multiplier of 1
+        const processedSame = processOrders(order0, order1, new Decimal(18), new Decimal(18));
+        const rateSameDecimals = processedSame.sellPriceB.toNumber();
+
+        // Different decimals = multiplier of 10^12
+        const processedDiff = processOrders(order0, order1, new Decimal(18), new Decimal(6));
+        const rateDiffDecimals = processedDiff.sellPriceB.toNumber();
+
+        // The rate with 12 decimal difference should be different by a factor of 10^12
+        // multiplierSell = 10^(decimals1 - decimals0) = 10^(6-18) = 10^-12
+        // sellPriceB = 1/lowestRate0, and lowestRate0 *= multiplierSell
+        // So sellPriceB with different decimals = sellPriceB_same / 10^-12 = sellPriceB_same * 10^12
+        const ratio = rateDiffDecimals / rateSameDecimals;
+
+        // The ratio should be approximately 10^12
+        expect(ratio).toBeCloseTo(1e12, -6); // precision of -6 means within 10^6
+      });
+    });
+
+    describe('format change detection', () => {
+      /**
+       * This test uses a specific known input/output pair to detect format changes.
+       * If the output format changes (e.g., raw vs normalized), this test WILL fail.
+       */
+      it('should produce exact expected output for known input (format canary)', () => {
+        const order0 = parseOrder(
+          JSON.stringify({
+            y: '34993279133544987885948',
+            z: '34993279133544987885948',
+            A: '4503599627369472',
+            B: '57149867462115',
+          }),
+        );
+        const order1 = parseOrder(
+          JSON.stringify({
+            y: '29394173322282207054332469326543456',
+            z: '29394173322282207054332469326543456',
+            A: '4503599627369472',
+            B: '57424927034998',
+          }),
+        );
+
+        const processed = processOrders(order0, order1, new Decimal(18), new Decimal(18));
+
+        // These exact values serve as a "canary" - if they change, the format changed
+        expect(processed.liquidity0.toString()).toBe('34993.279133544987885948');
+        expect(processed.liquidity1.toString()).toBe('29394173322282207.054332469326543456');
+
+        // If you see this test fail with values like:
+        // - "34993279133544987885948" - normalization was REMOVED (values are raw)
+        // - "0.000000000000034993..." - values are being DOUBLE normalized
+        // Then downstream consumers (coingecko, analytics, wallet-pair-balance) will break!
       });
     });
   });
