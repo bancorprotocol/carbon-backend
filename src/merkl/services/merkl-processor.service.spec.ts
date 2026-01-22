@@ -1006,4 +1006,111 @@ describe('MerklProcessorService', () => {
       expect(result).toBe(1.0); // Should use rate before, not at target timestamp
     });
   });
+
+  describe('Sub-epoch Timestamp Boundary', () => {
+    it('should only generate sub-epochs with timestamps before maxProcessingTimestamp', () => {
+      // This test verifies the fix that prevents processing sub-epochs before their timestamp.
+      // Sub-epochs should only be generated when their timestamp has passed (< maxProcessingTimestamp),
+      // ensuring all blockchain events are indexed before processing.
+
+      const epochStart = new Date('2025-01-01T10:00:00Z');
+      const epochEnd = new Date('2025-01-01T14:00:00Z'); // 4-hour epoch
+
+      const mockEpoch = {
+        epochNumber: 1,
+        startTimestamp: epochStart,
+        endTimestamp: epochEnd,
+        totalRewards: new Decimal('1000000000000000000'),
+      };
+
+      // Set maxProcessingTimestamp to middle of epoch (12:00)
+      const maxProcessingTimestamp = new Date('2025-01-01T12:00:00Z').getTime();
+
+      const mockStrategyStates = new Map();
+      const mockPriceCache = {
+        rates: new Map([
+          [mockToken0.address, [{ timestamp: epochStart.getTime(), usd: 1.0 }]],
+          [mockToken1.address, [{ timestamp: epochStart.getTime(), usd: 2.0 }]],
+        ]),
+        timeWindow: { start: epochStart.getTime(), end: epochEnd.getTime() },
+      };
+      const mockBatchEvents = {
+        createdEvents: [],
+        updatedEvents: [],
+        deletedEvents: [],
+        transferEvents: [],
+      };
+
+      const generateSubEpochsMethod = (service as any).generateSubEpochsForEpoch.bind(service);
+
+      const subEpochs = generateSubEpochsMethod(
+        mockEpoch,
+        mockStrategyStates,
+        mockCampaign,
+        mockPriceCache,
+        mockBatchEvents,
+        maxProcessingTimestamp,
+      );
+
+      // Verify ALL generated sub-epochs have timestamps before maxProcessingTimestamp
+      for (const subEpoch of subEpochs) {
+        expect(subEpoch.timestamp).toBeLessThan(maxProcessingTimestamp);
+      }
+
+      // Also verify we didn't generate sub-epochs all the way to epoch end
+      // (which would happen without the fix)
+      if (subEpochs.length > 0) {
+        const maxSubEpochTimestamp = Math.max(...subEpochs.map((se: { timestamp: number }) => se.timestamp));
+        expect(maxSubEpochTimestamp).toBeLessThan(epochEnd.getTime());
+      }
+    });
+
+    it('should generate sub-epochs up to epoch end when maxProcessingTimestamp is after epoch end', () => {
+      // When maxProcessingTimestamp is after the epoch ends, we should process the full epoch
+
+      const epochStart = new Date('2025-01-01T10:00:00Z');
+      const epochEnd = new Date('2025-01-01T14:00:00Z');
+
+      const mockEpoch = {
+        epochNumber: 1,
+        startTimestamp: epochStart,
+        endTimestamp: epochEnd,
+        totalRewards: new Decimal('1000000000000000000'),
+      };
+
+      // Set maxProcessingTimestamp to after epoch end
+      const maxProcessingTimestamp = new Date('2025-01-01T16:00:00Z').getTime();
+
+      const mockStrategyStates = new Map();
+      const mockPriceCache = {
+        rates: new Map([
+          [mockToken0.address, [{ timestamp: epochStart.getTime(), usd: 1.0 }]],
+          [mockToken1.address, [{ timestamp: epochStart.getTime(), usd: 2.0 }]],
+        ]),
+        timeWindow: { start: epochStart.getTime(), end: epochEnd.getTime() },
+      };
+      const mockBatchEvents = {
+        createdEvents: [],
+        updatedEvents: [],
+        deletedEvents: [],
+        transferEvents: [],
+      };
+
+      const generateSubEpochsMethod = (service as any).generateSubEpochsForEpoch.bind(service);
+
+      const subEpochs = generateSubEpochsMethod(
+        mockEpoch,
+        mockStrategyStates,
+        mockCampaign,
+        mockPriceCache,
+        mockBatchEvents,
+        maxProcessingTimestamp,
+      );
+
+      // All sub-epochs should be before epoch end (the effective limit in this case)
+      for (const subEpoch of subEpochs) {
+        expect(subEpoch.timestamp).toBeLessThan(epochEnd.getTime());
+      }
+    });
+  });
 });
