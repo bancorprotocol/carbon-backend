@@ -181,27 +181,27 @@ export class CoingeckoService {
       order_flipping as (
           -- When native_pair != pair_alpha, we need to:
           -- 1. Swap liquidity0 <-> liquidity1 (tokens switch positions)
-          -- 2. Swap AND INVERT rates (price direction changes: rate becomes 1/rate)
-          -- 3. When inverting rates: lowest becomes 1/highest (and vice versa)
+          -- 2. Swap AND INVERT rates (price direction changes: token0/token1 becomes token1/token0)
+          -- 3. When inverting: lowest becomes 1/highest (range inverts direction)
+          -- Example: If stored rate is 2000 USDT/ETH, flipped rate is 1/2000 = 0.0005 ETH/USDT
           Select s.id, s.deleted, p.name as pair_name, p.native_pair, p."pairId", 
           p."token0Id", p.token0, p.symbol0, p.decimals0, 
           p."token1Id", p.token1, p.symbol1, p.decimals1, 
           CASE WHEN native_pair = pair_alpha THEN s."liquidity0" ELSE s."liquidity1" END as "liquidity0_new",
           CASE WHEN native_pair = pair_alpha THEN s."liquidity1" ELSE s."liquidity0" END as "liquidity1_new",
-          -- When swapping: invert rates (1/rate) because stored rates are already inverted (1/raw)
-          -- Inverting again gives raw rates, which we then invert back for correct direction
+          -- When flipping: invert rates (1/rate) and swap lowest<->highest because range direction inverts
           CASE WHEN native_pair = pair_alpha THEN s."lowestRate0" 
-               WHEN s."highestRate1" > 0 THEN 1/s."highestRate1" ELSE 0 END as "lowestRate0_new",
+               WHEN s."highestRate1" > 0 THEN 1.0/s."highestRate1" ELSE 0 END as "lowestRate0_new",
           CASE WHEN native_pair = pair_alpha THEN s."lowestRate1" 
-               WHEN s."highestRate0" > 0 THEN 1/s."highestRate0" ELSE 0 END as "lowestRate1_new",
+               WHEN s."highestRate0" > 0 THEN 1.0/s."highestRate0" ELSE 0 END as "lowestRate1_new",
           CASE WHEN native_pair = pair_alpha THEN s."highestRate0" 
-               WHEN s."lowestRate1" > 0 THEN 1/s."lowestRate1" ELSE 0 END as "highestRate0_new",
+               WHEN s."lowestRate1" > 0 THEN 1.0/s."lowestRate1" ELSE 0 END as "highestRate0_new",
           CASE WHEN native_pair = pair_alpha THEN s."highestRate1" 
-               WHEN s."lowestRate0" > 0 THEN 1/s."lowestRate0" ELSE 0 END as "highestRate1_new",
+               WHEN s."lowestRate0" > 0 THEN 1.0/s."lowestRate0" ELSE 0 END as "highestRate1_new",
           CASE WHEN native_pair = pair_alpha THEN s."marginalRate0" 
-               WHEN s."marginalRate1" > 0 THEN 1/s."marginalRate1" ELSE 0 END as "marginalRate0_new",
+               WHEN s."marginalRate1" > 0 THEN 1.0/s."marginalRate1" ELSE 0 END as "marginalRate0_new",
           CASE WHEN native_pair = pair_alpha THEN s."marginalRate1" 
-               WHEN s."marginalRate0" > 0 THEN 1/s."marginalRate0" ELSE 0 END as "marginalRate1_new"
+               WHEN s."marginalRate0" > 0 THEN 1.0/s."marginalRate0" ELSE 0 END as "marginalRate1_new"
           from raw_pairs p
           left join raw_strategies s on p."pairId" = s."pairId"
           where deleted = False
@@ -243,45 +243,49 @@ export class CoingeckoService {
       add_sqrts as (
           select *,
               POW(s."lowestRate0"::double precision,0.5) as lowestRate0_sqrt,
+              POW(s."highestRate0"::double precision,0.5) as highestRate0_sqrt,
               POW(s."marginalRate0"::double precision,0.5) as marginalRate0_sqrt,
               POW(s."lowestRate1"::double precision,0.5) as lowestRate1_sqrt,
+              POW(s."highestRate1"::double precision,0.5) as highestRate1_sqrt,
               POW(s."marginalRate1"::double precision,0.5) as marginalRate1_sqrt
           from marginalRates s
       ),
       pair_mins_maxs as (
-          -- Use max marginal rate for depth calculation (original behavior)
+          -- Get best prices (with liquidity) for depth calculation
+          -- Rate0 (ask): MIN marginalRate0 where liquidity0 > 0 = best ask
+          -- Rate1 (bid): MAX marginalRate1 where liquidity1 > 0 = best bid
           select native_pair as native_pairs, 
-                 min(s."lowestRate0") as minRate0_low, 
-                 max(s."marginalRate0") as maxRate0_marg,
-                 min(s."lowestRate1") as minRate1_low,  
-                 max(s."marginalRate1") as maxRate1_marg
+                 min(s."lowestRate0") FILTER (WHERE s."lowestRate0" > 0 AND s.liquidity0 > 0) as minRate0_low,
+                 min(s."marginalRate0") FILTER (WHERE s."marginalRate0" > 0 AND s.liquidity0 > 0) as minRate0_marg,
+                 max(s."marginalRate0") FILTER (WHERE s.liquidity0 > 0) as maxRate0_marg,
+                 min(s."lowestRate1") FILTER (WHERE s."lowestRate1" > 0 AND s.liquidity1 > 0) as minRate1_low,  
+                 max(s."marginalRate1") FILTER (WHERE s.liquidity1 > 0) as maxRate1_marg
           from marginalRates s
           group by 1
       ),
       add_2percs as (
-          -- Original formula: use maxRate * 0.98 for depth calculation
+          -- 2% depth target: liquidity from marginal price to ±2%
+          -- plus2 (Rate0/ask): from best ask (MIN) to +2% = MIN * 1.02
+          -- minus2 (Rate1/bid): from best bid (MAX) to -2% = MAX * 0.98
           select *,
-              POW( maxRate0_marg::double precision * (100-2)/100, 0.5) as rate0_min2perc_sqrt,
+              POW( minRate0_marg::double precision * (100+2)/100, 0.5) as rate0_min2perc_sqrt,
               POW( maxRate1_marg::double precision * (100-2)/100, 0.5) as rate1_min2perc_sqrt
           from pair_mins_maxs
       ),
       add_volume_per_order as (
-          -- 2% Depth calculation: liquidity available WITHIN 2% of current price
-          -- target = 98% of max marginal rate (2% below best price)
-          -- We want liquidity between target and marginal (inside 2%), not below target (outside 2%)
-          -- Formula: (marginal - target) / (marginal - lowest) gives the fraction INSIDE 2%
+          -- 2% Depth: liquidity in [marginal, highest] for asks, [lowest, marginal] for bids
           select *,
               CASE 
-                  WHEN rate0_min2perc_sqrt IS NULL OR lowestRate0_sqrt = 0 OR marginalRate0_sqrt = 0 then 0
-                  WHEN rate0_min2perc_sqrt >= marginalRate0_sqrt then liquidity0::double precision
-                  WHEN rate0_min2perc_sqrt <= lowestRate0_sqrt then 0
-                  WHEN marginalRate0_sqrt = lowestRate0_sqrt then liquidity0::double precision
-                  ELSE liquidity0::double precision * (marginalRate0_sqrt - rate0_min2perc_sqrt) / (marginalRate0_sqrt - lowestRate0_sqrt)
+                  WHEN rate0_min2perc_sqrt IS NULL OR highestRate0_sqrt = 0 OR marginalRate0_sqrt = 0 then 0
+                  WHEN rate0_min2perc_sqrt >= highestRate0_sqrt then liquidity0::double precision
+                  WHEN rate0_min2perc_sqrt <= marginalRate0_sqrt then 0
+                  WHEN highestRate0_sqrt = marginalRate0_sqrt then liquidity0::double precision
+                  ELSE liquidity0::double precision * (rate0_min2perc_sqrt - marginalRate0_sqrt) / (highestRate0_sqrt - marginalRate0_sqrt)
               END as volume0_min2perc,
               CASE 
                   WHEN rate1_min2perc_sqrt IS NULL OR lowestRate1_sqrt = 0 OR marginalRate1_sqrt = 0 then 0
-                  WHEN rate1_min2perc_sqrt >= marginalRate1_sqrt then liquidity1::double precision
-                  WHEN rate1_min2perc_sqrt <= lowestRate1_sqrt then 0
+                  WHEN rate1_min2perc_sqrt <= lowestRate1_sqrt then liquidity1::double precision
+                  WHEN rate1_min2perc_sqrt >= marginalRate1_sqrt then 0
                   WHEN marginalRate1_sqrt = lowestRate1_sqrt then liquidity1::double precision
                   ELSE liquidity1::double precision * (marginalRate1_sqrt - rate1_min2perc_sqrt) / (marginalRate1_sqrt - lowestRate1_sqrt)
               END as volume1_min2perc

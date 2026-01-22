@@ -167,21 +167,8 @@ describe('CoingeckoService', () => {
       expect(executedQuery).toContain('already normalized');
     });
 
-    /**
-     * CRITICAL: 2% Depth Calculation Tests
-     *
-     * CoinGecko's 2% depth metric measures liquidity available WITHIN 2% of the current price.
-     * The formula must calculate: (marginalRate - target) / (marginalRate - lowestRate)
-     * NOT: (target - lowestRate) / (marginalRate - lowestRate)
-     *
-     * The wrong formula gives liquidity OUTSIDE the 2% range (~97-99%).
-     * The correct formula gives liquidity INSIDE the 2% range (~1-3%).
-     *
-     * Example: If price range is $3000-$3200 and target is $3136 (98% of $3200):
-     * - Wrong: ($3136 - $3000) / ($3200 - $3000) = 68% (outside 2%)
-     * - Correct: ($3200 - $3136) / ($3200 - $3000) = 32% (inside 2%)
-     */
-    it('should calculate 2% depth using (marginalRate - target) for liquidity INSIDE 2%', async () => {
+    // 2% Depth: asks use [marginal, highest], bids use [lowest, marginal]
+    it('should calculate 2% depth correctly for asks and bids', async () => {
       const serviceAny = service as any;
       mockStrategyRepository.query.mockResolvedValue([]);
 
@@ -189,20 +176,28 @@ describe('CoingeckoService', () => {
 
       const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
 
-      // CRITICAL: The depth formula must use (marginalRate_sqrt - target_sqrt)
-      // to calculate liquidity INSIDE the 2% range, not (target_sqrt - lowestRate_sqrt)
-      // which would give liquidity OUTSIDE the 2% range
+      // Ask: (target - marginal) / (highest - marginal)
+      expect(executedQuery).toMatch(/liquidity0.*\*.*\(rate0_min2perc_sqrt\s*-\s*marginalRate0_sqrt\)/i);
 
-      // Verify the correct formula pattern for order0 (sell side)
-      expect(executedQuery).toMatch(/liquidity0.*\*.*\(marginalRate0_sqrt\s*-\s*rate0_min2perc_sqrt\)/i);
-
-      // Verify the correct formula pattern for order1 (buy side)
+      // Bid: (marginal - target) / (marginal - lowest)
       expect(executedQuery).toMatch(/liquidity1.*\*.*\(marginalRate1_sqrt\s*-\s*rate1_min2perc_sqrt\)/i);
+    });
 
-      // Ensure the OLD wrong formula is NOT present
-      // Wrong: (target - lowest) which gives liquidity OUTSIDE 2%
-      expect(executedQuery).not.toMatch(/liquidity0.*\*.*\(rate0_min2perc_sqrt\s*-\s*lowestRate0_sqrt\)/i);
-      expect(executedQuery).not.toMatch(/liquidity1.*\*.*\(rate1_min2perc_sqrt\s*-\s*lowestRate1_sqrt\)/i);
+    it('should have correct edge cases for ask and bid depth calculations', async () => {
+      const serviceAny = service as any;
+      mockStrategyRepository.query.mockResolvedValue([]);
+
+      await serviceAny.getTickers(mockDeployment, 'quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      // Ask: target >= highest → ALL, target <= marginal → 0
+      expect(executedQuery).toMatch(/WHEN\s+rate0_min2perc_sqrt\s*>=\s*highestRate0_sqrt\s+then\s+liquidity0/i);
+      expect(executedQuery).toMatch(/WHEN\s+rate0_min2perc_sqrt\s*<=\s*marginalRate0_sqrt\s+then\s+0/i);
+
+      // Bid: target <= lowest → ALL, target >= marginal → 0
+      expect(executedQuery).toMatch(/WHEN\s+rate1_min2perc_sqrt\s*<=\s*lowestRate1_sqrt\s+then\s+liquidity1/i);
+      expect(executedQuery).toMatch(/WHEN\s+rate1_min2perc_sqrt\s*>=\s*marginalRate1_sqrt\s+then\s+0/i);
     });
 
     it('should include a comment explaining the 2% depth calculation', async () => {
@@ -214,8 +209,7 @@ describe('CoingeckoService', () => {
       const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
 
       // Verify there's a comment explaining the depth calculation
-      expect(executedQuery).toMatch(/2%.*depth/i);
-      expect(executedQuery).toMatch(/INSIDE.*2%|WITHIN.*2%/i);
+      expect(executedQuery).toMatch(/2%.*Depth/i);
     });
   });
 
