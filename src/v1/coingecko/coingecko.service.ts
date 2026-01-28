@@ -263,14 +263,23 @@ export class CoingeckoService {
           from marginalRates s
           group by 1
       ),
+      last_trade_prices as (
+          -- Get last trade price per pair for 2% depth reference
+          -- Using last_price instead of orderbook prices to avoid dust order issues
+          select native_pair, last_price as reference_price
+          from aggregated
+      ),
       add_2percs as (
-          -- 2% depth target: liquidity from marginal price to ±2%
-          -- plus2 (Rate0/ask): from best ask (MIN) to +2% = MIN * 1.02
-          -- minus2 (Rate1/bid): from best bid (MAX) to -2% = MAX * 0.98
-          select *,
-              POW( minRate0_marg::double precision * (100+2)/100, 0.5) as rate0_min2perc_sqrt,
-              POW( maxRate1_marg::double precision * (100-2)/100, 0.5) as rate1_min2perc_sqrt
-          from pair_mins_maxs
+          -- 2% depth target: liquidity within ±2% of LAST TRADE PRICE (not orderbook edge)
+          -- This avoids dust orders skewing the reference price
+          -- plus2: last_price × 1.02
+          -- minus2: last_price × 0.98
+          select p.*,
+              ltp.reference_price,
+              POW( ltp.reference_price::double precision * 1.02, 0.5) as rate0_min2perc_sqrt,
+              POW( ltp.reference_price::double precision * 0.98, 0.5) as rate1_min2perc_sqrt
+          from pair_mins_maxs p
+          left join last_trade_prices ltp on ltp.native_pair = p.native_pairs
       ),
       add_volume_per_order as (
           -- 2% Depth: liquidity in [marginal, highest] for asks, [lowest, marginal] for bids
