@@ -99,19 +99,42 @@ export class SimulatorService {
     };
 
     // adjust low range start price
-    if (
-      new Decimal(inputData.low_range_low_price).lessThan(usdPrices[0].low) &&
-      new Decimal(usdPrices[0].low).lessThan(inputData.low_range_high_price)
-    ) {
-      inputData.low_range_start_price = usdPrices[0].low.toString();
-    }
+    // Check if strategy is concentrated (price ranges are within 1% of each other)
+    const isConcentrated =
+      new Decimal(buyMin)
+        .div(new Decimal(sellMin))
+        .toDecimalPlaces(2) // Round to 2 decimal places
+        .times(1 + 0.01) // Apply 1% buffer above
+        .gte(new Decimal(buyMax).div(new Decimal(sellMax)).toDecimalPlaces(2)) &&
+      new Decimal(buyMin)
+        .div(new Decimal(sellMin))
+        .toDecimalPlaces(2) // Round to 2 decimal places
+        .times(1 - 0.01) // Apply 1% buffer below
+        .lte(new Decimal(buyMax).div(new Decimal(sellMax)).toDecimalPlaces(2));
 
-    // adjust high range start price
-    if (
-      new Decimal(inputData.high_range_low_price).lessThan(usdPrices[0].high) &&
-      new Decimal(usdPrices[0].high).lessThan(inputData.high_range_high_price)
-    ) {
-      inputData.high_range_start_price = usdPrices[0].high.toString();
+    if (isConcentrated) {
+      // For concentrated strategies, use existing logic
+      if (
+        new Decimal(inputData.low_range_low_price).lessThan(usdPrices[0].low) &&
+        new Decimal(usdPrices[0].low).lessThan(inputData.low_range_high_price)
+      ) {
+        inputData.low_range_start_price = usdPrices[0].low.toString();
+      }
+
+      if (
+        new Decimal(inputData.high_range_low_price).lessThan(usdPrices[0].high) &&
+        new Decimal(usdPrices[0].high).lessThan(inputData.high_range_high_price)
+      ) {
+        inputData.high_range_start_price = usdPrices[0].high.toString();
+      }
+    } else {
+      // For non-concentrated strategies, check budget and update start prices accordingly
+      if (new Decimal(inputData.portfolio_risk_value).equals(0)) {
+        inputData.low_range_start_price = buyMin.toString();
+      }
+      if (new Decimal(inputData.portfolio_cash_value).equals(0)) {
+        inputData.high_range_start_price = sellMax.toString();
+      }
     }
 
     // Create folder if it doesn't exist
