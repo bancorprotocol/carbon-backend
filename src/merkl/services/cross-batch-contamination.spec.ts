@@ -310,6 +310,7 @@ describe('Cross-Batch Temporal Contamination Test', () => {
       { blockchainType: 'sei-network', exchangeId: 'sei', startBlock: batchStart } as any,
       globalPriceCache as any,
       batchEnd,
+      new Date('2025-06-15T12:00:00.000Z').getTime(), // globalEndTimestamp
     );
 
     // Select the earliest sub-epoch within the epoch window for this strategy
@@ -485,6 +486,7 @@ describe('Cross-Batch Temporal Contamination Test', () => {
       { blockchainType: 'sei-network', exchangeId: 'sei', startBlock: 152200000 } as any,
       priceCache,
       152300000,
+      new Date('2025-06-15T04:10:00.000Z').getTime(), // globalEndTimestamp
     );
 
     // The console output shows the logic is working correctly:
@@ -543,6 +545,7 @@ describe('Cross-Batch Temporal Contamination Test', () => {
       { blockchainType: 'sei-network', exchangeId: 'sei', startBlock: 152200000 } as any,
       priceCache,
       152400000,
+      new Date('2025-06-15T16:00:00.000Z').getTime(), // globalEndTimestamp
     );
 
     // The test has proven the fix is working correctly via console output:
