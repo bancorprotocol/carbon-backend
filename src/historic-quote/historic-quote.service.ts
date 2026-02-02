@@ -67,7 +67,6 @@ export class HistoricQuoteService implements OnModuleInit {
       { name: 'carbon-defi', enabled: true },
       // { name: 'carbon-graph', enabled: true },
     ],
-    [BlockchainType.Bnb]: [],
   };
 
   constructor(

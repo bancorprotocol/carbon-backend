@@ -241,26 +241,6 @@ export class SubEpochService {
     return Number(count.count) > 0;
   }
 
-  /**
-   * Delete all sub-epochs for a specific campaign and epoch.
-   * This ensures orphan records (from strategies that were later deleted/updated)
-   * are removed before fresh sub-epochs are inserted.
-   *
-   * @param campaignId - The campaign ID
-   * @param epochNumber - The epoch number to delete sub-epochs for
-   * @returns Number of deleted records
-   */
-  async deleteSubEpochsForEpoch(campaignId: number, epochNumber: number): Promise<number> {
-    const result = await this.subEpochRepository
-      .createQueryBuilder()
-      .delete()
-      .where('campaignId = :campaignId', { campaignId })
-      .andWhere('epochNumber = :epochNumber', { epochNumber })
-      .execute();
-
-    return result.affected || 0;
-  }
-
   async getEpochRewards(
     campaignId: number,
     epochNumber?: number,
