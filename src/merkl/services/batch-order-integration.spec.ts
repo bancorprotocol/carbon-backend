@@ -286,7 +286,13 @@ describe('Batch Order Integration Test', () => {
       endTimestampMs: new Date('2025-07-14T12:00:00.000Z').getTime(),
     };
 
-    await service['processEpochBatch'](epochBatch, deployment as any, globalPriceCache as any, batchEnd);
+    await service['processEpochBatch'](
+      epochBatch,
+      deployment as any,
+      globalPriceCache as any,
+      batchEnd,
+      new Date('2025-07-14T12:00:00.000Z').getTime(), // globalEndTimestamp
+    );
 
     // Find the sub-epoch generated for our target timestamp
     const subEpochTimestamp = new Date('2025-07-14T05:43:53.000Z').getTime();
