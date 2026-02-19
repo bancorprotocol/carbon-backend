@@ -42,4 +42,10 @@ export class SimulatorDto {
   @Transform(({ value }) => parseFloat(value))
   @IsNumber()
   buyMin: number;
+
+  @Transform(({ value }) => (value !== undefined ? value : undefined))
+  buyMarginal?: string;
+
+  @Transform(({ value }) => (value !== undefined ? value : undefined))
+  sellMarginal?: string;
 }

@@ -362,6 +362,51 @@ describe('SimulatorController', () => {
       );
     });
 
+    it('should pass buyMarginal and sellMarginal through to simulator service when provided', async () => {
+      const paramsWithMarginals = {
+        ...validParams,
+        buyMarginal: '85.5',
+        sellMarginal: '115.5',
+      };
+
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue({
+        exchangeId: ExchangeId.OGEthereum,
+        blockchainType: BlockchainType.Ethereum,
+      });
+
+      mockHistoricQuoteService.getUsdBuckets.mockResolvedValue(mockUsdPrices);
+      mockSimulatorService.generateSimulation.mockResolvedValue(mockSimulationResult);
+
+      await controller.simulator(ExchangeId.OGEthereum, paramsWithMarginals);
+
+      expect(mockSimulatorService.generateSimulation).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buyMarginal: '85.5',
+          sellMarginal: '115.5',
+        }),
+        mockUsdPrices,
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    it('should work without buyMarginal and sellMarginal (backward compatible)', async () => {
+      mockDeploymentService.getDeploymentByExchangeId.mockResolvedValue({
+        exchangeId: ExchangeId.OGEthereum,
+        blockchainType: BlockchainType.Ethereum,
+      });
+
+      mockHistoricQuoteService.getUsdBuckets.mockResolvedValue(mockUsdPrices);
+      mockSimulatorService.generateSimulation.mockResolvedValue(mockSimulationResult);
+
+      await controller.simulator(ExchangeId.OGEthereum, validParams);
+
+      const calledParams = mockSimulatorService.generateSimulation.mock.calls[0][0];
+      expect(calledParams.buyMarginal).toBeUndefined();
+      expect(calledParams.sellMarginal).toBeUndefined();
+    });
+
     it('should handle both native token alias and Ethereum token mapping', async () => {
       const nativeTokenAlias = '0xNativeTokenAlias';
       const mappedNativeAlias = '0xMappedNativeAlias';

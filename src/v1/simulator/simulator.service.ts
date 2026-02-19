@@ -26,7 +26,7 @@ export class SimulatorService {
     quoteTokenDeployment: Deployment,
     originalDeployment: Deployment,
   ): Promise<any> {
-    const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax } = params;
+    const { start, end, buyBudget, sellBudget, buyMin, buyMax, sellMin, sellMax, buyMarginal, sellMarginal } = params;
     const baseToken = params['baseToken'].toLowerCase();
     const quoteToken = params['quoteToken'].toLowerCase();
 
@@ -84,35 +84,13 @@ export class SimulatorService {
       portfolio_risk_value: sellBudget.toString(),
       low_range_low_price: buyMin.toString(),
       low_range_high_price: buyMax.toString(),
-      low_range_start_price: buyMax.toString(),
+      low_range_start_price: buyMarginal || buyMax.toString(),
       high_range_low_price: sellMin.toString(),
       high_range_high_price: sellMax.toString(),
-      high_range_start_price: sellMin.toString(),
+      high_range_start_price: sellMarginal || sellMin.toString(),
       network_fee: `${feePpm / 1000000}`,
       prices: pricesRatios,
-      // logging: {
-      //   output_file_name: logPath,
-      //   cash_token_symbol: 'ETH',
-      //   risk_token_symbol: 'BTC',
-      //   dates,
-      // },
     };
-
-    // adjust low range start price
-    if (
-      new Decimal(inputData.low_range_low_price).lessThan(usdPrices[0].low) &&
-      new Decimal(usdPrices[0].low).lessThan(inputData.low_range_high_price)
-    ) {
-      inputData.low_range_start_price = usdPrices[0].low.toString();
-    }
-
-    // adjust high range start price
-    if (
-      new Decimal(inputData.high_range_low_price).lessThan(usdPrices[0].high) &&
-      new Decimal(usdPrices[0].high).lessThan(inputData.high_range_high_price)
-    ) {
-      inputData.high_range_start_price = usdPrices[0].high.toString();
-    }
 
     // Create folder if it doesn't exist
     await fsPromises.mkdir(folderPath, { recursive: true });
