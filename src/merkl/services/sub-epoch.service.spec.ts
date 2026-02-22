@@ -30,11 +30,20 @@ describe('SubEpochService', () => {
       execute: jest.fn(),
     };
 
+    const mockManager = {
+      getRepository: jest.fn().mockReturnValue({
+        createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+      }),
+      createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
+      transaction: jest.fn().mockImplementation(async (cb) => cb(mockManager)),
+    };
+
     const mockRepository = {
       createQueryBuilder: jest.fn().mockReturnValue(mockQueryBuilder),
       save: jest.fn(),
       find: jest.fn(),
       findOne: jest.fn(),
+      manager: mockManager,
     };
 
     const module: TestingModule = await Test.createTestingModule({
