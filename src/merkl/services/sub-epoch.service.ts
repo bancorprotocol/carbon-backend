@@ -60,75 +60,71 @@ export class SubEpochService {
 
     const campaignId = subEpochs[0].campaignId;
 
-    // Get current max sub-epoch number for this campaign
-    const { maxSubEpoch } = await this.subEpochRepository
-      .createQueryBuilder('se')
-      .select('MAX(se.subEpochNumber)', 'maxSubEpoch')
-      .where('se.campaignId = :campaignId', { campaignId })
-      .getRawOne();
+    await this.subEpochRepository.manager.transaction(async (manager) => {
+      const txRepo = manager.getRepository(SubEpoch);
 
-    let nextSubEpochNumber = (maxSubEpoch || 0) + 1;
-
-    // Group by timestamp
-    const timestampGroups = new Map<number, Partial<SubEpoch>[]>();
-    for (const subEpoch of subEpochs) {
-      const timestamp = subEpoch.subEpochTimestamp.getTime();
-      if (!timestampGroups.has(timestamp)) {
-        timestampGroups.set(timestamp, []);
-      }
-      timestampGroups.get(timestamp).push(subEpoch);
-    }
-
-    // Sort timestamps chronologically to ensure chronological sub-epoch numbering
-    const sortedTimestamps = Array.from(timestampGroups.keys()).sort((a, b) => a - b);
-
-    // Process each timestamp group with UPSERT
-    for (const timestamp of sortedTimestamps) {
-      const strategiesAtTimestamp = timestampGroups.get(timestamp);
-
-      // Check if any records already exist for this timestamp
-      const existingRecords = await this.subEpochRepository
+      const { maxSubEpoch } = await txRepo
         .createQueryBuilder('se')
-        .select(['se.strategyId', 'se.subEpochNumber'])
+        .select('MAX(se.subEpochNumber)', 'maxSubEpoch')
         .where('se.campaignId = :campaignId', { campaignId })
-        .andWhere('se.subEpochTimestamp = :timestamp', { timestamp: new Date(timestamp) })
-        .orderBy('se.strategyId', 'ASC') // Ensure deterministic ordering
-        .getMany();
+        .getRawOne();
 
-      const existingStrategies = new Map(existingRecords.map((r) => [r.strategyId, r.subEpochNumber]));
+      let nextSubEpochNumber = (maxSubEpoch || 0) + 1;
 
-      // Assign sub-epoch numbers: use existing for conflicts, new for inserts
-      let hasNewRecords = false;
-      for (const subEpoch of strategiesAtTimestamp) {
-        if (existingStrategies.has(subEpoch.strategyId)) {
-          // Use existing subEpochNumber for UPSERT
-          subEpoch.subEpochNumber = existingStrategies.get(subEpoch.strategyId);
-        } else {
-          // Assign new subEpochNumber for INSERT
-          subEpoch.subEpochNumber = nextSubEpochNumber;
-          hasNewRecords = true;
+      const timestampGroups = new Map<number, Partial<SubEpoch>[]>();
+      for (const subEpoch of subEpochs) {
+        const timestamp = subEpoch.subEpochTimestamp.getTime();
+        if (!timestampGroups.has(timestamp)) {
+          timestampGroups.set(timestamp, []);
+        }
+        timestampGroups.get(timestamp).push(subEpoch);
+      }
+
+      const sortedTimestamps = Array.from(timestampGroups.keys()).sort((a, b) => a - b);
+
+      for (const timestamp of sortedTimestamps) {
+        const strategiesAtTimestamp = timestampGroups.get(timestamp);
+
+        const existingRecords = await txRepo
+          .createQueryBuilder('se')
+          .select(['se.strategyId', 'se.subEpochNumber'])
+          .where('se.campaignId = :campaignId', { campaignId })
+          .andWhere('se.subEpochTimestamp = :timestamp', { timestamp: new Date(timestamp) })
+          .orderBy('se.strategyId', 'ASC')
+          .getMany();
+
+        const existingStrategies = new Map(existingRecords.map((r) => [r.strategyId, r.subEpochNumber]));
+
+        let hasNewRecords = false;
+        for (const subEpoch of strategiesAtTimestamp) {
+          if (existingStrategies.has(subEpoch.strategyId)) {
+            subEpoch.subEpochNumber = existingStrategies.get(subEpoch.strategyId);
+          } else {
+            subEpoch.subEpochNumber = nextSubEpochNumber;
+            hasNewRecords = true;
+          }
+        }
+
+        if (hasNewRecords) {
+          nextSubEpochNumber++;
+        }
+
+        const chunkSize = 1000;
+        for (let i = 0; i < strategiesAtTimestamp.length; i += chunkSize) {
+          const chunk = strategiesAtTimestamp.slice(i, i + chunkSize);
+          await this.upsertSubEpochsWithManager(manager, chunk);
         }
       }
-
-      // Only increment if we have new records
-      if (hasNewRecords) {
-        nextSubEpochNumber++;
-      }
-
-      // UPSERT in chunks using PostgreSQL ON CONFLICT
-      const chunkSize = 1000;
-      for (let i = 0; i < strategiesAtTimestamp.length; i += chunkSize) {
-        const chunk = strategiesAtTimestamp.slice(i, i + chunkSize);
-        await this.upsertSubEpochs(chunk);
-      }
-    }
+    });
   }
 
-  private async upsertSubEpochs(subEpochs: Partial<SubEpoch>[]): Promise<void> {
+  private async upsertSubEpochsWithManager(
+    manager: import('typeorm').EntityManager,
+    subEpochs: Partial<SubEpoch>[],
+  ): Promise<void> {
     if (subEpochs.length === 0) return;
 
-    // Build PostgreSQL UPSERT query
-    const queryBuilder = this.subEpochRepository
+    const queryBuilder = manager
       .createQueryBuilder()
       .insert()
       .into(SubEpoch)

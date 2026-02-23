@@ -346,12 +346,16 @@ export class MerklProcessorService {
       // Retrieve the most recently processed epoch number for this campaign
       const lastProcessedEpochNumber = await this.subEpochService.getLastProcessedEpochNumber(campaign.id);
 
-      // No reprocessing needed - sub-epochs are only created after their timestamp,
-      // ensuring all events are indexed before processing. Each sub-epoch is processed once.
       const cutoffEpoch = lastProcessedEpochNumber;
 
-      // Select epochs that require processing (recent + unprocessed)
-      const epochsToProcess = allEpochs.filter((epoch) => epoch.epochNumber > cutoffEpoch);
+      // Only process epochs that are both unprocessed AND fully elapsed.
+      // An epoch must have its entire time range in the past (endTimestamp <= globalEndTimestamp)
+      // before we process it, ensuring all sub-epochs can be generated in a single pass.
+      // Without this guard, partial processing marks an epoch as "done" via
+      // getLastProcessedEpochNumber, and the remaining sub-epochs are permanently lost.
+      const epochsToProcess = allEpochs.filter(
+        (epoch) => epoch.epochNumber > cutoffEpoch && epoch.endTimestamp.getTime() <= globalEndTimestamp,
+      );
 
       this.logger.log(
         `Campaign ${campaign.id}: ${allEpochs.length} total epochs, ${epochsToProcess.length} to process ` +
@@ -1395,7 +1399,7 @@ export class MerklProcessorService {
       // Calculate target exchange rates for reward eligibility
       const targetPrices = this.getTargetPricesAtTime(currentTime, campaign, priceCache);
       if (targetPrices === null) {
-        currentTime += snapshotIntervals[intervalIndex];
+        currentTime += snapshotIntervals[intervalIndex] * 1000;
         intervalIndex++;
         continue;
       }
