@@ -37,8 +37,10 @@ export class SeedDataService {
     const strategiesByPair: { [pairKey: string]: EncodedStrategy[] } = {};
 
     for (const strategy of paginatedStrategies) {
-      // Tokens are already stored alphabetically in the database
-      const pairKey = `${strategy.token0Address}_${strategy.token1Address}`;
+      const [sortedToken0, sortedToken1] = [strategy.token0Address, strategy.token1Address].sort((a, b) =>
+        a.localeCompare(b),
+      );
+      const pairKey = `${sortedToken0}_${sortedToken1}`;
 
       if (!strategiesByPair[pairKey]) {
         strategiesByPair[pairKey] = [];

@@ -157,8 +157,10 @@ export class PairService {
     const result: { [pairKey: string]: number } = {};
 
     for (const pair of pairs) {
-      // Tokens are already stored alphabetically in the database
-      const pairKey = `${pair.token0_address}_${pair.token1_address}`;
+      const [sortedToken0, sortedToken1] = [pair.token0_address, pair.token1_address].sort((a, b) =>
+        a.localeCompare(b),
+      );
+      const pairKey = `${sortedToken0}_${sortedToken1}`;
       const pairFee = pairFees[pair.pair_id];
       result[pairKey] = pairFee !== undefined ? pairFee : defaultFee;
     }
