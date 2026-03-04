@@ -114,6 +114,75 @@ describe('AnalyticsService', () => {
       // Verify there's a comment explaining the data format
       expect(executedQuery).toContain('already normalized');
     });
+
+    it('should include gradient_liquidity CTE for gradient strategy TVL', async () => {
+      const serviceAny = service as any;
+      const deployment = { blockchainType: 'ethereum', exchangeId: 'carbon' };
+
+      mockStrategyRepository.query.mockResolvedValue([{}]);
+
+      await serviceAny.getGenericMetrics(deployment, 'quotes AS (SELECT 1)', 'historic_quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('gradient_liquidity');
+      expect(executedQuery).toContain('gradient_strategy_realtime');
+    });
+
+    it('should include gradient strategy counts in strategies_created', async () => {
+      const serviceAny = service as any;
+      const deployment = { blockchainType: 'ethereum', exchangeId: 'carbon' };
+
+      mockStrategyRepository.query.mockResolvedValue([{}]);
+
+      await serviceAny.getGenericMetrics(deployment, 'quotes AS (SELECT 1)', 'historic_quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('gradient_strategy_created_events');
+    });
+
+    it('should include gradient trades in number_trades', async () => {
+      const serviceAny = service as any;
+      const deployment = { blockchainType: 'ethereum', exchangeId: 'carbon' };
+
+      mockStrategyRepository.query.mockResolvedValue([{}]);
+
+      await serviceAny.getGenericMetrics(deployment, 'quotes AS (SELECT 1)', 'historic_quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('gradient_strategy_updated_events');
+    });
+
+    it('should UNION gradient liquidity with regular liquidity in strategies_with_liquidity', async () => {
+      const serviceAny = service as any;
+      const deployment = { blockchainType: 'ethereum', exchangeId: 'carbon' };
+
+      mockStrategyRepository.query.mockResolvedValue([{}]);
+
+      await serviceAny.getGenericMetrics(deployment, 'quotes AS (SELECT 1)', 'historic_quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('SELECT liquidity FROM gradient_liquidity');
+    });
+  });
+
+  describe('getTradesCount SQL query', () => {
+    it('should include gradient strategy trade counts', async () => {
+      const serviceAny = service as any;
+      const deployment = { blockchainType: 'ethereum', exchangeId: 'carbon' };
+
+      mockStrategyRepository.query.mockResolvedValue([]);
+
+      await serviceAny.getTradesCount(deployment);
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('gradient_strategy_updated_events');
+      expect(executedQuery).toContain('UNION ALL');
+    });
   });
 
   describe('getCachedGenericMetrics', () => {

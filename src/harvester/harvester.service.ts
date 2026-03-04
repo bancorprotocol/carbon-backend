@@ -23,6 +23,7 @@ import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { ConfigService } from '@nestjs/config';
 import { sleep } from '../utilities';
 import { LiquidityProtectionStore } from '../abis/LiquidityProtectionStore.abi';
+import { GradientController } from '../abis/GradientController.abi';
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
 };
@@ -36,6 +37,7 @@ export enum ContractsNames {
   BancorArbitrage = 'BancorArbitrage',
   BancorArbitrageV2 = 'BancorArbitrageV2',
   LiquidityProtectionStore = 'LiquidityProtectionStore',
+  GradientController = 'GradientController',
 }
 
 const Contracts = {
@@ -47,6 +49,7 @@ const Contracts = {
   [ContractsNames.BancorArbitrage]: BancorArbitrage,
   [ContractsNames.BancorArbitrageV2]: BancorArbitrageV2,
   [ContractsNames.LiquidityProtectionStore]: LiquidityProtectionStore,
+  [ContractsNames.GradientController]: GradientController,
 };
 
 export interface ConstantField {

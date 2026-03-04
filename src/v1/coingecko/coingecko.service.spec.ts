@@ -211,6 +211,30 @@ describe('CoingeckoService', () => {
       // Verify there's a comment explaining the depth calculation
       expect(executedQuery).toMatch(/2%.*Depth/i);
     });
+
+    it('should include gradient_tvl CTE for gradient strategy liquidity', async () => {
+      const serviceAny = service as any;
+      mockStrategyRepository.query.mockResolvedValue([]);
+
+      await serviceAny.getTickers(mockDeployment, 'quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('gradient_tvl');
+      expect(executedQuery).toContain('gradient_strategy_realtime');
+    });
+
+    it('should combine regular and gradient TVL in pair_tvls', async () => {
+      const serviceAny = service as any;
+      mockStrategyRepository.query.mockResolvedValue([]);
+
+      await serviceAny.getTickers(mockDeployment, 'quotes AS (SELECT 1)');
+
+      const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
+
+      expect(executedQuery).toContain('select native_pair, strategy_TVL_usd from current_strategy_tvl');
+      expect(executedQuery).toContain('select native_pair, strategy_TVL_usd from gradient_tvl');
+    });
   });
 
   describe('getCachedTickers', () => {

@@ -6,6 +6,7 @@ import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.dec
 import { SeedDataService } from './seed-data.service';
 import { SeedDataQueryDto, SeedDataResponse } from './seed-data.dto';
 import { StrategyRealtimeService } from '../../strategy-realtime/strategy-realtime.service';
+import { GradientRealtimeService } from '../../gradient/gradient-realtime.service';
 import { PairService } from '../../pair/pair.service';
 
 @Controller({ version: '1', path: ':exchangeId?/seed-data' })
@@ -14,11 +15,12 @@ export class SeedDataController {
     private deploymentService: DeploymentService,
     private seedDataService: SeedDataService,
     private strategyRealtimeService: StrategyRealtimeService,
+    private gradientRealtimeService: GradientRealtimeService,
     private pairService: PairService,
   ) {}
 
   @Get()
-  @CacheTTL(10 * 1000) // Cache for 10 seconds
+  @CacheTTL(10 * 1000)
   @Header('Cache-Control', 'public, max-age=10')
   @ApiExchangeIdParam()
   @ApiOperation({
@@ -45,7 +47,6 @@ export class SeedDataController {
     try {
       const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
 
-      // Fetch strategies (with block number from multicall) and trading fees in parallel
       const [strategiesResult, tradingFeePPMByPair] = await Promise.all([
         this.strategyRealtimeService.getStrategiesWithOwners(deployment),
         this.pairService.getTradingFeesByPair(deployment),
@@ -57,11 +58,18 @@ export class SeedDataController {
         throw new Error('No processed blocks found for this deployment');
       }
 
-      // Pass fetched data to service for processing
+      let gradientStrategies = [];
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        const gradientResult =
+          await this.gradientRealtimeService.getStrategiesWithOwners(deployment);
+        gradientStrategies = gradientResult.strategies;
+      }
+
       const seedData = await this.seedDataService.buildSeedData(
         blockNumber,
         strategiesWithOwners,
         tradingFeePPMByPair,
+        gradientStrategies,
         query.page,
         query.pageSize,
       );

@@ -29,6 +29,7 @@ import { QuoteService } from '../quote/quote.service';
 import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
 import { StrategyRealtimeService } from '../strategy-realtime/strategy-realtime.service';
+import { GradientRealtimeService } from '../gradient/gradient-realtime.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 export const CARBON_IS_UPDATING_REALTIME = 'carbon:isUpdatingRealtime';
@@ -69,6 +70,7 @@ export class UpdaterService {
     private historicQuoteService: HistoricQuoteService,
     private merklProcessorService: MerklProcessorService,
     private strategyRealtimeService: StrategyRealtimeService,
+    private gradientRealtimeService: GradientRealtimeService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -117,6 +119,9 @@ export class UpdaterService {
 
       // Update realtime strategies from contract
       await this.strategyRealtimeService.update(deployment, tokens);
+
+      // Update gradient realtime strategies from GradientController
+      await this.gradientRealtimeService.update(deployment, tokens);
 
       console.log(`CARBON SERVICE - Finished realtime strategy update for ${deploymentKey} in:`, Date.now() - t, 'ms');
       this.isUpdatingRealtime[deploymentKey] = false;

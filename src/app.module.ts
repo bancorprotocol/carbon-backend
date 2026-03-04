@@ -27,6 +27,7 @@ import { CarbonPriceModule } from './carbon-price/carbon-price.module';
 import { MerklModule } from './merkl/merkl.module';
 import { WalletPairBalanceModule } from './wallet-pair-balance/wallet-pair-balance.module';
 import { StrategyRealtimeModule } from './strategy-realtime/strategy-realtime.module';
+import { GradientModule } from './gradient/gradient.module';
 
 @Module({
   imports: [
@@ -114,6 +115,7 @@ import { StrategyRealtimeModule } from './strategy-realtime/strategy-realtime.mo
     MerklModule,
     WalletPairBalanceModule,
     StrategyRealtimeModule,
+    GradientModule,
   ],
 
   providers: [

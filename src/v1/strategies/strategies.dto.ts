@@ -1,6 +1,7 @@
 import { IsOptional, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { GradientOrder } from '../../gradient/gradient.interfaces';
 
 export class StrategiesQueryDto {
   @ApiProperty({
@@ -26,6 +27,8 @@ export class StrategiesQueryDto {
   pageSize?: number = 0;
 }
 
+export type StrategyType = 'regular' | 'gradient';
+
 export interface Order {
   budget: string;
   min: string;
@@ -33,7 +36,8 @@ export interface Order {
   marginal: string;
 }
 
-export interface Strategy {
+export interface RegularStrategy {
+  type: 'regular';
   id: string;
   owner: string;
   base: string;
@@ -41,6 +45,18 @@ export interface Strategy {
   buy: Order;
   sell: Order;
 }
+
+export interface GradientStrategyDto {
+  type: 'gradient';
+  id: string;
+  owner: string;
+  base: string;
+  quote: string;
+  buy: GradientOrder;
+  sell: GradientOrder;
+}
+
+export type Strategy = RegularStrategy | GradientStrategyDto;
 
 export interface StrategiesResponse {
   strategies: Strategy[];
@@ -52,4 +68,3 @@ export interface StrategiesResponse {
     hasMore: boolean;
   };
 }
-

@@ -90,6 +90,7 @@ describe('ActivityController', () => {
       expect(result[0]).toEqual({
         action: 'sell',
         strategy: {
+          type: 'regular',
           id: 123,
           owner: '0xOwner',
           base: '0xBase',

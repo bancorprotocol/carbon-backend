@@ -33,6 +33,7 @@ export class ActivityController {
     const result = {
       action,
       strategy: {
+        type: 'regular' as const,
         id: d.strategyId,
         owner: d.currentOwner,
         base: d.baseSellTokenAddress,

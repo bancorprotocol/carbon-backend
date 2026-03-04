@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { WalletPairBalanceService } from './wallet-pair-balance.service';
 import { Strategy } from '../strategy/strategy.entity';
-import { BlockchainType, ExchangeId, Deployment } from '../deployment/deployment.service';
+import { BlockchainType, ExchangeId, Deployment, DeploymentService } from '../deployment/deployment.service';
 
 describe('WalletPairBalanceService', () => {
   let service: WalletPairBalanceService;
@@ -20,6 +20,18 @@ describe('WalletPairBalanceService', () => {
         {
           provide: getRepositoryToken(Strategy),
           useValue: mockStrategyRepository,
+        },
+        {
+          provide: DeploymentService,
+          useValue: {
+            hasGradientSupport: jest.fn().mockReturnValue(false),
+          },
+        },
+        {
+          provide: DataSource,
+          useValue: {
+            query: jest.fn().mockResolvedValue([]),
+          },
         },
       ],
     }).compile();
@@ -477,6 +489,74 @@ describe('WalletPairBalanceService', () => {
         token0Balance: '16191.056562229417588987',
         token1Balance: '3241.00000000000002086',
       });
+    });
+
+    it('should include gradient strategy balances when gradient support is enabled', async () => {
+      const module = await Test.createTestingModule({
+        providers: [
+          WalletPairBalanceService,
+          {
+            provide: getRepositoryToken(Strategy),
+            useValue: { query: jest.fn().mockResolvedValue([]) },
+          },
+          {
+            provide: DeploymentService,
+            useValue: { hasGradientSupport: jest.fn().mockReturnValue(true) },
+          },
+          {
+            provide: DataSource,
+            useValue: {
+              query: jest.fn().mockResolvedValue([
+                {
+                  walletAddress: '0xGradientOwner',
+                  token0Address: '0xaaaa',
+                  token0Symbol: 'USDC',
+                  token0Decimals: 6,
+                  token1Address: '0xbbbb',
+                  token1Symbol: 'WETH',
+                  token1Decimals: 18,
+                  liquidity0Sum: '500',
+                  liquidity1Sum: '0.25',
+                },
+              ]),
+            },
+          },
+        ],
+      }).compile();
+
+      const svc = module.get<WalletPairBalanceService>(WalletPairBalanceService);
+      const result = await svc.getLatestBalances(mockDeployment);
+
+      expect(result['0xaaaa_0xbbbb']).toBeDefined();
+      expect(result['0xaaaa_0xbbbb'].wallets['0xgradientowner'].token0Balance).toBe('500');
+      expect(result['0xaaaa_0xbbbb'].wallets['0xgradientowner'].token1Balance).toBe('0.25');
+    });
+
+    it('should not query gradient data when gradient support is disabled', async () => {
+      const mockDataSource = { query: jest.fn() };
+
+      const module = await Test.createTestingModule({
+        providers: [
+          WalletPairBalanceService,
+          {
+            provide: getRepositoryToken(Strategy),
+            useValue: { query: jest.fn().mockResolvedValue([]) },
+          },
+          {
+            provide: DeploymentService,
+            useValue: { hasGradientSupport: jest.fn().mockReturnValue(false) },
+          },
+          {
+            provide: DataSource,
+            useValue: mockDataSource,
+          },
+        ],
+      }).compile();
+
+      const svc = module.get<WalletPairBalanceService>(WalletPairBalanceService);
+      await svc.getLatestBalances(mockDeployment);
+
+      expect(mockDataSource.query).not.toHaveBeenCalled();
     });
   });
 });

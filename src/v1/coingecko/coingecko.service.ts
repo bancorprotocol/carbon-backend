@@ -230,9 +230,25 @@ export class CoingeckoService {
           liquidity0_real * price0::double precision + liquidity1_real * price1::double precision as strategy_TVL_usd
           FROM current_order_pair_stats   
       ),
+      gradient_tvl as (
+          select 
+              CAST(gs."token0Address" as varchar) || '_' || CAST(gs."token1Address" as varchar) as native_pair,
+              gs."order0Liquidity"::double precision / POWER(10, t0.decimals) * COALESCE(q0.usd::double precision, 0) +
+              gs."order1Liquidity"::double precision / POWER(10, t1.decimals) * COALESCE(q1.usd::double precision, 0) as strategy_TVL_usd
+          from gradient_strategy_realtime gs
+          left join tokens t0 on LOWER(t0.address) = LOWER(gs."token0Address") and t0."blockchainType" = '${deployment.blockchainType}' and t0."exchangeId" = '${deployment.exchangeId}'
+          left join tokens t1 on LOWER(t1.address) = LOWER(gs."token1Address") and t1."blockchainType" = '${deployment.blockchainType}' and t1."exchangeId" = '${deployment.exchangeId}'
+          left join quotes q0 on q0."tokenId" = t0."id" and q0."blockchainType" = '${deployment.blockchainType}'
+          left join quotes q1 on q1."tokenId" = t1."id" and q1."blockchainType" = '${deployment.blockchainType}'
+          where gs."blockchainType" = '${deployment.blockchainType}' and gs."exchangeId" = '${deployment.exchangeId}' and gs.deleted = false
+      ),
       pair_tvls as (
           select native_pair, sum(strategy_TVL_usd) as liquidity_in_usd
-          from current_strategy_tvl
+          from (
+              select native_pair, strategy_TVL_usd from current_strategy_tvl
+              union all
+              select native_pair, strategy_TVL_usd from gradient_tvl
+          ) combined_tvl
           group by 1
       ),
       marginalRates as (

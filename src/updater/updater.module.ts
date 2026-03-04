@@ -36,6 +36,7 @@ import { CarbonPriceModule } from '../carbon-price/carbon-price.module';
 import { MerklModule } from '../merkl/merkl.module';
 import { CarbonGraphPriceModule } from '../carbon-graph-price/carbon-graph-price.module';
 import { StrategyRealtimeModule } from '../strategy-realtime/strategy-realtime.module';
+import { GradientModule } from '../gradient/gradient.module';
 
 @Module({
   imports: [
@@ -75,6 +76,7 @@ import { StrategyRealtimeModule } from '../strategy-realtime/strategy-realtime.m
     CarbonGraphPriceModule,
     HistoricQuoteModule,
     StrategyRealtimeModule,
+    GradientModule,
   ],
   providers: [UpdaterService],
 })

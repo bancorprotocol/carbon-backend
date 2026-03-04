@@ -83,20 +83,36 @@ export class AnalyticsService {
     FROM strategies_with_decimals swd 
     LEFT JOIN quotes q1 ON swd."token0Id" = q1."tokenId" AND q1."blockchainType" = '${deployment.blockchainType}'
     LEFT JOIN quotes q2 ON swd."token1Id" = q2."tokenId" AND q2."blockchainType" = '${deployment.blockchainType}'
+), gradient_liquidity AS (
+    SELECT gs."order0Liquidity"::NUMERIC / POWER(10, t0.decimals) * COALESCE(q0.usd::NUMERIC, 0) AS liquidity
+    FROM gradient_strategy_realtime gs
+    LEFT JOIN tokens t0 ON LOWER(gs."token0Address") = LOWER(t0.address) AND t0."blockchainType" = '${deployment.blockchainType}' AND t0."exchangeId" = '${deployment.exchangeId}'
+    LEFT JOIN quotes q0 ON t0.id = q0."tokenId" AND q0."blockchainType" = '${deployment.blockchainType}'
+    WHERE gs."blockchainType" = '${deployment.blockchainType}' AND gs."exchangeId" = '${deployment.exchangeId}' AND gs.deleted = false
+    UNION ALL
+    SELECT gs."order1Liquidity"::NUMERIC / POWER(10, t1.decimals) * COALESCE(q1.usd::NUMERIC, 0) AS liquidity
+    FROM gradient_strategy_realtime gs
+    LEFT JOIN tokens t1 ON LOWER(gs."token1Address") = LOWER(t1.address) AND t1."blockchainType" = '${deployment.blockchainType}' AND t1."exchangeId" = '${deployment.exchangeId}'
+    LEFT JOIN quotes q1 ON t1.id = q1."tokenId" AND q1."blockchainType" = '${deployment.blockchainType}'
+    WHERE gs."blockchainType" = '${deployment.blockchainType}' AND gs."exchangeId" = '${deployment.exchangeId}' AND gs.deleted = false
 ), strategies_with_liquidity AS (
     -- Note: liquidity values are already normalized (human-readable) in the strategies table
     SELECT (liquidity0 * price0) AS liquidity 
     FROM strategies_with_prices 
-    UNION 
+    UNION ALL
     SELECT (liquidity1 * price1) AS liquidity 
     FROM strategies_with_prices
+    UNION ALL
+    SELECT liquidity FROM gradient_liquidity
 ), sum_liquidity AS (
     SELECT SUM(liquidity) AS current_liquidity 
     FROM strategies_with_liquidity
 ), strategies_created AS (
-    SELECT COUNT(id) AS strategies_created 
-    FROM "strategy-created-events"
-    WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}'
+    SELECT (
+        (SELECT COUNT(id) FROM "strategy-created-events" WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
+        +
+        (SELECT COUNT(id) FROM gradient_strategy_created_events WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
+    ) AS strategies_created
 ), pairs_created AS (
     SELECT COUNT(id) AS pairs_created 
     FROM "pair-created-events"
@@ -109,9 +125,11 @@ export class AnalyticsService {
     SELECT COUNT(DISTINCT "pairId") AS active_pairs 
     FROM filtered_strategies
 ), number_trades AS (
-    SELECT COUNT(*) AS number_trades 
-    FROM "strategy-updated-events"
-    WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1
+    SELECT (
+        (SELECT COUNT(*) FROM "strategy-updated-events" WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1)
+        +
+        (SELECT COUNT(*) FROM gradient_strategy_updated_events WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
+    ) AS number_trades
 ), latest_updated_block AS (
     SELECT MIN("last_processed_block"."block") AS last_block, MIN("updatedAt") AS last_timestamp 
     FROM last_processed_block
@@ -160,14 +178,25 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
 
   private async getTradesCount(deployment: Deployment): Promise<any> {
     const query = `
-      SELECT 
-        "strategyId" AS id, 
-        COUNT(*) AS trade_count
-      FROM "strategy-updated-events" s
-      WHERE "blockchainType" = '${deployment.blockchainType}'
-      AND "exchangeId" = '${deployment.exchangeId}'
-      AND reason = 1
-      GROUP BY "strategyId"
+      SELECT id, SUM(trade_count)::BIGINT AS trade_count FROM (
+        SELECT 
+          "strategyId" AS id, 
+          COUNT(*) AS trade_count
+        FROM "strategy-updated-events" s
+        WHERE "blockchainType" = '${deployment.blockchainType}'
+        AND "exchangeId" = '${deployment.exchangeId}'
+        AND reason = 1
+        GROUP BY "strategyId"
+        UNION ALL
+        SELECT 
+          "strategyId" AS id, 
+          COUNT(*) AS trade_count
+        FROM gradient_strategy_updated_events g
+        WHERE "blockchainType" = '${deployment.blockchainType}'
+        AND "exchangeId" = '${deployment.exchangeId}'
+        GROUP BY "strategyId"
+      ) combined
+      GROUP BY id
     `;
 
     const result = await this.strategy.query(query);

@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsNumber, Min } from 'class-validator';
+import { IsOptional, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
 
@@ -33,7 +33,17 @@ export interface EncodedOrder {
   B: string;
 }
 
-export interface EncodedStrategy {
+export interface GradientEncodedOrder {
+  liquidity: string;
+  initialPrice: string;
+  tradingStartTime: number;
+  expiry: number;
+  multiFactor: string;
+  gradientType: string;
+}
+
+export interface RegularEncodedStrategy {
+  type: 'regular';
   id: string;
   owner: string;
   token0: string;
@@ -41,6 +51,18 @@ export interface EncodedStrategy {
   order0: EncodedOrder;
   order1: EncodedOrder;
 }
+
+export interface GradientEncodedStrategy {
+  type: 'gradient';
+  id: string;
+  owner: string;
+  token0: string;
+  token1: string;
+  order0: GradientEncodedOrder;
+  order1: GradientEncodedOrder;
+}
+
+export type EncodedStrategy = RegularEncodedStrategy | GradientEncodedStrategy;
 
 export interface SeedDataResponse {
   schemeVersion: number;

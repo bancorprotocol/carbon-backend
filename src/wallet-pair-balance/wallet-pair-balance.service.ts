@@ -1,15 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Decimal } from 'decimal.js';
 import { Strategy } from '../strategy/strategy.entity';
-import { Deployment } from '../deployment/deployment.service';
+import { Deployment, DeploymentService } from '../deployment/deployment.service';
 
 @Injectable()
 export class WalletPairBalanceService {
   constructor(
     @InjectRepository(Strategy)
     private strategyRepository: Repository<Strategy>,
+    private deploymentService: DeploymentService,
+    private dataSource: DataSource,
   ) {}
 
   async getLatestBalances(deployment: Deployment): Promise<any> {
@@ -60,10 +62,6 @@ export class WalletPairBalanceService {
       [deployment.blockchainType, deployment.exchangeId],
     );
 
-    if (results.length === 0) {
-      return {};
-    }
-
     // Group results by pair and format according to the structure
     const groupedByPair = results.reduce((acc, row) => {
       // Determine lexicographic ordering of tokens
@@ -102,6 +100,77 @@ export class WalletPairBalanceService {
 
       return acc;
     }, {});
+
+    if (this.deploymentService.hasGradientSupport(deployment)) {
+      const gradientResults = await this.dataSource.query(
+        `
+        SELECT
+          gs."owner" as "walletAddress",
+          gs."token0Address" as "token0Address",
+          t0."symbol" as "token0Symbol",
+          t0."decimals" as "token0Decimals",
+          gs."token1Address" as "token1Address",
+          t1."symbol" as "token1Symbol",
+          t1."decimals" as "token1Decimals",
+          SUM(COALESCE(gs."order0Liquidity", '0')::decimal / POWER(10, t0."decimals"))::text as "liquidity0Sum",
+          SUM(COALESCE(gs."order1Liquidity", '0')::decimal / POWER(10, t1."decimals"))::text as "liquidity1Sum"
+        FROM gradient_strategy_realtime gs
+        LEFT JOIN tokens t0 ON LOWER(t0.address) = LOWER(gs."token0Address") AND t0."blockchainType" = $1 AND t0."exchangeId" = $2
+        LEFT JOIN tokens t1 ON LOWER(t1.address) = LOWER(gs."token1Address") AND t1."blockchainType" = $1 AND t1."exchangeId" = $2
+        WHERE gs."blockchainType" = $1
+          AND gs."exchangeId" = $2
+          AND gs.deleted = false
+          AND gs.owner IS NOT NULL
+          AND gs.owner != '0x0000000000000000000000000000000000000000'
+        GROUP BY gs.owner, gs."token0Address", t0.symbol, t0.decimals, gs."token1Address", t1.symbol, t1.decimals
+        HAVING SUM(COALESCE(gs."order0Liquidity", '0')::decimal) > 0 OR SUM(COALESCE(gs."order1Liquidity", '0')::decimal) > 0
+        `,
+        [deployment.blockchainType, deployment.exchangeId],
+      );
+
+      for (const row of gradientResults) {
+        const token0Addr = row.token0Address.toLowerCase();
+        const token1Addr = row.token1Address.toLowerCase();
+        const isToken0Smaller = token0Addr < token1Addr;
+        const pairKey = isToken0Smaller
+          ? `${token0Addr}_${token1Addr}`
+          : `${token1Addr}_${token0Addr}`;
+
+        if (!groupedByPair[pairKey]) {
+          groupedByPair[pairKey] = {
+            token0Address: isToken0Smaller ? token0Addr : token1Addr,
+            token0Symbol: isToken0Smaller ? row.token0Symbol : row.token1Symbol,
+            token0Decimals: isToken0Smaller ? row.token0Decimals : row.token1Decimals,
+            token1Address: isToken0Smaller ? token1Addr : token0Addr,
+            token1Symbol: isToken0Smaller ? row.token1Symbol : row.token0Symbol,
+            token1Decimals: isToken0Smaller ? row.token1Decimals : row.token0Decimals,
+            wallets: {},
+          };
+        }
+
+        const wallet = row.walletAddress.toLowerCase();
+        const canonicalToken0Balance = isToken0Smaller ? row.liquidity0Sum : row.liquidity1Sum;
+        const canonicalToken1Balance = isToken0Smaller ? row.liquidity1Sum : row.liquidity0Sum;
+
+        if (groupedByPair[pairKey].wallets[wallet]) {
+          groupedByPair[pairKey].wallets[wallet].token0Balance = new Decimal(
+            groupedByPair[pairKey].wallets[wallet].token0Balance,
+          )
+            .add(canonicalToken0Balance || '0')
+            .toFixed();
+          groupedByPair[pairKey].wallets[wallet].token1Balance = new Decimal(
+            groupedByPair[pairKey].wallets[wallet].token1Balance,
+          )
+            .add(canonicalToken1Balance || '0')
+            .toFixed();
+        } else {
+          groupedByPair[pairKey].wallets[wallet] = {
+            token0Balance: new Decimal(canonicalToken0Balance || '0').toFixed(),
+            token1Balance: new Decimal(canonicalToken1Balance || '0').toFixed(),
+          };
+        }
+      }
+    }
 
     return groupedByPair;
   }

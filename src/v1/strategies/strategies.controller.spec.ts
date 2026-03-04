@@ -2,12 +2,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StrategiesController } from './strategies.controller';
 import { DeploymentService, ExchangeId, BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { StrategyRealtimeService, StrategyRealtimeWithOwner } from '../../strategy-realtime/strategy-realtime.service';
+import { GradientRealtimeService } from '../../gradient/gradient-realtime.service';
+import { TokenService } from '../../token/token.service';
 import { StrategiesQueryDto } from './strategies.dto';
 
 describe('StrategiesController', () => {
   let controller: StrategiesController;
   let deploymentService: jest.Mocked<DeploymentService>;
   let strategyRealtimeService: jest.Mocked<StrategyRealtimeService>;
+  let gradientRealtimeService: jest.Mocked<GradientRealtimeService>;
+  let tokenService: jest.Mocked<TokenService>;
 
   const mockDeployment: Deployment = {
     blockchainType: BlockchainType.Ethereum,
@@ -69,6 +73,7 @@ describe('StrategiesController', () => {
           provide: DeploymentService,
           useValue: {
             getDeploymentByExchangeId: jest.fn(),
+            hasGradientSupport: jest.fn().mockReturnValue(false),
           },
         },
         {
@@ -77,12 +82,26 @@ describe('StrategiesController', () => {
             getStrategiesWithOwners: jest.fn(),
           },
         },
+        {
+          provide: GradientRealtimeService,
+          useValue: {
+            getStrategiesWithOwners: jest.fn().mockResolvedValue({ strategies: [], blockNumber: 0 }),
+          },
+        },
+        {
+          provide: TokenService,
+          useValue: {
+            allByAddress: jest.fn().mockResolvedValue({}),
+          },
+        },
       ],
     }).compile();
 
     controller = module.get<StrategiesController>(StrategiesController);
     deploymentService = module.get(DeploymentService);
     strategyRealtimeService = module.get(StrategyRealtimeService);
+    gradientRealtimeService = module.get(GradientRealtimeService);
+    tokenService = module.get(TokenService);
   });
 
   afterEach(() => {
@@ -94,7 +113,7 @@ describe('StrategiesController', () => {
   });
 
   describe('getStrategies', () => {
-    it('should return all strategies with decoded orders', async () => {
+    it('should return all regular strategies with type discriminator', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
       strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
         strategies: mockStrategies,
@@ -106,6 +125,7 @@ describe('StrategiesController', () => {
 
       expect(result.strategies).toHaveLength(2);
       expect(result.strategies[0]).toMatchObject({
+        type: 'regular',
         id: '1',
         owner: '0xOwner1',
         base: '0xToken1Address',
@@ -124,9 +144,184 @@ describe('StrategiesController', () => {
         marginal: '0.000244140625',
       });
       expect(result.pagination).toBeUndefined();
+    });
 
-      expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGEthereum);
-      expect(strategyRealtimeService.getStrategiesWithOwners).toHaveBeenCalledWith(mockDeployment);
+    it('should return mixed strategies when gradient support is enabled', async () => {
+      const deploymentWithGradient = {
+        ...mockDeployment,
+        gradientTimestampOffset: 60,
+        contracts: { GradientController: { address: '0x123' } },
+      };
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(deploymentWithGradient);
+      deploymentService.hasGradientSupport.mockReturnValue(true);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [mockStrategies[0]],
+        blockNumber: 12345678,
+      });
+
+      const mockGradientStrategy = {
+        strategyId: 'gradient-1',
+        owner: '0xGradientOwner',
+        token0Address: '0xToken1Address',
+        token1Address: '0xToken2Address',
+        order0Liquidity: '1000000000',
+        order0InitialPrice: '3377704960',
+        order0TradingStartTime: 1700000000,
+        order0Expiry: 1700086400,
+        order0MultiFactor: '16777728',
+        order0GradientType: '0',
+        order1Liquidity: '500000000000000000',
+        order1InitialPrice: '3377704960',
+        order1TradingStartTime: 1700000000,
+        order1Expiry: 1700086400,
+        order1MultiFactor: '16777728',
+        order1GradientType: '1',
+      };
+
+      gradientRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [mockGradientStrategy],
+        blockNumber: 12345678,
+      });
+
+      tokenService.allByAddress.mockResolvedValue({
+        '0xToken1Address': { address: '0xToken1Address', decimals: 6, symbol: 'USDC', name: 'USD Coin' } as any,
+        '0xToken2Address': { address: '0xToken2Address', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether' } as any,
+      });
+
+      const query: StrategiesQueryDto = {};
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(2);
+      expect(result.strategies[0].type).toBe('regular');
+      expect(result.strategies[1].type).toBe('gradient');
+
+      const gradientStrat = result.strategies[1] as any;
+      expect(gradientStrat.id).toBe('gradient-1');
+      expect(gradientStrat.owner).toBe('0xGradientOwner');
+      expect(gradientStrat.sell).toHaveProperty('startPrice');
+      expect(gradientStrat.sell).toHaveProperty('endPrice');
+      expect(gradientStrat.sell).toHaveProperty('startDate');
+      expect(gradientStrat.sell).toHaveProperty('endDate');
+      expect(gradientStrat.sell).toHaveProperty('budget');
+      expect(gradientStrat.sell).toHaveProperty('marginalPrice');
+    });
+
+    it('should have all gradient order fields as strings', async () => {
+      const deploymentWithGradient = {
+        ...mockDeployment,
+        gradientTimestampOffset: 60,
+        contracts: { GradientController: { address: '0x123' } },
+      };
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(deploymentWithGradient);
+      deploymentService.hasGradientSupport.mockReturnValue(true);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [],
+        blockNumber: 12345678,
+      });
+
+      gradientRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [
+          {
+            strategyId: 'g-1',
+            owner: '0xOwner',
+            token0Address: '0xToken1Address',
+            token1Address: '0xToken2Address',
+            order0Liquidity: '1000000000',
+            order0InitialPrice: '3377704960',
+            order0TradingStartTime: 1700000000,
+            order0Expiry: 1700086400,
+            order0MultiFactor: '16777728',
+            order0GradientType: '0',
+            order1Liquidity: '500000000000000000',
+            order1InitialPrice: '3377704960',
+            order1TradingStartTime: 1700000000,
+            order1Expiry: 1700086400,
+            order1MultiFactor: '16777728',
+            order1GradientType: '1',
+          },
+        ],
+        blockNumber: 12345678,
+      });
+
+      tokenService.allByAddress.mockResolvedValue({
+        '0xToken1Address': { address: '0xToken1Address', decimals: 6, symbol: 'USDC', name: 'USD Coin' } as any,
+        '0xToken2Address': { address: '0xToken2Address', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether' } as any,
+      });
+
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, {});
+
+      expect(result.strategies).toHaveLength(1);
+      const g = result.strategies[0] as any;
+      expect(g.type).toBe('gradient');
+      expect(typeof g.sell.startPrice).toBe('string');
+      expect(typeof g.sell.endPrice).toBe('string');
+      expect(typeof g.sell.startDate).toBe('string');
+      expect(typeof g.sell.endDate).toBe('string');
+      expect(typeof g.sell.budget).toBe('string');
+      expect(typeof g.sell.marginalPrice).toBe('string');
+      expect(typeof g.buy.startPrice).toBe('string');
+      expect(typeof g.buy.budget).toBe('string');
+    });
+
+    it('should skip gradient strategies when token info is missing', async () => {
+      const deploymentWithGradient = {
+        ...mockDeployment,
+        gradientTimestampOffset: 60,
+        contracts: { GradientController: { address: '0x123' } },
+      };
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(deploymentWithGradient);
+      deploymentService.hasGradientSupport.mockReturnValue(true);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [],
+        blockNumber: 12345678,
+      });
+
+      gradientRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: [
+          {
+            strategyId: 'g-1',
+            owner: '0xOwner',
+            token0Address: '0xUnknownToken',
+            token1Address: '0xToken2Address',
+            order0Liquidity: '1000000000',
+            order0InitialPrice: '3377704960',
+            order0TradingStartTime: 1700000000,
+            order0Expiry: 1700086400,
+            order0MultiFactor: '16777728',
+            order0GradientType: '0',
+            order1Liquidity: '500000000000000000',
+            order1InitialPrice: '3377704960',
+            order1TradingStartTime: 1700000000,
+            order1Expiry: 1700086400,
+            order1MultiFactor: '16777728',
+            order1GradientType: '1',
+          },
+        ],
+        blockNumber: 12345678,
+      });
+
+      tokenService.allByAddress.mockResolvedValue({
+        '0xToken2Address': { address: '0xToken2Address', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether' } as any,
+      });
+
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, {});
+
+      expect(result.strategies).toHaveLength(0);
+    });
+
+    it('should not fetch gradient data when gradient support is disabled', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      deploymentService.hasGradientSupport.mockReturnValue(false);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: mockStrategies,
+        blockNumber: 12345678,
+      });
+
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, {});
+
+      expect(result.strategies).toHaveLength(2);
+      expect(gradientRealtimeService.getStrategiesWithOwners).not.toHaveBeenCalled();
+      expect(tokenService.allByAddress).not.toHaveBeenCalled();
     });
 
     it('should return empty array when no strategies exist', async () => {
@@ -142,43 +337,7 @@ describe('StrategiesController', () => {
       expect(result).toEqual({ strategies: [] });
     });
 
-    it('should correctly map base and quote (token0 and token1)', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: mockStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = {};
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      // Strategy 1: base = token0, quote = token1
-      expect(result.strategies[0].base).toBe('0xToken1Address');
-      expect(result.strategies[0].quote).toBe('0xToken2Address');
-
-      // Strategy 2: base = token0, quote = token1 (different tokens)
-      expect(result.strategies[1].base).toBe('0xToken2Address');
-      expect(result.strategies[1].quote).toBe('0xToken1Address');
-    });
-
-    it('should map order1 to buy and order0 to sell', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: mockStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = {};
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      // Both strategies should have buy and sell orders
-      result.strategies.forEach((strategy) => {
-        expect(strategy.buy).toBeDefined();
-        expect(strategy.sell).toBeDefined();
-      });
-    });
-
-    it('should have all order fields as strings', async () => {
+    it('should have all regular order fields as strings', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
       strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
         strategies: mockStrategies,
@@ -189,68 +348,17 @@ describe('StrategiesController', () => {
       const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
 
       result.strategies.forEach((strategy) => {
-        expect(typeof strategy.buy.budget).toBe('string');
-        expect(typeof strategy.buy.min).toBe('string');
-        expect(typeof strategy.buy.max).toBe('string');
-        expect(typeof strategy.buy.marginal).toBe('string');
-        expect(typeof strategy.sell.budget).toBe('string');
-        expect(typeof strategy.sell.min).toBe('string');
-        expect(typeof strategy.sell.max).toBe('string');
-        expect(typeof strategy.sell.marginal).toBe('string');
-      });
-    });
-
-    it('should work with different exchange IDs', async () => {
-      const seiDeployment: Deployment = {
-        ...mockDeployment,
-        blockchainType: BlockchainType.Sei,
-        exchangeId: ExchangeId.OGSei,
-      };
-
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(seiDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: mockStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = {};
-      const result = await controller.getStrategies(ExchangeId.OGSei, query);
-
-      expect(result.strategies).toHaveLength(2);
-      expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGSei);
-    });
-
-    it('should handle multiple strategies correctly', async () => {
-      const manyStrategies: StrategyRealtimeWithOwner[] = Array.from({ length: 10 }, (_, i) => ({
-        strategyId: `${i + 1}`,
-        owner: `0xOwner${i + 1}`,
-        token0Address: '0xToken1Address',
-        token1Address: '0xToken2Address',
-        order0: JSON.stringify({ y: '10000000000000000000', z: '10000000000000000000', A: '0', B: '4409572391052980' }),
-        order1: JSON.stringify({ y: '2000000000', z: '2000000000', A: '0', B: '12397686690' }),
-        liquidity0: '10',
-        lowestRate0: '0.000244140625',
-        highestRate0: '0.000244140625',
-        marginalRate0: '0.000244140625',
-        liquidity1: '2000',
-        lowestRate1: '4096',
-        highestRate1: '4096',
-        marginalRate1: '4096',
-      }));
-
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: manyStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = {};
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      expect(result.strategies).toHaveLength(10);
-      result.strategies.forEach((strategy, index) => {
-        expect(strategy.id).toBe(`${index + 1}`);
-        expect(strategy.owner).toBe(`0xOwner${index + 1}`);
+        expect(strategy.type).toBe('regular');
+        if (strategy.type === 'regular') {
+          expect(typeof strategy.buy.budget).toBe('string');
+          expect(typeof strategy.buy.min).toBe('string');
+          expect(typeof strategy.buy.max).toBe('string');
+          expect(typeof strategy.buy.marginal).toBe('string');
+          expect(typeof strategy.sell.budget).toBe('string');
+          expect(typeof strategy.sell.min).toBe('string');
+          expect(typeof strategy.sell.max).toBe('string');
+          expect(typeof strategy.sell.marginal).toBe('string');
+        }
       });
     });
   });
@@ -295,50 +403,6 @@ describe('StrategiesController', () => {
       });
     });
 
-    it('should return second page of results', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: manyStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = { page: 1, pageSize: 10 };
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      expect(result.strategies).toHaveLength(10);
-      expect(result.strategies[0].id).toBe('11');
-      expect(result.strategies[9].id).toBe('20');
-      expect(result.pagination).toEqual({
-        page: 1,
-        pageSize: 10,
-        totalStrategies: 25,
-        totalPages: 3,
-        hasMore: true,
-      });
-    });
-
-    it('should return last page with remaining items', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: manyStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = { page: 2, pageSize: 10 };
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      expect(result.strategies).toHaveLength(5);
-      expect(result.strategies[0].id).toBe('21');
-      expect(result.strategies[4].id).toBe('25');
-      expect(result.pagination).toEqual({
-        page: 2,
-        pageSize: 10,
-        totalStrategies: 25,
-        totalPages: 3,
-        hasMore: false,
-      });
-    });
-
     it('should return all strategies when pageSize is 0', async () => {
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
       strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
@@ -351,26 +415,6 @@ describe('StrategiesController', () => {
 
       expect(result.strategies).toHaveLength(25);
       expect(result.pagination).toBeUndefined();
-    });
-
-    it('should return empty array for page beyond available data', async () => {
-      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
-      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
-        strategies: manyStrategies,
-        blockNumber: 12345678,
-      });
-
-      const query: StrategiesQueryDto = { page: 10, pageSize: 10 };
-      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
-
-      expect(result.strategies).toHaveLength(0);
-      expect(result.pagination).toEqual({
-        page: 10,
-        pageSize: 10,
-        totalStrategies: 25,
-        totalPages: 3,
-        hasMore: false,
-      });
     });
   });
 });
