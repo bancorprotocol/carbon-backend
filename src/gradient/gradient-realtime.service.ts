@@ -104,7 +104,8 @@ export class GradientRealtimeService {
     let lastBlockNumber = 0;
 
     try {
-      const pairs: [string, string][] = await gradientController.methods.pairs().call();
+      const rawPairs = await gradientController.methods.pairs(0, 10000).call();
+      const pairs: [string, string][] = Array.from(rawPairs).map((p: any) => [p[0] || p.token0, p[1] || p.token1]);
       this.logger.log(`[Gradient] Found ${pairs.length} pairs for ${deployment.exchangeId}`);
 
       if (pairs.length === 0) {

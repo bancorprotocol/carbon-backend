@@ -10,6 +10,8 @@ import { LastProcessedBlockService } from '../last-processed-block/last-processe
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
+import { GradientPairTradingFeePPMEventService } from '../gradient/events/gradient-pair-trading-fee-ppm-event.service';
+import { GradientTradingFeePPMEventService } from '../gradient/events/gradient-trading-fee-ppm-event.service';
 import * as _ from 'lodash';
 import { Deployment } from '../deployment/deployment.service';
 
@@ -31,6 +33,8 @@ export class PairService {
     private pairCreatedEventService: PairCreatedEventService,
     private pairTradingFeePpmService: PairTradingFeePpmUpdatedEventService,
     private tradingFeePpmService: TradingFeePpmUpdatedEventService,
+    private gradientPairTradingFeePpmService: GradientPairTradingFeePPMEventService,
+    private gradientTradingFeePpmService: GradientTradingFeePPMEventService,
   ) {}
 
   async update(endBlock: number, tokens: TokensByAddress, deployment: Deployment): Promise<void> {
@@ -55,11 +59,21 @@ export class PairService {
 
   async createFromEvents(events: PairCreatedEvent[], tokens: TokensByAddress, deployment: Deployment) {
     const pairs = [];
-    events.forEach((e) => {
+    for (const e of events) {
       if (!tokens[e.token1] || !tokens[e.token0]) {
         this.logger.warn('Token not found', e.token1, e.token0);
-        return;
+        continue;
       }
+
+      const existing = await this.pair.findOne({
+        where: {
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          token0: { id: tokens[e.token0].id },
+          token1: { id: tokens[e.token1].id },
+        },
+      });
+      if (existing) continue;
 
       pairs.push(
         this.pair.create({
@@ -67,13 +81,15 @@ export class PairService {
           token1: tokens[e.token1],
           name: `${tokens[e.token0].symbol}_${tokens[e.token1].symbol}`,
           block: e.block,
-          blockchainType: deployment.blockchainType, // Include blockchainType
-          exchangeId: deployment.exchangeId, // Include exchangeId
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
         }),
       );
-    });
+    }
 
-    await this.pair.save(pairs);
+    if (pairs.length > 0) {
+      await this.pair.save(pairs);
+    }
   }
 
   async getSymbols(addresses: string[], deployment: Deployment): Promise<string[]> {
@@ -132,14 +148,24 @@ export class PairService {
   }
 
   async getTradingFeesByPair(deployment: Deployment): Promise<{ [pairKey: string]: number }> {
-    // Get default trading fee
     const defaultFeeEvent = await this.tradingFeePpmService.last(deployment);
+    const gradientDefaultFeeEvent = await this.gradientTradingFeePpmService.last(deployment);
     const defaultFee = defaultFeeEvent ? defaultFeeEvent.newFeePPM : 0;
+    const gradientDefaultFee = gradientDefaultFeeEvent ? gradientDefaultFeeEvent.newFeePPM : defaultFee;
 
-    // Get pair-specific fees
-    const pairFees = await this.pairTradingFeePpmService.allAsDictionary(deployment);
+    const rawPairFees = await this.pairTradingFeePpmService.allAsDictionary(deployment);
+    const gradientPairFees = await this.gradientPairTradingFeePpmService.allAsDictionary(deployment);
 
-    // Get all pairs and create result map
+    // Normalize regular pair fees to lowercase keys for consistent lookup
+    const pairFees: { [addr: string]: { [addr: string]: number } } = {};
+    for (const [k1, v1] of Object.entries(rawPairFees)) {
+      const lk1 = k1.toLowerCase();
+      if (!pairFees[lk1]) pairFees[lk1] = {};
+      for (const [k2, v2] of Object.entries(v1 as any)) {
+        pairFees[lk1][k2.toLowerCase()] = v2 as number;
+      }
+    }
+
     const query = `
       SELECT
         t0.address as token0_address,
@@ -157,12 +183,28 @@ export class PairService {
     const result: { [pairKey: string]: number } = {};
 
     for (const pair of pairs) {
-      const [sortedToken0, sortedToken1] = [pair.token0_address, pair.token1_address].sort((a, b) =>
-        a.localeCompare(b),
-      );
+      const t0 = pair.token0_address?.toLowerCase();
+      const t1 = pair.token1_address?.toLowerCase();
+      if (!t0 || !t1) continue;
+
+      const [sortedToken0, sortedToken1] = [t0, t1].sort((a, b) => a.localeCompare(b));
       const pairKey = `${sortedToken0}_${sortedToken1}`;
-      const pairFee = pairFees[pair.pair_id];
-      result[pairKey] = pairFee !== undefined ? pairFee : defaultFee;
+
+      const regularPairFee = pairFees[t0]?.[t1] ?? pairFees[t1]?.[t0];
+      const gradientPairFee = gradientPairFees[t0]?.[t1] ?? gradientPairFees[t1]?.[t0];
+      const fee = regularPairFee ?? gradientPairFee ?? defaultFee;
+      result[pairKey] = fee;
+    }
+
+    // Include gradient-only pairs that may not be in the regular pairs table
+    for (const t0 of Object.keys(gradientPairFees)) {
+      for (const t1 of Object.keys(gradientPairFees[t0])) {
+        const [sortedToken0, sortedToken1] = [t0, t1].sort((a, b) => a.localeCompare(b));
+        const pairKey = `${sortedToken0}_${sortedToken1}`;
+        if (!(pairKey in result)) {
+          result[pairKey] = gradientPairFees[t0][t1];
+        }
+      }
     }
 
     return result;

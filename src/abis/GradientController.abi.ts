@@ -7,7 +7,10 @@
  */
 export const GradientController: any[] = [
   {
-    inputs: [],
+    inputs: [
+      { internalType: 'uint128', name: 'startIndex', type: 'uint128' },
+      { internalType: 'uint128', name: 'endIndex', type: 'uint128' },
+    ],
     name: 'pairs',
     outputs: [
       {
@@ -72,10 +75,10 @@ export const GradientController: any[] = [
   {
     anonymous: false,
     inputs: [
-      { indexed: true, internalType: 'uint256', name: 'id', type: 'uint256' },
+      { indexed: false, internalType: 'uint256', name: 'id', type: 'uint256' },
       { indexed: true, internalType: 'address', name: 'owner', type: 'address' },
-      { indexed: false, internalType: 'address', name: 'token0', type: 'address' },
-      { indexed: false, internalType: 'address', name: 'token1', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token0', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token1', type: 'address' },
       {
         components: [
           { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
@@ -106,6 +109,119 @@ export const GradientController: any[] = [
       },
     ],
     name: 'StrategyCreated',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint256', name: 'id', type: 'uint256' },
+      { indexed: true, internalType: 'address', name: 'token0', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token1', type: 'address' },
+      {
+        components: [
+          { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+          { internalType: 'uint64', name: 'initialPrice', type: 'uint64' },
+          { internalType: 'uint32', name: 'tradingStartTime', type: 'uint32' },
+          { internalType: 'uint32', name: 'expiry', type: 'uint32' },
+          { internalType: 'uint32', name: 'multiFactor', type: 'uint32' },
+          { internalType: 'uint8', name: 'gradientType', type: 'uint8' },
+        ],
+        indexed: false,
+        internalType: 'struct Order',
+        name: 'order0',
+        type: 'tuple',
+      },
+      {
+        components: [
+          { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+          { internalType: 'uint64', name: 'initialPrice', type: 'uint64' },
+          { internalType: 'uint32', name: 'tradingStartTime', type: 'uint32' },
+          { internalType: 'uint32', name: 'expiry', type: 'uint32' },
+          { internalType: 'uint32', name: 'multiFactor', type: 'uint32' },
+          { internalType: 'uint8', name: 'gradientType', type: 'uint8' },
+        ],
+        indexed: false,
+        internalType: 'struct Order',
+        name: 'order1',
+        type: 'tuple',
+      },
+    ],
+    name: 'StrategyUpdated',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: false, internalType: 'uint256', name: 'id', type: 'uint256' },
+      { indexed: true, internalType: 'address', name: 'owner', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token0', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token1', type: 'address' },
+      {
+        components: [
+          { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+          { internalType: 'uint64', name: 'initialPrice', type: 'uint64' },
+          { internalType: 'uint32', name: 'tradingStartTime', type: 'uint32' },
+          { internalType: 'uint32', name: 'expiry', type: 'uint32' },
+          { internalType: 'uint32', name: 'multiFactor', type: 'uint32' },
+          { internalType: 'uint8', name: 'gradientType', type: 'uint8' },
+        ],
+        indexed: false,
+        internalType: 'struct Order',
+        name: 'order0',
+        type: 'tuple',
+      },
+      {
+        components: [
+          { internalType: 'uint128', name: 'liquidity', type: 'uint128' },
+          { internalType: 'uint64', name: 'initialPrice', type: 'uint64' },
+          { internalType: 'uint32', name: 'tradingStartTime', type: 'uint32' },
+          { internalType: 'uint32', name: 'expiry', type: 'uint32' },
+          { internalType: 'uint32', name: 'multiFactor', type: 'uint32' },
+          { internalType: 'uint8', name: 'gradientType', type: 'uint8' },
+        ],
+        indexed: false,
+        internalType: 'struct Order',
+        name: 'order1',
+        type: 'tuple',
+      },
+    ],
+    name: 'StrategyDeleted',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'address', name: 'trader', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'sourceToken', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'targetToken', type: 'address' },
+      { indexed: false, internalType: 'uint256', name: 'sourceAmount', type: 'uint256' },
+      { indexed: false, internalType: 'uint256', name: 'targetAmount', type: 'uint256' },
+      { indexed: false, internalType: 'uint128', name: 'tradingFeeAmount', type: 'uint128' },
+      { indexed: false, internalType: 'bool', name: 'byTargetAmount', type: 'bool' },
+    ],
+    name: 'TokensTraded',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint128', name: 'pairId', type: 'uint128' },
+      { indexed: true, internalType: 'address', name: 'token0', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token1', type: 'address' },
+    ],
+    name: 'PairCreated',
+    type: 'event',
+  },
+  {
+    anonymous: false,
+    inputs: [
+      { indexed: true, internalType: 'uint256', name: 'id', type: 'uint256' },
+      { indexed: true, internalType: 'address', name: 'token0', type: 'address' },
+      { indexed: true, internalType: 'address', name: 'token1', type: 'address' },
+      { indexed: false, internalType: 'uint128', name: 'liquidity0', type: 'uint128' },
+      { indexed: false, internalType: 'uint128', name: 'liquidity1', type: 'uint128' },
+    ],
+    name: 'StrategyLiquidityUpdated',
     type: 'event',
   },
   {

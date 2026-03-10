@@ -34,9 +34,8 @@ const GRADIENT_TYPE_NAMES = [
 const TOKEN0 = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'; // USDC
 const TOKEN1 = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'; // WETH
 const OWNER = '0x0000000000000000000000000000000000GRAD01';
-const BLOCK_NUMBER = 20000000;
+const BLOCK_NUMBER = 24571200;
 
-// From carbon-gradients-contracts/test/helpers/data/tradeTestData.json
 const STRATEGIES = [
   { gradientType: '0', order0Liq: '45600000000000000000000', order1Liq: '12300000000000000000000' },
   { gradientType: '1', order0Liq: '45600000000000000000000', order1Liq: '12300000000000000000000' },
@@ -61,17 +60,54 @@ const COMMON_ORDER1 = {
 };
 
 function strategyId(index: number): string {
-  // Gradient strategy IDs have MSB set (bit 255)
   return `1157920892373161954235709850086879078532699846656405640394575840079131296399${37 + index}`;
+}
+
+async function lookupTokenAndPairIds(client: Client): Promise<{ token0Id: number | null; token1Id: number | null; pairId: number | null }> {
+  const t0Res = await client.query(
+    `SELECT id FROM tokens WHERE LOWER(address) = LOWER($1) AND "exchangeId" = $2 LIMIT 1`,
+    [TOKEN0, EXCHANGE_ID],
+  );
+  const t1Res = await client.query(
+    `SELECT id FROM tokens WHERE LOWER(address) = LOWER($1) AND "exchangeId" = $2 LIMIT 1`,
+    [TOKEN1, EXCHANGE_ID],
+  );
+  const token0Id = t0Res.rows[0]?.id || null;
+  const token1Id = t1Res.rows[0]?.id || null;
+
+  let pairId: number | null = null;
+  if (token0Id && token1Id) {
+    const pRes = await client.query(
+      `SELECT id FROM pairs WHERE "token0Id" = $1 AND "token1Id" = $2 AND "exchangeId" = $3 LIMIT 1`,
+      [token0Id, token1Id, EXCHANGE_ID],
+    );
+    if (pRes.rows.length === 0) {
+      const pRes2 = await client.query(
+        `SELECT id FROM pairs WHERE "token0Id" = $1 AND "token1Id" = $2 AND "exchangeId" = $3 LIMIT 1`,
+        [token1Id, token0Id, EXCHANGE_ID],
+      );
+      pairId = pRes2.rows[0]?.id || null;
+    } else {
+      pairId = pRes.rows[0].id;
+    }
+  }
+
+  console.log(`  Resolved token0Id=${token0Id}, token1Id=${token1Id}, pairId=${pairId}`);
+  return { token0Id, token1Id, pairId };
 }
 
 async function clean(client: Client) {
   console.log('Cleaning existing gradient test data...');
 
   for (const table of [
+    'gradient_strategies',
     'gradient_strategy_realtime',
     'gradient_strategy_created_events',
     'gradient_strategy_updated_events',
+    'gradient_strategy_deleted_events',
+    'gradient_strategy_liquidity_updated_events',
+    'gradient_trading_fee_ppm_events',
+    'gradient_pair_trading_fee_ppm_events',
   ]) {
     await client.query(`DELETE FROM "${table}" WHERE "blockchainType" = $1 AND "exchangeId" = $2`, [
       BLOCKCHAIN_TYPE,
@@ -125,7 +161,7 @@ async function seedRealtimeStrategies(client: Client) {
   }
 }
 
-async function seedCreatedEvents(client: Client) {
+async function seedCreatedEvents(client: Client, token0Id: number | null, token1Id: number | null, pairId: number | null) {
   console.log('Seeding gradient_strategy_created_events...');
 
   for (let i = 0; i < STRATEGIES.length; i++) {
@@ -135,17 +171,17 @@ async function seedCreatedEvents(client: Client) {
 
     await client.query(
       `INSERT INTO "gradient_strategy_created_events"
-        ("blockchainType", "exchangeId", "strategyId", "blockNumber",
+        ("blockchainType", "exchangeId", "strategyId", "blockId",
          "transactionHash", "transactionIndex", "logIndex",
-         "token0", "token1", "owner",
+         "token0Id", "token1Id", "pairId", "owner",
          "order0Liquidity", "order0InitialPrice", "order0TradingStartTime", "order0Expiry", "order0MultiFactor", "order0GradientType",
          "order1Liquidity", "order1InitialPrice", "order1TradingStartTime", "order1Expiry", "order1MultiFactor", "order1GradientType")
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
-       ON CONFLICT ("blockchainType","exchangeId","transactionHash","logIndex") DO NOTHING`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+       ON CONFLICT ("transactionIndex","transactionHash","logIndex") DO NOTHING`,
       [
         BLOCKCHAIN_TYPE, EXCHANGE_ID, id, BLOCK_NUMBER,
         txHash, i, i,
-        TOKEN0, TOKEN1, OWNER,
+        token0Id, token1Id, pairId, OWNER,
         s.order0Liq, COMMON_ORDER.initialRate, COMMON_ORDER.tradingStartTime, COMMON_ORDER.expiry, COMMON_ORDER.multiFactor, s.gradientType,
         s.order1Liq, COMMON_ORDER1.initialRate, COMMON_ORDER1.tradingStartTime, COMMON_ORDER1.expiry, COMMON_ORDER1.multiFactor, s.gradientType,
       ],
@@ -153,28 +189,61 @@ async function seedCreatedEvents(client: Client) {
   }
 }
 
-async function seedUpdatedEvents(client: Client) {
-  console.log('Seeding gradient_strategy_updated_events (simulated trades)...');
+async function seedGradientStrategies(client: Client) {
+  console.log('Seeding gradient_strategies...');
 
-  // Simulate 2 trade events per strategy
+  for (let i = 0; i < STRATEGIES.length; i++) {
+    const s = STRATEGIES[i];
+    const id = strategyId(i);
+
+    await client.query(
+      `INSERT INTO "gradient_strategies"
+        ("blockchainType", "exchangeId", "strategyId", "token0", "token1", "owner",
+         "order0Liquidity", "order0InitialPrice", "order0TradingStartTime", "order0Expiry", "order0MultiFactor", "order0GradientType",
+         "order1Liquidity", "order1InitialPrice", "order1TradingStartTime", "order1Expiry", "order1MultiFactor", "order1GradientType",
+         "blockNumber", "deleted")
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+       ON CONFLICT ("blockchainType","exchangeId","strategyId") DO UPDATE SET
+         "order0Liquidity"=EXCLUDED."order0Liquidity",
+         "order0GradientType"=EXCLUDED."order0GradientType",
+         "order1Liquidity"=EXCLUDED."order1Liquidity",
+         "order1GradientType"=EXCLUDED."order1GradientType",
+         "deleted"=false`,
+      [
+        BLOCKCHAIN_TYPE, EXCHANGE_ID, id, TOKEN0, TOKEN1, OWNER,
+        s.order0Liq, COMMON_ORDER.initialRate, COMMON_ORDER.tradingStartTime, COMMON_ORDER.expiry, COMMON_ORDER.multiFactor, s.gradientType,
+        s.order1Liq, COMMON_ORDER1.initialRate, COMMON_ORDER1.tradingStartTime, COMMON_ORDER1.expiry, COMMON_ORDER1.multiFactor, s.gradientType,
+        BLOCK_NUMBER, false,
+      ],
+    );
+  }
+
+  console.log('  6 gradient strategies inserted');
+}
+
+async function seedUpdatedEvents(client: Client, token0Id: number | null, token1Id: number | null, pairId: number | null) {
+  console.log('Seeding gradient_strategy_updated_events (manual edits)...');
+
   for (let i = 0; i < STRATEGIES.length; i++) {
     const s = STRATEGIES[i];
     const id = strategyId(i);
 
     for (let t = 0; t < 2; t++) {
-      const txHash = `0x${'gradient_trade_'.padEnd(62, `${i}${t}`)}`;
+      const txHash = `0x${'gradient_edit_'.padEnd(62, `${i}${t}`)}`;
 
       await client.query(
         `INSERT INTO "gradient_strategy_updated_events"
-          ("blockchainType", "exchangeId", "strategyId", "blockNumber",
+          ("blockchainType", "exchangeId", "strategyId", "blockId",
            "transactionHash", "transactionIndex", "logIndex",
+           "token0Id", "token1Id", "pairId",
            "order0Liquidity", "order0InitialPrice", "order0TradingStartTime", "order0Expiry", "order0MultiFactor", "order0GradientType",
            "order1Liquidity", "order1InitialPrice", "order1TradingStartTime", "order1Expiry", "order1MultiFactor", "order1GradientType")
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-         ON CONFLICT ("blockchainType","exchangeId","transactionHash","logIndex") DO NOTHING`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)
+         ON CONFLICT ("transactionIndex","transactionHash","logIndex") DO NOTHING`,
         [
           BLOCKCHAIN_TYPE, EXCHANGE_ID, id, BLOCK_NUMBER + t + 1,
           txHash, i, t,
+          token0Id, token1Id, pairId,
           s.order0Liq, COMMON_ORDER.initialRate, COMMON_ORDER.tradingStartTime, COMMON_ORDER.expiry, COMMON_ORDER.multiFactor, s.gradientType,
           s.order1Liq, COMMON_ORDER1.initialRate, COMMON_ORDER1.tradingStartTime, COMMON_ORDER1.expiry, COMMON_ORDER1.multiFactor, s.gradientType,
         ],
@@ -183,10 +252,42 @@ async function seedUpdatedEvents(client: Client) {
   }
 }
 
+async function seedLiquidityUpdatedEvents(client: Client, token0Id: number | null, token1Id: number | null, pairId: number | null) {
+  console.log('Seeding gradient_strategy_liquidity_updated_events (trade events)...');
+
+  const timestamp = new Date(Date.now() - 3600000);
+
+  for (let i = 0; i < STRATEGIES.length; i++) {
+    const s = STRATEGIES[i];
+    const id = strategyId(i);
+
+    for (let t = 0; t < 2; t++) {
+      const txHash = `0x${'gradient_liq_upd_'.padEnd(62, `${i}${t}`)}`;
+
+      await client.query(
+        `INSERT INTO "gradient_strategy_liquidity_updated_events"
+          ("blockchainType", "exchangeId", "strategyId", "blockId",
+           "transactionHash", "transactionIndex", "logIndex",
+           "timestamp", "token0Id", "token1Id", "pairId", "liquidity0", "liquidity1")
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT ("transactionIndex","transactionHash","logIndex") DO NOTHING`,
+        [
+          BLOCKCHAIN_TYPE, EXCHANGE_ID, id, BLOCK_NUMBER + t + 1,
+          txHash, i, t,
+          new Date(timestamp.getTime() + (t + 1) * 60000),
+          token0Id, token1Id, pairId, s.order0Liq, s.order1Liq,
+        ],
+      );
+    }
+  }
+
+  console.log('  12 liquidity updated events inserted (2 per strategy)');
+}
+
 async function seedActivities(client: Client) {
   console.log('Seeding activities-v2 for gradient strategies...');
 
-  const timestamp = new Date('2024-10-30T12:00:00Z');
+  const timestamp = new Date(Date.now() - 3600000);
 
   for (let i = 0; i < STRATEGIES.length; i++) {
     const id = strategyId(i);
@@ -232,7 +333,7 @@ async function seedActivities(client: Client) {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28)
        ON CONFLICT DO NOTHING`,
       [
-        BLOCKCHAIN_TYPE, EXCHANGE_ID, id, OWNER, 'token_sell_executed',
+        BLOCKCHAIN_TYPE, EXCHANGE_ID, id, OWNER, 'sell_high',
         'USDC/WETH', 'USDC', TOKEN0,
         'WETH', TOKEN1,
         '12200', '45500000000000000',
@@ -245,7 +346,7 @@ async function seedActivities(client: Client) {
     );
   }
 
-  console.log('  6 strategy_created + 2 token_sell_executed activities inserted');
+  console.log('  6 strategy_created + 2 sell_high activities inserted');
 }
 
 async function seedDexScreenerEvents(client: Client) {
@@ -288,7 +389,7 @@ async function seedDexScreenerEvents(client: Client) {
 
   console.log(`  Using pairId=${pairId}`);
 
-  const blockTimestamp = new Date('2024-10-30T12:00:00Z');
+  const blockTimestamp = new Date(Date.now() - 3600000);
 
   for (let i = 0; i < 2; i++) {
     const txnId = `0x${'grad_dex_join_'.padEnd(64, i.toString())}`;
@@ -343,9 +444,13 @@ async function main() {
       await clean(client);
     }
 
+    const { token0Id, token1Id, pairId } = await lookupTokenAndPairIds(client);
+
     await seedRealtimeStrategies(client);
-    await seedCreatedEvents(client);
-    await seedUpdatedEvents(client);
+    await seedCreatedEvents(client, token0Id, token1Id, pairId);
+    await seedGradientStrategies(client);
+    await seedUpdatedEvents(client, token0Id, token1Id, pairId);
+    await seedLiquidityUpdatedEvents(client, token0Id, token1Id, pairId);
     await seedActivities(client);
     await seedDexScreenerEvents(client);
 
@@ -361,6 +466,10 @@ async function main() {
       `SELECT COUNT(*) FROM "gradient_strategy_updated_events" WHERE "blockchainType"=$1 AND "exchangeId"=$2`,
       [BLOCKCHAIN_TYPE, EXCHANGE_ID],
     );
+    const liqUpdatedCount = await client.query(
+      `SELECT COUNT(*) FROM "gradient_strategy_liquidity_updated_events" WHERE "blockchainType"=$1 AND "exchangeId"=$2`,
+      [BLOCKCHAIN_TYPE, EXCHANGE_ID],
+    );
     const activityCount = await client.query(
       `SELECT COUNT(*) FROM "activities-v2" WHERE "blockchainType"=$1 AND "exchangeId"=$2 AND "currentOwner"=$3`,
       [BLOCKCHAIN_TYPE, EXCHANGE_ID, OWNER],
@@ -371,11 +480,12 @@ async function main() {
     );
 
     console.log('\nSeed complete:');
-    console.log(`  gradient_strategy_realtime:       ${rtCount.rows[0].count} strategies`);
-    console.log(`  gradient_strategy_created_events:  ${createdCount.rows[0].count} events`);
-    console.log(`  gradient_strategy_updated_events:  ${updatedCount.rows[0].count} events`);
-    console.log(`  activities-v2 (gradient):          ${activityCount.rows[0].count} activities`);
-    console.log(`  dex-screener-events-v2 (gradient): ${dexEventCount.rows[0].count} events`);
+    console.log(`  gradient_strategy_realtime:                  ${rtCount.rows[0].count} strategies`);
+    console.log(`  gradient_strategy_created_events:            ${createdCount.rows[0].count} events`);
+    console.log(`  gradient_strategy_updated_events:            ${updatedCount.rows[0].count} events (edits)`);
+    console.log(`  gradient_strategy_liquidity_updated_events:  ${liqUpdatedCount.rows[0].count} events (trades)`);
+    console.log(`  activities-v2 (gradient):                    ${activityCount.rows[0].count} activities`);
+    console.log(`  dex-screener-events-v2 (gradient):           ${dexEventCount.rows[0].count} events`);
     console.log(`\nGradient types covered: ${GRADIENT_TYPE_NAMES.join(', ')}`);
     console.log(`Token pair: ${TOKEN0} / ${TOKEN1}`);
     console.log('\nStart the server with SHOULD_HARVEST=0 and run gradient-test-verify.ts');

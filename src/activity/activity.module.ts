@@ -7,6 +7,7 @@ import { StrategyCreatedEventModule } from '../events/strategy-created-event/str
 import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/strategy-updated-event.module';
 import { StrategyDeletedEventModule } from '../events/strategy-deleted-event/strategy-deleted-event.module';
 import { VoucherTransferEventModule } from '../events/voucher-transfer-event/voucher-transfer-event.module';
+import { GradientModule } from '../gradient/gradient.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([ActivityV2]),
@@ -15,6 +16,7 @@ import { VoucherTransferEventModule } from '../events/voucher-transfer-event/vou
     StrategyUpdatedEventModule,
     StrategyDeletedEventModule,
     VoucherTransferEventModule,
+    GradientModule,
   ],
   providers: [ActivityV2Service],
   exports: [ActivityV2Service],

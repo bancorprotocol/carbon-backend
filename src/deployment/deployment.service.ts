@@ -142,6 +142,9 @@ export class DeploymentService {
           GradientController: {
             address: this.configService.get('ETHEREUM_GRADIENT_CONTROLLER_ADDRESS') || '',
           },
+          GradientVoucher: {
+            address: this.configService.get('ETHEREUM_GRADIENT_VOUCHER_ADDRESS') || '',
+          },
         },
         gradientTimestampOffset: 60,
         notifications: {

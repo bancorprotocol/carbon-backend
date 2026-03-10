@@ -8,6 +8,8 @@ import { LastProcessedBlockService } from '../last-processed-block/last-processe
 import { PairCreatedEventService } from '../events/pair-created-event/pair-created-event.service';
 import { PairTradingFeePpmUpdatedEventService } from '../events/pair-trading-fee-ppm-updated-event/pair-trading-fee-ppm-updated-event.service';
 import { TradingFeePpmUpdatedEventService } from '../events/trading-fee-ppm-updated-event/trading-fee-ppm-updated-event.service';
+import { GradientPairTradingFeePPMEventService } from '../gradient/events/gradient-pair-trading-fee-ppm-event.service';
+import { GradientTradingFeePPMEventService } from '../gradient/events/gradient-trading-fee-ppm-event.service';
 import { BlockchainType, ExchangeId, Deployment } from '../deployment/deployment.service';
 import { PairCreatedEvent } from '../events/pair-created-event/pair-created-event.entity';
 import { TokensByAddress } from '../token/token.service';
@@ -115,6 +117,18 @@ describe('PairService', () => {
             last: jest.fn(),
           },
         },
+        {
+          provide: GradientPairTradingFeePPMEventService,
+          useValue: {
+            allAsDictionary: jest.fn().mockResolvedValue({}),
+          },
+        },
+        {
+          provide: GradientTradingFeePPMEventService,
+          useValue: {
+            last: jest.fn().mockResolvedValue(null),
+          },
+        },
       ],
     }).compile();
 
@@ -144,6 +158,7 @@ describe('PairService', () => {
         block: mockBlock,
       };
 
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
@@ -165,15 +180,15 @@ describe('PairService', () => {
 
       const tokens: TokensByAddress = {
         '0xtoken1': mockToken1,
-        // token0 is missing
       };
 
       const mockEvent: Partial<PairCreatedEvent> = {
-        token0: '0xtoken0', // This token doesn't exist
+        token0: '0xtoken0',
         token1: '0xtoken1',
         block: mockBlock,
       };
 
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
@@ -181,7 +196,6 @@ describe('PairService', () => {
 
       expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken1', '0xtoken0');
       expect(pairRepository.create).not.toHaveBeenCalled();
-      expect(pairRepository.save).toHaveBeenCalledWith([]);
 
       loggerWarnSpy.mockRestore();
     });
@@ -191,32 +205,6 @@ describe('PairService', () => {
 
       const tokens: TokensByAddress = {
         '0xtoken0': mockToken0,
-        // token1 is missing
-      };
-
-      const mockEvent: Partial<PairCreatedEvent> = {
-        token0: '0xtoken0',
-        token1: '0xtoken1', // This token doesn't exist
-        block: mockBlock,
-      };
-
-      jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
-      jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
-
-      await service.createFromEvents([mockEvent as PairCreatedEvent], tokens, mockDeployment);
-
-      expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken1', '0xtoken0');
-      expect(pairRepository.create).not.toHaveBeenCalled();
-      expect(pairRepository.save).toHaveBeenCalledWith([]);
-
-      loggerWarnSpy.mockRestore();
-    });
-
-    it('should skip pair creation when both tokens do not exist', async () => {
-      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
-
-      const tokens: TokensByAddress = {
-        // Both tokens missing
       };
 
       const mockEvent: Partial<PairCreatedEvent> = {
@@ -225,6 +213,7 @@ describe('PairService', () => {
         block: mockBlock,
       };
 
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
@@ -232,7 +221,31 @@ describe('PairService', () => {
 
       expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken1', '0xtoken0');
       expect(pairRepository.create).not.toHaveBeenCalled();
-      expect(pairRepository.save).toHaveBeenCalledWith([]);
+      expect(pairRepository.save).not.toHaveBeenCalled();
+
+      loggerWarnSpy.mockRestore();
+    });
+
+    it('should skip pair creation when both tokens do not exist', async () => {
+      const loggerWarnSpy = jest.spyOn(service['logger'], 'warn').mockImplementation();
+
+      const tokens: TokensByAddress = {};
+
+      const mockEvent: Partial<PairCreatedEvent> = {
+        token0: '0xtoken0',
+        token1: '0xtoken1',
+        block: mockBlock,
+      };
+
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
+      jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
+      jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
+
+      await service.createFromEvents([mockEvent as PairCreatedEvent], tokens, mockDeployment);
+
+      expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken1', '0xtoken0');
+      expect(pairRepository.create).not.toHaveBeenCalled();
+      expect(pairRepository.save).not.toHaveBeenCalled();
 
       loggerWarnSpy.mockRestore();
     });
@@ -277,6 +290,7 @@ describe('PairService', () => {
         block: mockBlock,
       };
 
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
@@ -286,10 +300,8 @@ describe('PairService', () => {
         mockDeployment,
       );
 
-      // Should log for the invalid event
       expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken3', '0xtoken2');
 
-      // Should create pairs only for valid events
       expect(pairRepository.create).toHaveBeenCalledTimes(2);
       expect(pairRepository.save).toHaveBeenCalled();
 
@@ -302,13 +314,14 @@ describe('PairService', () => {
         '0xtoken1': mockToken1,
       };
 
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
       await service.createFromEvents([], tokens, mockDeployment);
 
       expect(pairRepository.create).not.toHaveBeenCalled();
-      expect(pairRepository.save).toHaveBeenCalledWith([]);
+      expect(pairRepository.save).not.toHaveBeenCalled();
     });
   });
 
@@ -329,6 +342,7 @@ describe('PairService', () => {
       };
 
       jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([mockEvent as PairCreatedEvent]);
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
@@ -345,7 +359,6 @@ describe('PairService', () => {
 
       const tokens: TokensByAddress = {
         '0xtoken0': mockToken0,
-        // token1 is missing
       };
 
       jest.spyOn(lastProcessedBlockService, 'getOrInit').mockResolvedValue(1000);
@@ -353,18 +366,19 @@ describe('PairService', () => {
 
       const mockEvent: Partial<PairCreatedEvent> = {
         token0: '0xtoken0',
-        token1: '0xtoken1', // This token doesn't exist
+        token1: '0xtoken1',
         block: { ...mockBlock, id: 1010 },
       };
 
       jest.spyOn(pairCreatedEventService, 'get').mockResolvedValue([mockEvent as PairCreatedEvent]);
+      jest.spyOn(pairRepository, 'findOne').mockResolvedValue(null);
       jest.spyOn(pairRepository, 'create').mockImplementation((entity) => entity as Pair);
       jest.spyOn(pairRepository, 'save').mockResolvedValue(undefined);
 
       await service.update(1100, tokens, mockDeployment);
 
       expect(loggerWarnSpy).toHaveBeenCalledWith('Token not found', '0xtoken1', '0xtoken0');
-      expect(pairRepository.save).toHaveBeenCalledWith([]);
+      expect(pairRepository.save).not.toHaveBeenCalled();
 
       loggerWarnSpy.mockRestore();
     });

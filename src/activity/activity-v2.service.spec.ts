@@ -8,6 +8,7 @@ import { StrategyCreatedEventService } from '../events/strategy-created-event/st
 import { StrategyUpdatedEventService } from '../events/strategy-updated-event/strategy-updated-event.service';
 import { StrategyDeletedEventService } from '../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
+import { GradientStrategyCreatedEventService } from '../gradient/events/gradient-strategy-created-event.service';
 import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
 import { TokensByAddress } from '../token/token.service';
 import { StrategyCreatedEvent } from '../events/strategy-created-event/strategy-created-event.entity';
@@ -194,6 +195,10 @@ describe('ActivityV2Service', () => {
         {
           provide: VoucherTransferEventService,
           useValue: { get: jest.fn() },
+        },
+        {
+          provide: GradientStrategyCreatedEventService,
+          useValue: { all: jest.fn().mockResolvedValue([]) },
         },
       ],
     }).compile();

@@ -128,7 +128,7 @@ export class AnalyticsService {
     SELECT (
         (SELECT COUNT(*) FROM "strategy-updated-events" WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1)
         +
-        (SELECT COUNT(*) FROM gradient_strategy_updated_events WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
+        (SELECT COUNT(*) FROM gradient_strategy_liquidity_updated_events WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
     ) AS number_trades
 ), latest_updated_block AS (
     SELECT MIN("last_processed_block"."block") AS last_block, MIN("updatedAt") AS last_timestamp 
@@ -191,7 +191,7 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
         SELECT 
           "strategyId" AS id, 
           COUNT(*) AS trade_count
-        FROM gradient_strategy_updated_events g
+        FROM gradient_strategy_liquidity_updated_events g
         WHERE "blockchainType" = '${deployment.blockchainType}'
         AND "exchangeId" = '${deployment.exchangeId}'
         GROUP BY "strategyId"
@@ -206,11 +206,11 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
   private async getTrending(deployment: Deployment): Promise<any> {
     const totalTradeCountQuery = this.strategy.query(`
       SELECT 
-          COUNT(*)::INT AS trade_count
-      FROM "strategy-updated-events"
-      WHERE "blockchainType" = '${deployment.blockchainType}'
-      AND "exchangeId" = '${deployment.exchangeId}'
-      AND "reason" = 1
+          (
+            (SELECT COUNT(*)::INT FROM "strategy-updated-events" WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}' AND "reason" = 1)
+            +
+            (SELECT COUNT(*)::INT FROM gradient_strategy_liquidity_updated_events WHERE "blockchainType" = '${deployment.blockchainType}' AND "exchangeId" = '${deployment.exchangeId}')
+          ) AS trade_count
     `);
 
     const tradeCountQuery = this.strategy.query(`
@@ -266,7 +266,26 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
           ON sc24.id = stc.id 
       AND sc24."blockchainType" = stc."blockchainType"
       AND sc24."exchangeId" = stc."exchangeId"
-      ORDER BY 2 DESC; 
+
+      UNION ALL
+
+      SELECT 
+          gslu."strategyId" AS id,
+          COUNT(gslu.*)::INT AS strategy_trades,
+          COUNT(CASE WHEN gslu."timestamp" >= NOW() - INTERVAL '24 HOURS' THEN 1 END)::INT AS strategy_trades_24h,
+          LOWER(COALESCE(t0.address, '')) AS token0,
+          LOWER(COALESCE(t1.address, '')) AS token1,
+          COALESCE(t0.symbol, '') AS symbol0,
+          COALESCE(t1.symbol, '') AS symbol1,
+          COALESCE(t0.symbol, '') || '/' || COALESCE(t1.symbol, '') AS pair_symbol,
+          COALESCE(t0.address, '') || '/' || COALESCE(t1.address, '') AS pair_addresses
+      FROM gradient_strategy_liquidity_updated_events gslu
+      LEFT JOIN tokens t0 ON t0.id = gslu."token0Id"
+      LEFT JOIN tokens t1 ON t1.id = gslu."token1Id"
+      WHERE gslu."blockchainType" = '${deployment.blockchainType}' AND gslu."exchangeId" = '${deployment.exchangeId}'
+      GROUP BY gslu."strategyId", t0.address, t1.address, t0.symbol, t1.symbol
+
+      ORDER BY strategy_trades DESC; 
     `);
 
     const pairCountQuery = this.strategy.query(`
@@ -322,7 +341,26 @@ FROM sum_liquidity sl, strategies_created sc, pairs_created pc, unique_traders u
           ON pc24.pair_id = p.pair_id
       AND pc24."blockchainType" = p."blockchainType"
       AND pc24."exchangeId" = p."exchangeId"
-      ORDER BY p.pair_trades DESC;
+
+      UNION ALL
+
+      SELECT 
+          NULL AS pair_id,
+          COUNT(gslu.*)::INT AS pair_trades,
+          COUNT(CASE WHEN gslu."timestamp" >= NOW() - INTERVAL '24 HOURS' THEN 1 END)::INT AS pair_trades_24h,
+          LOWER(COALESCE(t0.address, '')) AS token0,
+          LOWER(COALESCE(t1.address, '')) AS token1,
+          COALESCE(t0.symbol, '') AS symbol0,
+          COALESCE(t1.symbol, '') AS symbol1,
+          COALESCE(t0.symbol, '') || '/' || COALESCE(t1.symbol, '') AS pair_symbol,
+          COALESCE(t0.address, '') || '/' || COALESCE(t1.address, '') AS pair_addresses
+      FROM gradient_strategy_liquidity_updated_events gslu
+      LEFT JOIN tokens t0 ON t0.id = gslu."token0Id"
+      LEFT JOIN tokens t1 ON t1.id = gslu."token1Id"
+      WHERE gslu."blockchainType" = '${deployment.blockchainType}' AND gslu."exchangeId" = '${deployment.exchangeId}'
+      GROUP BY t0.address, t1.address, t0.symbol, t1.symbol
+
+      ORDER BY pair_trades DESC;
     `);
 
     const [totalTradeCount, tradeCount, pairCount] = await Promise.all([

@@ -30,6 +30,18 @@ import { HistoricQuoteService } from '../historic-quote/historic-quote.service';
 import { MerklProcessorService } from '../merkl/services/merkl-processor.service';
 import { StrategyRealtimeService } from '../strategy-realtime/strategy-realtime.service';
 import { GradientRealtimeService } from '../gradient/gradient-realtime.service';
+import { GradientStrategyCreatedEventService } from '../gradient/events/gradient-strategy-created-event.service';
+import { GradientStrategyUpdatedEventService } from '../gradient/events/gradient-strategy-updated-event.service';
+import { GradientStrategyDeletedEventService } from '../gradient/events/gradient-strategy-deleted-event.service';
+import { GradientPairCreatedEventService } from '../gradient/events/gradient-pair-created-event.service';
+import { GradientTokensTradedEventService } from '../gradient/events/gradient-tokens-traded-event.service';
+import { GradientTradingFeePPMEventService } from '../gradient/events/gradient-trading-fee-ppm-event.service';
+import { GradientPairTradingFeePPMEventService } from '../gradient/events/gradient-pair-trading-fee-ppm-event.service';
+import { GradientStrategyLiquidityUpdatedEventService } from '../gradient/events/gradient-strategy-liquidity-updated-event.service';
+import { GradientVoucherTransferEventService } from '../gradient/events/gradient-voucher-transfer-event.service';
+import { GradientActivityService } from '../gradient/gradient-activity.service';
+import { GradientDexScreenerService } from '../gradient/gradient-dex-screener.service';
+import { GradientStrategyService } from '../gradient/gradient-strategy.service';
 export const CARBON_IS_UPDATING = 'carbon:isUpdating';
 export const CARBON_IS_UPDATING_ANALYTICS = 'carbon:isUpdatingAnalytics';
 export const CARBON_IS_UPDATING_REALTIME = 'carbon:isUpdatingRealtime';
@@ -71,6 +83,18 @@ export class UpdaterService {
     private merklProcessorService: MerklProcessorService,
     private strategyRealtimeService: StrategyRealtimeService,
     private gradientRealtimeService: GradientRealtimeService,
+    private gradientStrategyCreatedEventService: GradientStrategyCreatedEventService,
+    private gradientStrategyUpdatedEventService: GradientStrategyUpdatedEventService,
+    private gradientStrategyDeletedEventService: GradientStrategyDeletedEventService,
+    private gradientPairCreatedEventService: GradientPairCreatedEventService,
+    private gradientTokensTradedEventService: GradientTokensTradedEventService,
+    private gradientTradingFeePPMEventService: GradientTradingFeePPMEventService,
+    private gradientPairTradingFeePPMEventService: GradientPairTradingFeePPMEventService,
+    private gradientStrategyLiquidityUpdatedEventService: GradientStrategyLiquidityUpdatedEventService,
+    private gradientVoucherTransferEventService: GradientVoucherTransferEventService,
+    private gradientActivityService: GradientActivityService,
+    private gradientDexScreenerService: GradientDexScreenerService,
+    private gradientStrategyService: GradientStrategyService,
     @Inject('REDIS') private redis: any,
   ) {
     const shouldHarvest = this.configService.get('SHOULD_HARVEST');
@@ -157,8 +181,11 @@ export class UpdaterService {
         }
       }
 
-      // handle PairCreated events
+      // handle PairCreated events (regular + gradient)
       await this.pairCreatedEventService.update(endBlock, deployment);
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientPairCreatedEventService.update(endBlock, deployment);
+      }
       console.log(`CARBON SERVICE - Finished pairs creation events for ${deployment.exchangeId}`);
 
       // handle VortexTokensTraded events
@@ -200,8 +227,22 @@ export class UpdaterService {
       await this.strategyService.update(endBlock, pairs, tokens, deployment);
       console.log(`CARBON SERVICE - Finished strategies for ${deployment.exchangeId}`);
 
-      // create trades
+      // harvest gradient events (if supported)
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientStrategyCreatedEventService.update(endBlock, deployment, tokens, pairs);
+        await this.gradientStrategyUpdatedEventService.update(endBlock, deployment, tokens, pairs);
+        await this.gradientStrategyDeletedEventService.update(endBlock, deployment, tokens, pairs);
+        await this.gradientStrategyLiquidityUpdatedEventService.update(endBlock, deployment, tokens, pairs);
+        await this.gradientVoucherTransferEventService.update(endBlock, deployment);
+        await this.gradientStrategyService.update(endBlock, deployment);
+        console.log(`CARBON SERVICE - Finished gradient events for ${deployment.exchangeId}`);
+      }
+
+      // create trades (regular + gradient)
       await this.tokensTradedEventService.update(endBlock, pairs, tokens, deployment);
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientTokensTradedEventService.update(endBlock, pairs, tokens, deployment);
+      }
       console.log(`CARBON SERVICE - Finished trades for ${deployment.exchangeId}`);
 
       // update carbon price
@@ -217,12 +258,19 @@ export class UpdaterService {
       await this.coingeckoService.update(deployment, quotesCTE);
       console.log(`CARBON SERVICE - Finished updating coingecko tickers for ${deployment.exchangeId}`);
 
-      // DexScreener V2 - incremental processing
+      // DexScreener V2 - incremental processing (regular + gradient)
       await this.dexScreenerV2Service.update(endBlock, deployment, tokens);
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientDexScreenerService.update(endBlock, deployment, tokens);
+      }
       console.log(`CARBON SERVICE - Finished updating DexScreener V2 for ${deployment.exchangeId}`);
 
-      // trading fee events
+      // trading fee events (regular + gradient)
       await this.tradingFeePpmUpdatedEventService.update(endBlock, deployment);
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientTradingFeePPMEventService.update(endBlock, deployment);
+        await this.gradientPairTradingFeePPMEventService.update(endBlock, deployment, pairs);
+      }
       console.log(`CARBON SERVICE - Finished updating trading fee events for ${deployment.exchangeId}`);
 
       // pair trading fee events
@@ -231,6 +279,12 @@ export class UpdaterService {
 
       await this.activityV2Service.update(endBlock, deployment, tokens);
       console.log(`CARBON SERVICE - Finished updating activities for ${deployment.exchangeId}`);
+
+      // gradient activities (if supported)
+      if (this.deploymentService.hasGradientSupport(deployment)) {
+        await this.gradientActivityService.update(endBlock, deployment, tokens);
+        console.log(`CARBON SERVICE - Finished updating gradient activities for ${deployment.exchangeId}`);
+      }
 
       // update merkl rewards
       await this.merklProcessorService.update(endBlock, deployment);

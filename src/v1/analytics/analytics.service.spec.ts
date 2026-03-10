@@ -152,7 +152,7 @@ describe('AnalyticsService', () => {
 
       const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
 
-      expect(executedQuery).toContain('gradient_strategy_updated_events');
+      expect(executedQuery).toContain('gradient_strategy_liquidity_updated_events');
     });
 
     it('should UNION gradient liquidity with regular liquidity in strategies_with_liquidity', async () => {
@@ -180,7 +180,7 @@ describe('AnalyticsService', () => {
 
       const executedQuery = mockStrategyRepository.query.mock.calls[0][0];
 
-      expect(executedQuery).toContain('gradient_strategy_updated_events');
+      expect(executedQuery).toContain('gradient_strategy_liquidity_updated_events');
       expect(executedQuery).toContain('UNION ALL');
     });
   });

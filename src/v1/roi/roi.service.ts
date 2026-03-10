@@ -63,12 +63,52 @@ updated AS (
     WHERE s."blockchainType" = '${deployment.blockchainType}' AND s."exchangeId" = '${deployment.exchangeId}'
     
 ),
+gradient_created AS (
+    SELECT gsc.timestamp as evt_block_time, gsc."blockId" as evt_block_number, gsc."strategyId" as id,
+    json_build_object('y', gsc."order0Liquidity")::text AS order0,
+    json_build_object('y', gsc."order1Liquidity")::text AS order1,
+    LOWER(t0.address) as token0, t0.symbol as symbol0, t0.decimals as decimals0,
+    LOWER(t1.address) as token1, t1.symbol as symbol1, t1.decimals as decimals1,
+    2 as reason
+    FROM gradient_strategy_created_events gsc
+    LEFT JOIN tokens t0 ON t0.id = gsc."token0Id"
+    LEFT JOIN tokens t1 ON t1.id = gsc."token1Id"
+    WHERE gsc."blockchainType" = '${deployment.blockchainType}' AND gsc."exchangeId" = '${deployment.exchangeId}'
+),
+gradient_updated AS (
+    SELECT gsu.timestamp as evt_block_time, gsu."blockId" as evt_block_number, gsu."strategyId" as id,
+    json_build_object('y', gsu."order0Liquidity")::text AS order0,
+    json_build_object('y', gsu."order1Liquidity")::text AS order1,
+    LOWER(COALESCE(t0.address, '')) as token0, COALESCE(t0.symbol, '') as symbol0, COALESCE(t0.decimals, 18) as decimals0,
+    LOWER(COALESCE(t1.address, '')) as token1, COALESCE(t1.symbol, '') as symbol1, COALESCE(t1.decimals, 18) as decimals1,
+    0 as reason
+    FROM gradient_strategy_updated_events gsu
+    LEFT JOIN tokens t0 ON t0.id = gsu."token0Id"
+    LEFT JOIN tokens t1 ON t1.id = gsu."token1Id"
+    WHERE gsu."blockchainType" = '${deployment.blockchainType}' AND gsu."exchangeId" = '${deployment.exchangeId}'
+),
+gradient_liquidity_updated AS (
+    SELECT gslu.timestamp as evt_block_time, gslu."blockId" as evt_block_number, gslu."strategyId" as id,
+    json_build_object('y', gslu."liquidity0")::text AS order0,
+    json_build_object('y', gslu."liquidity1")::text AS order1,
+    LOWER(COALESCE(t0.address, '')) as token0, COALESCE(t0.symbol, '') as symbol0, COALESCE(t0.decimals, 18) as decimals0,
+    LOWER(COALESCE(t1.address, '')) as token1, COALESCE(t1.symbol, '') as symbol1, COALESCE(t1.decimals, 18) as decimals1,
+    1 as reason
+    FROM gradient_strategy_liquidity_updated_events gslu
+    LEFT JOIN tokens t0 ON t0.id = gslu."token0Id"
+    LEFT JOIN tokens t1 ON t1.id = gslu."token1Id"
+    WHERE gslu."blockchainType" = '${deployment.blockchainType}' AND gslu."exchangeId" = '${deployment.exchangeId}'
+),
 all_txs AS (
-    SELECT *
-    FROM created
+    SELECT * FROM created
     UNION
-    SELECT *
-    FROM updated
+    SELECT * FROM updated
+    UNION ALL
+    SELECT * FROM gradient_created
+    UNION ALL
+    SELECT * FROM gradient_updated
+    UNION ALL
+    SELECT * FROM gradient_liquidity_updated
 ),
 current_orders3 AS (
     SELECT *,
@@ -275,6 +315,11 @@ create_delete AS (
     FROM "strategy-created-events" c
     LEFT JOIN "strategy-deleted-events" d ON c."strategyId" = d."strategyId"
     WHERE c."blockchainType" = '${deployment.blockchainType}' AND c."exchangeId" = '${deployment.exchangeId}'
+    UNION ALL
+    SELECT gc."timestamp" AS date_created, gc."strategyId" as id, gd."timestamp" AS date_most_recent
+    FROM gradient_strategy_created_events gc
+    LEFT JOIN gradient_strategy_deleted_events gd ON gc."strategyId" = gd."strategyId"
+    WHERE gc."blockchainType" = '${deployment.blockchainType}' AND gc."exchangeId" = '${deployment.exchangeId}'
 ),
 most_recent AS (
     SELECT *, CASE WHEN date_most_recent IS NULL THEN NOW() ELSE date_most_recent END AS date_most_recent2

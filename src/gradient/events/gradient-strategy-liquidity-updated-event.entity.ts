@@ -13,9 +13,9 @@ import { Block } from '../../block/block.entity';
 import { Token } from '../../token/token.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
-@Entity({ name: 'gradient_strategy_created_events' })
+@Entity({ name: 'gradient_strategy_liquidity_updated_events' })
 @Unique(['transactionIndex', 'transactionHash', 'logIndex'])
-export class GradientStrategyCreatedEvent {
+export class GradientStrategyLiquidityUpdatedEvent {
   @PrimaryGeneratedColumn()
   id: number;
 
@@ -51,52 +51,17 @@ export class GradientStrategyCreatedEvent {
   @Index()
   timestamp: Date;
 
-  @Index()
   @ManyToOne(() => Token, { eager: true })
   token0: Token;
 
-  @Index()
   @ManyToOne(() => Token, { eager: true })
   token1: Token;
 
   @Column()
-  owner: string;
+  liquidity0: string;
 
   @Column()
-  order0Liquidity: string;
-
-  @Column()
-  order0InitialPrice: string;
-
-  @Column()
-  order0TradingStartTime: number;
-
-  @Column()
-  order0Expiry: number;
-
-  @Column()
-  order0MultiFactor: string;
-
-  @Column()
-  order0GradientType: string;
-
-  @Column()
-  order1Liquidity: string;
-
-  @Column()
-  order1InitialPrice: string;
-
-  @Column()
-  order1TradingStartTime: number;
-
-  @Column()
-  order1Expiry: number;
-
-  @Column()
-  order1MultiFactor: string;
-
-  @Column()
-  order1GradientType: string;
+  liquidity1: string;
 
   @CreateDateColumn()
   createdAt: Date;

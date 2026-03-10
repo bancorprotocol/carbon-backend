@@ -6,22 +6,93 @@
  *
  * Covers all 39 endpoints across 17 controllers with intelligent value assertions.
  *
- * Prerequisites:
- *   - Run gradient-test-seed.ts first to populate the database
- *   - Start the server: SHOULD_HARVEST=0 SHOULD_UPDATE_ANALYTICS=1 npm run start:dev
+ * Modes:
+ *   --mode=layer1 (default) — Assertions match seed-data values (USDC/WETH, exact budgets/dates)
+ *   --mode=layer2           — Assertions match Tenderly-harvested data (DAI/USDC, 100-unit budgets)
  *
  * Usage:
  *   npx ts-node src/scripts/gradient-test-verify.ts
+ *   npx ts-node src/scripts/gradient-test-verify.ts --mode=layer2
  *   npx ts-node src/scripts/gradient-test-verify.ts --base-url=http://localhost:3001
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+
 const BASE_URL = process.argv.find((a) => a.startsWith('--base-url='))?.split('=')[1] || 'http://localhost:3000';
 const EXCHANGE_ID = 'ethereum';
+const MODE: 'layer1' | 'layer2' = process.argv.find((a) => a.startsWith('--mode='))?.split('=')[1] as any || 'layer1';
 
-const TOKEN0 = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'; // USDC
+let postTradeData: any = null;
+if (MODE === 'layer2') {
+  const dataPath = path.join(__dirname, 'gradient-e2e-data.json');
+  try {
+    postTradeData = JSON.parse(fs.readFileSync(dataPath, 'utf-8'));
+  } catch (_) {
+    console.log('  Note: gradient-e2e-data.json not found, using approximate budget assertions');
+  }
+}
+
+// ─── Mode-dependent configuration ───────────────────────────────────────────
+
+interface ModeConfig {
+  gradientToken0: string;
+  gradientToken1: string;
+  gradientToken0Symbol: string;
+  gradientToken1Symbol: string;
+  sellBudget: string;
+  buyBudget: string;
+  exactDates: boolean;
+  sellStartDate: string;
+  sellEndDate: string;
+  seedOrder0Liquidity: string;
+  seedBlock: number;
+  checkGradientTradeCount: boolean;
+  checkGradientWallet: boolean;
+  checkSeedDexEvents: boolean;
+}
+
+const LAYER1_CONFIG: ModeConfig = {
+  gradientToken0: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
+  gradientToken1: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', // WETH
+  gradientToken0Symbol: 'USDC',
+  gradientToken1Symbol: 'WETH',
+  sellBudget: '45600000000000000',
+  buyBudget: '12300',
+  exactDates: true,
+  sellStartDate: '1730329400',
+  sellEndDate: '1767586793',
+  seedOrder0Liquidity: '45600000000000000000000',
+  seedBlock: 24571200,
+  checkGradientTradeCount: true,
+  checkGradientWallet: true,
+  checkSeedDexEvents: true,
+};
+
+const PAIR2_TOKEN0 = '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599'; // WBTC
+const PAIR2_TOKEN1 = '0x514910771AF9Ca656af840dff83E8264EcF986CA'; // LINK
+
+const LAYER2_CONFIG: ModeConfig = {
+  gradientToken0: '0x6B175474E89094C44Da98b954EedeAC495271d0F', // DAI
+  gradientToken1: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', // USDC
+  gradientToken0Symbol: 'DAI',
+  gradientToken1Symbol: 'USDC',
+  sellBudget: '100',
+  buyBudget: '100',
+  exactDates: false,
+  sellStartDate: '',
+  sellEndDate: '',
+  seedOrder0Liquidity: '100000000000000000000',
+  seedBlock: 0,
+  checkGradientTradeCount: true,
+  checkGradientWallet: true,
+  checkSeedDexEvents: false,
+};
+
+const CFG = MODE === 'layer2' ? LAYER2_CONFIG : LAYER1_CONFIG;
+
+const TOKEN0 = '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'; // USDC — used for non-gradient token queries
 const TOKEN1 = '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2'; // WETH
-const GRADIENT_OWNER = '0x0000000000000000000000000000000000GRAD01';
-const SEED_BLOCK = 20000000;
 const CARBON_CONTROLLER = '0xC537e898CD774e2dCBa3B14Ea6f34C93d5eA45e1';
 
 let knownPairTickerId: string | null = null;
@@ -94,13 +165,26 @@ async function testStrategies() {
     }
 
     const gradients = strategies.filter((s: any) => s.type === 'gradient');
-    assert(G, ep, gradients.length === 6, '6 gradient strategies found', `Expected 6 gradient strategies, got ${gradients.length}`);
+    const expectedCount = CFG.exactDates ? 6 : 7; // Layer 2: 8 created - 1 deleted = 7 (6 DAI/USDC + 2 WBTC/LINK - 1 deleted)
+    assert(G, ep, gradients.length === expectedCount, `${expectedCount} gradient strategies found`, `Expected ${expectedCount} gradient strategies, got ${gradients.length}`);
 
     const types = new Set(gradients.map((s: any) => {
       const sellType = parseFloat(s.sell?.startPrice) > 0 ? 'has-sell' : 'no-sell';
       return `${s.id}-${sellType}`;
     }));
-    assert(G, ep, types.size === 6, 'All 6 gradient types covered (unique strategies)', `Only ${types.size} unique gradient strategies`);
+    assert(G, ep, types.size === expectedCount, `All ${expectedCount} gradient types covered (unique strategies)`, `Only ${types.size} unique gradient strategies`);
+
+    if (!CFG.exactDates) {
+      const gradientTokenPairs = new Set(gradients.map((s: any) => {
+        const t0 = (s.base || s.sell?.token || s.token0 || '').toLowerCase();
+        const t1 = (s.quote || s.buy?.token || s.token1 || '').toLowerCase();
+        return `${t0}/${t1}`;
+      }));
+      assert(G, ep, gradientTokenPairs.size >= 2,
+        `${gradientTokenPairs.size} unique gradient token pairs (multi-pair coverage)`,
+        `Expected >= 2 unique gradient token pairs, got ${gradientTokenPairs.size}: ${[...gradientTokenPairs].join(', ')}`,
+      );
+    }
 
     if (gradients.length > 0) {
       const first = gradients[0];
@@ -113,30 +197,55 @@ async function testStrategies() {
         `Gradient sell order shape wrong: ${JSON.stringify(first.sell)}`,
       );
 
-      assert(G, ep, first.sell?.budget === '45600000000000000',
-        `sell.budget (USDC 6-dec) = "45600000000000000"`,
-        `Expected sell.budget "45600000000000000", got "${first.sell?.budget}"`,
-      );
-
-      assert(G, ep, first.buy?.budget === '12300',
-        `buy.budget (WETH 18-dec) = "12300"`,
-        `Expected buy.budget "12300", got "${first.buy?.budget}"`,
-      );
+      if (CFG.exactDates) {
+        assert(G, ep, first.sell?.budget === CFG.sellBudget,
+          `sell.budget = "${CFG.sellBudget}"`,
+          `Expected sell.budget "${CFG.sellBudget}", got "${first.sell?.budget}"`,
+        );
+        assert(G, ep, first.buy?.budget === CFG.buyBudget,
+          `buy.budget = "${CFG.buyBudget}"`,
+          `Expected buy.budget "${CFG.buyBudget}", got "${first.buy?.budget}"`,
+        );
+      } else {
+        const sellVal = parseFloat(first.sell?.budget || '0');
+        const buyVal = parseFloat(first.buy?.budget || '0');
+        assert(G, ep, sellVal > 0,
+          `sell.budget > 0 (actual: ${first.sell?.budget})`,
+          `Expected sell.budget > 0, got "${first.sell?.budget}"`,
+        );
+        assert(G, ep, buyVal > 0,
+          `buy.budget > 0 (actual: ${first.buy?.budget})`,
+          `Expected buy.budget > 0, got "${first.buy?.budget}"`,
+        );
+      }
 
       assert(G, ep, parseFloat(first.sell?.startPrice) > 0,
         `startPrice > 0 (${first.sell?.startPrice})`,
         `startPrice should be > 0, got ${first.sell?.startPrice}`,
       );
 
-      assert(G, ep, first.sell?.startDate === '1730329400',
-        `startDate = "1730329400"`,
-        `Expected startDate "1730329400", got "${first.sell?.startDate}"`,
-      );
-
-      assert(G, ep, first.sell?.endDate === '1767586793',
-        `endDate = "1767586793"`,
-        `Expected endDate "1767586793", got "${first.sell?.endDate}"`,
-      );
+      if (CFG.exactDates) {
+        assert(G, ep, first.sell?.startDate === CFG.sellStartDate,
+          `startDate = "${CFG.sellStartDate}"`,
+          `Expected startDate "${CFG.sellStartDate}", got "${first.sell?.startDate}"`,
+        );
+        assert(G, ep, first.sell?.endDate === CFG.sellEndDate,
+          `endDate = "${CFG.sellEndDate}"`,
+          `Expected endDate "${CFG.sellEndDate}", got "${first.sell?.endDate}"`,
+        );
+      } else {
+        const now = Math.floor(Date.now() / 1000);
+        const startDate = parseInt(first.sell?.startDate || '0');
+        const endDate = parseInt(first.sell?.endDate || '0');
+        assert(G, ep, startDate > 0 && startDate < now,
+          `startDate (${startDate}) is in the past`,
+          `startDate should be in the past, got ${startDate}`,
+        );
+        assert(G, ep, endDate > now,
+          `endDate (${endDate}) is in the future`,
+          `endDate should be in the future, got ${endDate}`,
+        );
+      }
 
       const linearIncrease = gradients.find((s: any) =>
         parseFloat(s.sell?.marginalPrice) > parseFloat(s.sell?.startPrice),
@@ -163,9 +272,10 @@ async function testSeedData() {
     const allStrategies = Object.values(data.strategiesByPair || {}).flat() as any[];
     const gradients = allStrategies.filter((s: any) => s.type === 'gradient');
 
-    assert(G, ep, gradients.length >= 6,
+    const expectedSeedCount = CFG.exactDates ? 6 : 5;
+    assert(G, ep, gradients.length >= expectedSeedCount,
       `${gradients.length} gradient strategies in seed-data`,
-      `Expected >= 6 gradient strategies, got ${gradients.length}`,
+      `Expected >= ${expectedSeedCount} gradient strategies, got ${gradients.length}`,
     );
 
     if (gradients.length > 0) {
@@ -177,20 +287,38 @@ async function testSeedData() {
         `Wrong gradient order shape: ${JSON.stringify(first.order0)}`,
       );
 
-      assert(G, ep, first.order0?.liquidity === '45600000000000000000000',
-        `order0.liquidity = "45600000000000000000000"`,
-        `Expected order0.liquidity "45600000000000000000000", got "${first.order0?.liquidity}"`,
-      );
+      if (CFG.exactDates) {
+        assert(G, ep, first.order0?.liquidity === CFG.seedOrder0Liquidity,
+          `order0.liquidity = "${CFG.seedOrder0Liquidity}"`,
+          `Expected order0.liquidity "${CFG.seedOrder0Liquidity}", got "${first.order0?.liquidity}"`,
+        );
+      } else {
+        const liqVal = BigInt(first.order0?.liquidity || '0');
+        const liqExpected = BigInt(CFG.seedOrder0Liquidity);
+        const diff = liqVal > liqExpected ? liqVal - liqExpected : liqExpected - liqVal;
+        assert(G, ep, diff * 100n / liqExpected < 5n,
+          `order0.liquidity ≈ "${CFG.seedOrder0Liquidity}" (actual: ${first.order0?.liquidity})`,
+          `Expected order0.liquidity ≈ "${CFG.seedOrder0Liquidity}", got "${first.order0?.liquidity}"`,
+        );
+      }
 
-      assert(G, ep, first.order0?.tradingStartTime === 1730329400,
-        `order0.tradingStartTime = 1730329400`,
-        `Expected 1730329400, got ${first.order0?.tradingStartTime}`,
-      );
+      if (CFG.exactDates) {
+        assert(G, ep, first.order0?.tradingStartTime === 1730329400,
+          `order0.tradingStartTime = 1730329400`,
+          `Expected 1730329400, got ${first.order0?.tradingStartTime}`,
+        );
+      } else {
+        assert(G, ep, first.order0?.tradingStartTime > 0,
+          `order0.tradingStartTime > 0 (${first.order0?.tradingStartTime})`,
+          `tradingStartTime should be > 0`,
+        );
+      }
 
       const gradientTypes = gradients.map((g: any) => g.order0?.gradientType);
-      const allTypesPresent = ['0', '1', '2', '3', '4', '5'].every((t) => gradientTypes.includes(t));
+      const expectedTypes = CFG.exactDates ? ['0', '1', '2', '3', '4', '5'] : ['0', '1', '2', '3', '4'];
+      const allTypesPresent = expectedTypes.every((t) => gradientTypes.includes(t));
       assert(G, ep, allTypesPresent,
-        'All gradient types "0"-"5" present',
+        `Gradient types ${JSON.stringify(expectedTypes)} all present`,
         `Missing gradient types. Found: ${JSON.stringify(gradientTypes)}`,
       );
     }
@@ -241,18 +369,30 @@ async function testAnalyticsTradesCount() {
 
     assert(G, ep, data.length > 0, `${data.length} trade count entries`, 'No trade count entries');
 
-    const gradientTrades = data.filter((t: any) => t.strategyId && t.strategyId.length > 50);
+    if (CFG.checkGradientTradeCount) {
+      const gradientTrades = data.filter((t: any) => t.strategyId && t.strategyId.length > 50);
 
-    if (gradientTrades.length > 0) {
-      pass(G, ep, `${gradientTrades.length} gradient strategy trade counts`);
+      if (gradientTrades.length > 0) {
+        pass(G, ep, `${gradientTrades.length} gradient strategy trade counts`);
 
-      const firstGradient = gradientTrades[0];
-      assert(G, ep, firstGradient.tradeCount === 2,
-        `Gradient tradeCount = 2`,
-        `Expected tradeCount 2, got ${firstGradient.tradeCount}`,
-      );
+        if (CFG.exactDates) {
+          const firstGradient = gradientTrades[0];
+          assert(G, ep, firstGradient.tradeCount === 2,
+            `Gradient tradeCount = 2`,
+            `Expected tradeCount 2, got ${firstGradient.tradeCount}`,
+          );
+        } else {
+          const firstGradient = gradientTrades[0];
+          assert(G, ep, firstGradient.tradeCount >= 1,
+            `Gradient tradeCount >= 1 (${firstGradient.tradeCount})`,
+            `Expected tradeCount >= 1, got ${firstGradient.tradeCount}`,
+          );
+        }
+      } else {
+        fail(G, ep, 'No gradient strategy trade counts (IDs with length > 50)');
+      }
     } else {
-      fail(G, ep, 'No gradient strategy trade counts (IDs with length > 50)');
+      pass(G, ep, `${data.length} trade count entries (gradient trade counts not checked in ${MODE})`);
     }
   } catch (e: any) {
     fail(G, ep, 'Request failed', e.message);
@@ -271,23 +411,25 @@ async function testWalletPairBalance() {
       'No pair balances returned',
     );
 
-    const usdcWethKey = Object.keys(pairData || {}).find((k) => {
-      const lower = k.toLowerCase();
-      return lower.includes(TOKEN0.toLowerCase()) && lower.includes(TOKEN1.toLowerCase());
-    });
+    if (CFG.checkGradientWallet) {
+      const gradPairKey = Object.keys(pairData || {}).find((k) => {
+        const lower = k.toLowerCase();
+        return lower.includes(CFG.gradientToken0.toLowerCase()) && lower.includes(CFG.gradientToken1.toLowerCase());
+      });
 
-    assert(G, ep, !!usdcWethKey,
-      'USDC/WETH pair key found',
-      'No USDC/WETH pair key in wallet-pair-balance',
-    );
-
-    if (usdcWethKey) {
-      const wallets = pairData[usdcWethKey]?.wallets || pairData[usdcWethKey] || {};
-      const gradWallet = Object.keys(wallets).find((w) => w.toLowerCase().includes('grad'));
-      assert(G, ep, !!gradWallet,
-        `Gradient owner wallet found: ${gradWallet}`,
-        `No gradient owner (grad) wallet found`,
+      assert(G, ep, !!gradPairKey,
+        `${CFG.gradientToken0Symbol}/${CFG.gradientToken1Symbol} pair key found`,
+        `No ${CFG.gradientToken0Symbol}/${CFG.gradientToken1Symbol} pair key in wallet-pair-balance`,
       );
+
+      if (gradPairKey) {
+        const wallets = pairData[gradPairKey]?.wallets || pairData[gradPairKey] || {};
+        const walletAddresses = Object.keys(wallets);
+        assert(G, ep, walletAddresses.length > 0,
+          `${walletAddresses.length} wallet(s) found for gradient pair`,
+          'No wallets found for gradient pair',
+        );
+      }
     }
   } catch (e: any) {
     fail(G, ep, 'Request failed', e.message);
@@ -300,7 +442,7 @@ async function testActivity() {
   const G = 'B';
   const ep = '/activity';
   try {
-    const data = await fetchJson(ep + '?limit=50');
+    const data = await fetchJson(ep + '?limit=200');
 
     assert(G, ep, Array.isArray(data) && data.length > 0,
       `${data.length} activities returned`,
@@ -318,6 +460,12 @@ async function testActivity() {
       assert(G, ep, hasRegular,
         'At least one activity has strategy.type === "regular"',
         'No regular-typed activities found',
+      );
+
+      const hasGradient = withType.some((a: any) => a.strategy.type === 'gradient');
+      assert(G, ep, hasGradient,
+        'At least one activity has strategy.type === "gradient"',
+        'No gradient-typed activities found',
       );
 
       const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
@@ -348,6 +496,12 @@ async function testActivityActionsCreate() {
       assert(G, ep, allCreate,
         'All returned activities have action "create"',
         `Non-create actions found: ${data.filter((a: any) => a.action !== 'create').map((a: any) => a.action)}`,
+      );
+
+      const gradientCreates = data.filter((a: any) => a.strategy?.type === 'gradient');
+      assert(G, ep, gradientCreates.length > 0,
+        `${gradientCreates.length} gradient create activities found`,
+        'No gradient create activities found',
       );
     }
   } catch (e: any) {
@@ -395,6 +549,12 @@ async function testActivityV2() {
       assert(G, ep, data[0].strategy && typeof data[0].strategy.type === 'string',
         'v2 activity has strategy.type',
         'v2 activity missing strategy.type',
+      );
+
+      const gradientV2 = data.filter((a: any) => a.strategy?.type === 'gradient');
+      assert(G, ep, gradientV2.length > 0,
+        `${gradientV2.length} gradient v2 activities found`,
+        'No gradient v2 activities found',
       );
     }
   } catch (e: any) {
@@ -591,9 +751,10 @@ async function testAnalyticsTvl() {
         `Missing fields: ${JSON.stringify(Object.keys(first))}`,
       );
 
-      assert(G, ep, typeof first.tvlUsd === 'number' || !isNaN(parseFloat(first.tvlUsd)),
-        `tvlUsd is numeric: ${first.tvlUsd}`,
-        `tvlUsd is not numeric: ${first.tvlUsd}`,
+      const tvlVal = parseFloat(first.tvlUsd);
+      assert(G, ep, !isNaN(tvlVal) && tvlVal > 0,
+        `tvlUsd = ${tvlVal} (> 0, includes gradient liquidity)`,
+        `tvlUsd should be > 0 (gradient strategies contribute liquidity), got ${first.tvlUsd}`,
       );
     }
   } catch (e: any) {
@@ -642,9 +803,16 @@ async function testAnalyticsVolume() {
         `Missing fields: ${JSON.stringify(Object.keys(first))}`,
       );
 
-      assert(G, ep, typeof first.volumeUsd === 'number' || !isNaN(parseFloat(first.volumeUsd)),
-        `volumeUsd is numeric: ${first.volumeUsd}`,
+      const volVal = parseFloat(first.volumeUsd);
+      assert(G, ep, !isNaN(volVal),
+        `volumeUsd is numeric: ${volVal}`,
         `volumeUsd is not numeric: ${first.volumeUsd}`,
+      );
+
+      const totalVol = data.reduce((sum: number, v: any) => sum + parseFloat(v.volumeUsd || '0'), 0);
+      assert(G, ep, totalVol > 0,
+        `Total volume across all entries = ${totalVol.toFixed(2)} (includes gradient trades)`,
+        `Total volume is 0 — gradient trades should contribute`,
       );
     }
   } catch (e: any) {
@@ -695,6 +863,19 @@ async function testAnalyticsTrending() {
         'tradeCount entry has { strategyTrades, token0, token1, pairSymbol }',
         `Missing fields: ${JSON.stringify(Object.keys(first))}`,
       );
+
+      const gradPair = data.tradeCount.find((tc: any) => {
+        const t0 = tc.token0?.toLowerCase();
+        const t1 = tc.token1?.toLowerCase();
+        return (t0 === CFG.gradientToken0.toLowerCase() && t1 === CFG.gradientToken1.toLowerCase()) ||
+               (t0 === CFG.gradientToken1.toLowerCase() && t1 === CFG.gradientToken0.toLowerCase());
+      });
+      if (gradPair) {
+        assert(G, ep, gradPair.strategyTrades > 0,
+          `Gradient pair ${CFG.gradientToken0Symbol}/${CFG.gradientToken1Symbol} has ${gradPair.strategyTrades} trades in trending`,
+          `Gradient pair trending entry has 0 trades`,
+        );
+      }
     }
   } catch (e: any) {
     fail(G, ep, 'Request failed', e.message);
@@ -805,34 +986,65 @@ async function testDexScreenerAsset() {
 
 async function testDexScreenerEvents() {
   const G = 'E';
-  const fromBlock = SEED_BLOCK;
-  const toBlock = SEED_BLOCK + 10;
-  const ep = `/dex-screener/events?fromBlock=${fromBlock}&toBlock=${toBlock}`;
-  try {
-    const data = await fetchJson(`/dex-screener/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
+  if (CFG.checkSeedDexEvents) {
+    const fromBlock = CFG.seedBlock;
+    const toBlock = CFG.seedBlock + 10;
+    const ep = `/dex-screener/events?fromBlock=${fromBlock}&toBlock=${toBlock}`;
+    try {
+      const data = await fetchJson(`/dex-screener/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
 
-    assert(G, ep, data && Array.isArray(data.events),
-      `Returns { events: [...] }`,
-      `Invalid shape: ${JSON.stringify(data && Object.keys(data))}`,
-    );
-
-    if (data?.events?.length > 0) {
-      const first = data.events[0];
-      assert(G, ep,
-        'eventType' in first && 'txnId' in first && 'pairId' in first,
-        'Event has { eventType, txnId, pairId }',
-        `Missing fields: ${JSON.stringify(Object.keys(first))}`,
+      assert(G, ep, data && Array.isArray(data.events),
+        `Returns { events: [...] }`,
+        `Invalid shape: ${JSON.stringify(data && Object.keys(data))}`,
       );
 
-      assert(G, ep, first.block && first.block.blockNumber > 0,
-        `block.blockNumber = ${first.block?.blockNumber}`,
-        `block.blockNumber missing`,
-      );
-    } else {
-      fail(G, ep, 'No events returned for seed block range');
+      if (data?.events?.length > 0) {
+        const first = data.events[0];
+        assert(G, ep,
+          'eventType' in first && 'txnId' in first && 'pairId' in first,
+          'Event has { eventType, txnId, pairId }',
+          `Missing fields: ${JSON.stringify(Object.keys(first))}`,
+        );
+
+        assert(G, ep, first.block && first.block.blockNumber > 0,
+          `block.blockNumber = ${first.block?.blockNumber}`,
+          `block.blockNumber missing`,
+        );
+      } else {
+        fail(G, ep, 'No events returned for seed block range');
+      }
+    } catch (e: any) {
+      fail(G, ep, 'Request failed', e.message);
     }
-  } catch (e: any) {
-    fail(G, ep, 'Request failed', e.message);
+  } else {
+    const ep = `/dex-screener/events`;
+    try {
+      const stateData = await fetchJson('/state');
+      const latestBlock = stateData?.lastBlock || 20000000;
+      const fromBlock = Math.max(1, latestBlock - 500);
+      const toBlock = latestBlock;
+      const data = await fetchJson(`/dex-screener/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
+
+      assert(G, ep, data && Array.isArray(data.events),
+        `Returns { events: [...] } (${data?.events?.length || 0} events)`,
+        `Invalid shape`,
+      );
+
+      if (data?.events) {
+        assert(G, ep, data.events.length > 0,
+          `${data.events.length} DexScreener events in block range`,
+          'No DexScreener events returned — gradient events should be present',
+        );
+
+        const eventTypes = new Set(data.events.map((e: any) => e.eventType));
+        assert(G, ep, eventTypes.has('join') || eventTypes.has('swap'),
+          `Event types found: ${Array.from(eventTypes).join(', ')}`,
+          'Expected join or swap events from gradient strategies',
+        );
+      }
+    } catch (e: any) {
+      fail(G, ep, 'Request failed', e.message);
+    }
   }
 }
 
@@ -880,18 +1092,41 @@ async function testGeckoTerminalAsset() {
 
 async function testGeckoTerminalEvents() {
   const G = 'E';
-  const fromBlock = SEED_BLOCK;
-  const toBlock = SEED_BLOCK + 10;
-  const ep = `/gecko-terminal/events?fromBlock=${fromBlock}&toBlock=${toBlock}`;
-  try {
-    const data = await fetchJson(`/gecko-terminal/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
+  if (CFG.checkSeedDexEvents) {
+    const fromBlock = CFG.seedBlock;
+    const toBlock = CFG.seedBlock + 10;
+    const ep = `/gecko-terminal/events?fromBlock=${fromBlock}&toBlock=${toBlock}`;
+    try {
+      const data = await fetchJson(`/gecko-terminal/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
+      assert(G, ep, data && Array.isArray(data.events),
+        `Returns { events: [...] } (${data?.events?.length || 0} events)`,
+        `Invalid shape: ${JSON.stringify(data && Object.keys(data))}`,
+      );
+    } catch (e: any) {
+      fail(G, ep, 'Request failed', e.message);
+    }
+  } else {
+    const ep = `/gecko-terminal/events`;
+    try {
+      const stateData = await fetchJson('/state');
+      const latestBlock = stateData?.lastBlock || 20000000;
+      const fromBlock = Math.max(1, latestBlock - 500);
+      const toBlock = latestBlock;
+      const data = await fetchJson(`/gecko-terminal/events?fromBlock=${fromBlock}&toBlock=${toBlock}`);
+      assert(G, ep, data && Array.isArray(data.events),
+        `Returns { events: [...] } (${data?.events?.length || 0} events)`,
+        `Invalid shape`,
+      );
 
-    assert(G, ep, data && Array.isArray(data.events),
-      `Returns { events: [...] } (${data?.events?.length || 0} events)`,
-      `Invalid shape: ${JSON.stringify(data && Object.keys(data))}`,
-    );
-  } catch (e: any) {
-    fail(G, ep, 'Request failed', e.message);
+      if (data?.events) {
+        assert(G, ep, data.events.length > 0,
+          `${data.events.length} GeckoTerminal events in block range`,
+          'No GeckoTerminal events returned — gradient events should be present',
+        );
+      }
+    } catch (e: any) {
+      fail(G, ep, 'Request failed', e.message);
+    }
   }
 }
 
@@ -919,6 +1154,11 @@ async function testRoi() {
         `ROI is number, id is string`,
         `Wrong types: ROI=${typeof first.ROI}, id=${typeof first.id}`,
       );
+
+      const gradientRois = data.filter((r: any) => r.id && r.id.length > 50);
+      if (gradientRois.length > 0) {
+        pass(G, ep, `${gradientRois.length} gradient strategies in ROI results`);
+      }
     }
   } catch (e: any) {
     fail(G, ep, 'Request failed', e.message);
@@ -1105,7 +1345,8 @@ async function testDexScreenerPair() {
 // ─── Runner ──────────────────────────────────────────────────────────────────
 
 async function main() {
-  console.log(`\nGradient API Verification against ${BASE_URL}/v1/${EXCHANGE_ID}\n`);
+  console.log(`\nGradient API Verification — ${MODE.toUpperCase()} mode`);
+  console.log(`Against ${BASE_URL}/v1/${EXCHANGE_ID}\n`);
 
   const groups: { name: string; tests: (() => Promise<void>)[] }[] = [
     {

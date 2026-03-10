@@ -118,23 +118,120 @@ export class TvlService {
       WHERE
           sde."exchangeId" = '${deployment.exchangeId}'
       ),
+      gradient_strategy_created AS (
+      SELECT
+          0 AS transaction_index,
+          gsc.timestamp AS evt_block_time,
+          gsc."blockId" AS evt_block_number,
+          gsc."strategyId" AS strategyId,
+          json_build_object('y', gsc."order0Liquidity")::text AS order0,
+          json_build_object('y', gsc."order1Liquidity")::text AS order1,
+          LOWER(t0.address) AS token0,
+          t0.symbol AS symbol0,
+          t0.decimals AS decimals0,
+          LOWER(t1.address) AS token1,
+          t1.symbol AS symbol1,
+          t1.decimals AS decimals1,
+          2 AS reason,
+          COALESCE(gsc."pairId", 0) AS pairId,
+          COALESCE(ps.name, '') AS pairName
+      FROM
+          gradient_strategy_created_events gsc
+          LEFT JOIN tokens t0 ON t0.id = gsc."token0Id"
+          LEFT JOIN tokens t1 ON t1.id = gsc."token1Id"
+          LEFT JOIN pairs ps ON ps.id = gsc."pairId"
+      WHERE
+          gsc."exchangeId" = '${deployment.exchangeId}'
+      ),
+      gradient_strategy_updated AS (
+      SELECT
+          gsu.id AS transaction_index,
+          gsu.timestamp AS evt_block_time,
+          gsu."blockId" AS evt_block_number,
+          gsu."strategyId" AS strategyId,
+          json_build_object('y', gsu."order0Liquidity")::text AS order0,
+          json_build_object('y', gsu."order1Liquidity")::text AS order1,
+          LOWER(COALESCE(t0.address, '')) AS token0,
+          COALESCE(t0.symbol, '') AS symbol0,
+          COALESCE(t0.decimals, 18) AS decimals0,
+          LOWER(COALESCE(t1.address, '')) AS token1,
+          COALESCE(t1.symbol, '') AS symbol1,
+          COALESCE(t1.decimals, 18) AS decimals1,
+          0 AS reason,
+          COALESCE(gsu."pairId", 0) AS pairId,
+          COALESCE(ps.name, '') AS pairName
+      FROM
+          gradient_strategy_updated_events gsu
+          LEFT JOIN tokens t0 ON t0.id = gsu."token0Id"
+          LEFT JOIN tokens t1 ON t1.id = gsu."token1Id"
+          LEFT JOIN pairs ps ON ps.id = gsu."pairId"
+      WHERE
+          gsu."exchangeId" = '${deployment.exchangeId}'
+      ),
+      gradient_strategy_liquidity_updated AS (
+      SELECT
+          gslu.id AS transaction_index,
+          gslu.timestamp AS evt_block_time,
+          gslu."blockId" AS evt_block_number,
+          gslu."strategyId" AS strategyId,
+          json_build_object('y', gslu."liquidity0")::text AS order0,
+          json_build_object('y', gslu."liquidity1")::text AS order1,
+          LOWER(COALESCE(t0.address, '')) AS token0,
+          COALESCE(t0.symbol, '') AS symbol0,
+          COALESCE(t0.decimals, 18) AS decimals0,
+          LOWER(COALESCE(t1.address, '')) AS token1,
+          COALESCE(t1.symbol, '') AS symbol1,
+          COALESCE(t1.decimals, 18) AS decimals1,
+          1 AS reason,
+          COALESCE(gslu."pairId", 0) AS pairId,
+          COALESCE(ps.name, '') AS pairName
+      FROM
+          gradient_strategy_liquidity_updated_events gslu
+          LEFT JOIN tokens t0 ON t0.id = gslu."token0Id"
+          LEFT JOIN tokens t1 ON t1.id = gslu."token1Id"
+          LEFT JOIN pairs ps ON ps.id = gslu."pairId"
+      WHERE
+          gslu."exchangeId" = '${deployment.exchangeId}'
+      ),
+      gradient_strategy_deleted AS (
+      SELECT
+          99999999999 AS transaction_index,
+          gsd.timestamp AS evt_block_time,
+          gsd."blockId" AS evt_block_number,
+          gsd."strategyId" AS strategyId,
+          json_build_object('y', '0')::text AS order0,
+          json_build_object('y', '0')::text AS order1,
+          LOWER(COALESCE(t0.address, '')) AS token0,
+          COALESCE(t0.symbol, '') AS symbol0,
+          COALESCE(t0.decimals, 18) AS decimals0,
+          LOWER(COALESCE(t1.address, '')) AS token1,
+          COALESCE(t1.symbol, '') AS symbol1,
+          COALESCE(t1.decimals, 18) AS decimals1,
+          4 AS reason,
+          COALESCE(gsd."pairId", 0) AS pairId,
+          COALESCE(ps.name, '') AS pairName
+      FROM
+          gradient_strategy_deleted_events gsd
+          LEFT JOIN tokens t0 ON t0.id = gsd."token0Id"
+          LEFT JOIN tokens t1 ON t1.id = gsd."token1Id"
+          LEFT JOIN pairs ps ON ps.id = gsd."pairId"
+      WHERE
+          gsd."exchangeId" = '${deployment.exchangeId}'
+      ),
       all_txs AS (
-      SELECT
-          *
-      FROM
-          strategy_created
-      UNION
-      ALL
-      SELECT
-          *
-      FROM
-          strategy_updated
-      UNION
-      ALL
-      SELECT
-          *
-      FROM
-          strategy_deleted
+      SELECT * FROM strategy_created
+      UNION ALL
+      SELECT * FROM strategy_updated
+      UNION ALL
+      SELECT * FROM strategy_deleted
+      UNION ALL
+      SELECT * FROM gradient_strategy_created
+      UNION ALL
+      SELECT * FROM gradient_strategy_updated
+      UNION ALL
+      SELECT * FROM gradient_strategy_liquidity_updated
+      UNION ALL
+      SELECT * FROM gradient_strategy_deleted
       ),
       recent_txs AS (
       SELECT

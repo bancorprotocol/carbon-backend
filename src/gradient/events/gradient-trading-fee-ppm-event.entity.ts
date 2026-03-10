@@ -5,10 +5,14 @@ import {
   UpdateDateColumn,
   PrimaryGeneratedColumn,
   Index,
+  ManyToOne,
+  Unique,
 } from 'typeorm';
+import { Block } from '../../block/block.entity';
 import { BlockchainType, ExchangeId } from '../../deployment/deployment.service';
 
 @Entity({ name: 'gradient_trading_fee_ppm_events' })
+@Unique(['transactionIndex', 'transactionHash', 'logIndex'])
 export class GradientTradingFeePPMEvent {
   @PrimaryGeneratedColumn()
   id: number;
@@ -21,9 +25,22 @@ export class GradientTradingFeePPMEvent {
   @Index()
   exchangeId: ExchangeId;
 
-  @Column()
   @Index()
-  blockNumber: number;
+  @ManyToOne(() => Block, { eager: true })
+  block: Block;
+
+  @Column()
+  transactionHash: string;
+
+  @Column()
+  transactionIndex: number;
+
+  @Column()
+  logIndex: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  @Index()
+  timestamp: Date;
 
   @Column()
   prevFeePPM: number;

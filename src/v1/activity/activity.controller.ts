@@ -21,19 +21,30 @@ export class ActivityController {
     if (action.includes('deposit')) return 'deposit';
     if (action.includes('withdraw')) return 'withdraw';
     if (action.includes('transfer')) return 'transfer';
-    if (action.includes('edit')) return 'edit';
+    if (action.includes('edit') || action.includes('update')) return 'edit';
     if (action.includes('delete')) return 'delete';
     if (action.includes('pause')) return 'pause';
     return '';
   }
 
+  private static readonly GRADIENT_ID_THRESHOLD = BigInt(2) ** BigInt(255);
+
+  private isGradientStrategy(strategyId: string): boolean {
+    try {
+      return BigInt(strategyId) >= ActivityController.GRADIENT_ID_THRESHOLD;
+    } catch {
+      return false;
+    }
+  }
+
   private mapData(d: any): any {
     const action = this.formatAction(d.action);
+    const strategyType = this.isGradientStrategy(d.strategyId) ? 'gradient' : 'regular';
 
     const result = {
       action,
       strategy: {
-        type: 'regular' as const,
+        type: strategyType,
         id: d.strategyId,
         owner: d.currentOwner,
         base: d.baseSellTokenAddress,

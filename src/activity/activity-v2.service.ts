@@ -14,6 +14,7 @@ import { StrategyCreatedEventService } from '../events/strategy-created-event/st
 import { StrategyUpdatedEventService } from '../events/strategy-updated-event/strategy-updated-event.service';
 import { StrategyDeletedEventService } from '../events/strategy-deleted-event/strategy-deleted-event.service';
 import { VoucherTransferEventService } from '../events/voucher-transfer-event/voucher-transfer-event.service';
+import { GradientStrategyCreatedEventService } from '../gradient/events/gradient-strategy-created-event.service';
 import { StrategyState, StrategyStatesMap } from './activity.types';
 import { createActivityFromEvent, ordersEqual, parseOrder, processOrders } from './activity.utils';
 import { TokensByAddress } from '../token/token.service';
@@ -30,6 +31,7 @@ export class ActivityV2Service {
     private strategyUpdatedEventService: StrategyUpdatedEventService,
     private strategyDeletedEventService: StrategyDeletedEventService,
     private voucherTransferEventService: VoucherTransferEventService,
+    private gradientStrategyCreatedEventService: GradientStrategyCreatedEventService,
     private lastProcessedBlockService: LastProcessedBlockService,
   ) {}
 
@@ -681,9 +683,15 @@ export class ActivityV2Service {
   ): Promise<void> {
     strategyStates.clear();
 
-    // Get all creation events using the all() method
     const creationEvents = await this.strategyCreatedEventService.all(deployment);
-    const creationEventsByStrategyId = new Map(creationEvents.map((event) => [event.strategyId, event]));
+    const creationEventsByStrategyId = new Map<string, { owner: string }>(
+      creationEvents.map((event) => [event.strategyId, event]),
+    );
+
+    const gradientCreationEvents = await this.gradientStrategyCreatedEventService.all(deployment);
+    for (const event of gradientCreationEvents) {
+      creationEventsByStrategyId.set(event.strategyId, event);
+    }
 
     // Get the last events for each strategy
     const lastEvents = await this.activityRepository
@@ -706,7 +714,7 @@ export class ActivityV2Service {
 
       strategyStates.set(activity.strategyId, {
         currentOwner: activity.currentOwner,
-        creationWallet: creationEvent.owner,
+        creationWallet: creationEvent ? creationEvent.owner : activity.currentOwner,
         order0: activity.order0,
         order1: activity.order1,
         token0: activity.token0,

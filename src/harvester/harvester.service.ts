@@ -38,6 +38,7 @@ export enum ContractsNames {
   BancorArbitrageV2 = 'BancorArbitrageV2',
   LiquidityProtectionStore = 'LiquidityProtectionStore',
   GradientController = 'GradientController',
+  GradientVoucher = 'GradientVoucher',
 }
 
 const Contracts = {
@@ -50,6 +51,7 @@ const Contracts = {
   [ContractsNames.BancorArbitrageV2]: BancorArbitrageV2,
   [ContractsNames.LiquidityProtectionStore]: LiquidityProtectionStore,
   [ContractsNames.GradientController]: GradientController,
+  [ContractsNames.GradientVoucher]: CarbonVoucher,
 };
 
 export interface ConstantField {
