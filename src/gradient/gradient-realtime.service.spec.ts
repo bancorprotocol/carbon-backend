@@ -43,6 +43,9 @@ describe('GradientRealtimeService', () => {
       save: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((data) => ({ ...data })),
       update: jest.fn().mockResolvedValue({}),
+      manager: {
+        query: jest.fn().mockResolvedValue([]),
+      },
     };
 
     mockHarvesterService = {

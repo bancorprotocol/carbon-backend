@@ -142,6 +142,8 @@ export class TvlService {
           LEFT JOIN pairs ps ON ps.id = gsc."pairId"
       WHERE
           gsc."exchangeId" = '${deployment.exchangeId}'
+          AND gsc."token0Id" IS NOT NULL
+          AND gsc."token1Id" IS NOT NULL
       ),
       gradient_strategy_updated AS (
       SELECT
@@ -167,6 +169,8 @@ export class TvlService {
           LEFT JOIN pairs ps ON ps.id = gsu."pairId"
       WHERE
           gsu."exchangeId" = '${deployment.exchangeId}'
+          AND gsu."token0Id" IS NOT NULL
+          AND gsu."token1Id" IS NOT NULL
       ),
       gradient_strategy_liquidity_updated AS (
       SELECT
@@ -192,6 +196,8 @@ export class TvlService {
           LEFT JOIN pairs ps ON ps.id = gslu."pairId"
       WHERE
           gslu."exchangeId" = '${deployment.exchangeId}'
+          AND gslu."token0Id" IS NOT NULL
+          AND gslu."token1Id" IS NOT NULL
       ),
       gradient_strategy_deleted AS (
       SELECT
@@ -217,6 +223,8 @@ export class TvlService {
           LEFT JOIN pairs ps ON ps.id = gsd."pairId"
       WHERE
           gsd."exchangeId" = '${deployment.exchangeId}'
+          AND gsd."token0Id" IS NOT NULL
+          AND gsd."token1Id" IS NOT NULL
       ),
       all_txs AS (
       SELECT * FROM strategy_created

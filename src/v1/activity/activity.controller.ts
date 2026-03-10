@@ -24,6 +24,7 @@ export class ActivityController {
     if (action.includes('edit') || action.includes('update')) return 'edit';
     if (action.includes('delete')) return 'delete';
     if (action.includes('pause')) return 'pause';
+    if (action.includes('trade')) return 'trade';
     return '';
   }
 

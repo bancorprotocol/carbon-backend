@@ -468,12 +468,30 @@ async function testActivity() {
         'No gradient-typed activities found',
       );
 
-      const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
+      const validActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause', 'trade'];
       const allActionsValid = data.every((a: any) => validActions.includes(a.action));
       assert(G, ep, allActionsValid,
         'All actions are valid strings',
         `Invalid actions found: ${data.filter((a: any) => !validActions.includes(a.action)).map((a: any) => a.action)}`,
       );
+
+      const gradientActivities = data.filter((a: any) => a.strategy?.type === 'gradient');
+      if (gradientActivities.length > 0) {
+        const noUnknownTokens = gradientActivities.every((a: any) =>
+          a.strategy.base && a.strategy.base !== '' &&
+          a.strategy.quote && a.strategy.quote !== ''
+        );
+        assert(G, ep, noUnknownTokens,
+          'All gradient activities have non-empty base/quote addresses',
+          'Some gradient activities have empty base/quote addresses',
+        );
+
+        const allHaveBlockNumber = gradientActivities.every((a: any) => a.blockNumber > 0);
+        assert(G, ep, allHaveBlockNumber,
+          'All gradient activities have blockNumber > 0',
+          `Some gradient activities have blockNumber 0: ${gradientActivities.filter((a: any) => !a.blockNumber).length}`,
+        );
+      }
     }
   } catch (e: any) {
     fail(G, ep, 'Request failed', e.message);

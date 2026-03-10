@@ -392,15 +392,158 @@ node -e "
       allPassed = false;
     }
 
-    const actR = await c.query(
-      \"SELECT COUNT(*) as cnt FROM \\\"activities-v2\\\" WHERE \\\"blockchainType\\\"=\\\$1 AND \\\"exchangeId\\\"=\\\$2\",
+    // ── Gradient activities: count ──
+    const gradActR = await c.query(
+      \"SELECT COUNT(*) as cnt FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2\",
       ['ethereum', 'ethereum']
     );
-    const actCnt = parseInt(actR.rows[0].cnt);
-    if (actCnt > 0) {
-      console.log('  PASS  activities-v2: ' + actCnt + ' rows (includes gradient activities)');
+    const gradActCnt = parseInt(gradActR.rows[0].cnt);
+    if (gradActCnt >= 10) {
+      console.log('  PASS  activities-v2 gradient rows: ' + gradActCnt + ' (expected >= 10: 8 created + 1 updated + 1 deleted + trades)');
     } else {
-      console.log('  FAIL  activities-v2: 0 rows');
+      console.log('  FAIL  activities-v2 gradient rows: ' + gradActCnt + ' (expected >= 10)');
+      allPassed = false;
+    }
+
+    // ── Gradient activities: no UNKNOWN baseSellToken / quoteBuyToken ──
+    const unknownR = await c.query(
+      \"SELECT a.id, a.\\\"strategyId\\\", a.action, a.\\\"baseSellToken\\\", a.\\\"quoteBuyToken\\\" FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND (a.\\\"baseSellToken\\\" = 'UNKNOWN' OR a.\\\"quoteBuyToken\\\" = 'UNKNOWN' OR a.\\\"baseSellToken\\\" = '' OR a.\\\"quoteBuyToken\\\" = '')\",
+      ['ethereum', 'ethereum']
+    );
+    if (unknownR.rows.length === 0) {
+      console.log('  PASS  gradient activities: no UNKNOWN or empty token names');
+    } else {
+      console.log('  FAIL  gradient activities: ' + unknownR.rows.length + ' rows with UNKNOWN/empty token names');
+      unknownR.rows.slice(0, 3).forEach(r => console.log('        id=' + r.id + ' strategyId=' + r.strategyId + ' action=' + r.action + ' base=' + r.baseSellToken + ' quote=' + r.quoteBuyToken));
+      allPassed = false;
+    }
+
+    // ── Gradient activities: no empty baseSellTokenAddress / quoteBuyTokenAddress ──
+    const emptyAddrR = await c.query(
+      \"SELECT a.id, a.\\\"strategyId\\\", a.action, a.\\\"baseSellTokenAddress\\\", a.\\\"quoteBuyTokenAddress\\\" FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND (a.\\\"baseSellTokenAddress\\\" = '' OR a.\\\"quoteBuyTokenAddress\\\" = '' OR a.\\\"baseSellTokenAddress\\\" IS NULL OR a.\\\"quoteBuyTokenAddress\\\" IS NULL)\",
+      ['ethereum', 'ethereum']
+    );
+    if (emptyAddrR.rows.length === 0) {
+      console.log('  PASS  gradient activities: all have non-empty token addresses');
+    } else {
+      console.log('  FAIL  gradient activities: ' + emptyAddrR.rows.length + ' rows with empty/null token addresses');
+      emptyAddrR.rows.slice(0, 3).forEach(r => console.log('        id=' + r.id + ' base=' + r.baseSellTokenAddress + ' quote=' + r.quoteBuyTokenAddress));
+      allPassed = false;
+    }
+
+    // ── Gradient activities: non-null token0Id / token1Id ──
+    const nullTokenR = await c.query(
+      \"SELECT a.id, a.\\\"strategyId\\\", a.action FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND (a.\\\"token0Id\\\" IS NULL OR a.\\\"token1Id\\\" IS NULL)\",
+      ['ethereum', 'ethereum']
+    );
+    if (nullTokenR.rows.length === 0) {
+      console.log('  PASS  gradient activities: all have token0Id and token1Id');
+    } else {
+      console.log('  FAIL  gradient activities: ' + nullTokenR.rows.length + ' rows with null token0Id or token1Id');
+      nullTokenR.rows.slice(0, 3).forEach(r => console.log('        id=' + r.id + ' strategyId=' + r.strategyId + ' action=' + r.action));
+      allPassed = false;
+    }
+
+    // ── Gradient activities: blockNumber > 0 ──
+    const zeroBlockR = await c.query(
+      \"SELECT a.id, a.\\\"strategyId\\\", a.action, a.\\\"blockNumber\\\" FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND (a.\\\"blockNumber\\\" = 0 OR a.\\\"blockNumber\\\" IS NULL)\",
+      ['ethereum', 'ethereum']
+    );
+    if (zeroBlockR.rows.length === 0) {
+      console.log('  PASS  gradient activities: all have blockNumber > 0');
+    } else {
+      console.log('  FAIL  gradient activities: ' + zeroBlockR.rows.length + ' rows with blockNumber = 0');
+      zeroBlockR.rows.slice(0, 3).forEach(r => console.log('        id=' + r.id + ' action=' + r.action + ' blockNumber=' + r.blockNumber));
+      allPassed = false;
+    }
+
+    // ── Gradient activities: valid action types only ──
+    const validActions = ['create_strategy', 'deleted', 'edit_price', 'sell_high', 'buy_low', 'trade_occurred', 'transfer_strategy'];
+    const invalidActR = await c.query(
+      \"SELECT DISTINCT a.action FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND a.action NOT IN ('\" + validActions.join(\"','\") + \"')\",
+      ['ethereum', 'ethereum']
+    );
+    if (invalidActR.rows.length === 0) {
+      console.log('  PASS  gradient activities: all action types valid (' + validActions.join(', ') + ')');
+    } else {
+      console.log('  FAIL  gradient activities: invalid action types: ' + invalidActR.rows.map(r => r.action).join(', '));
+      allPassed = false;
+    }
+
+    // ── Gradient activities: expected action breakdown ──
+    const actionBreakdownR = await c.query(
+      \"SELECT a.action, COUNT(*) as cnt FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 GROUP BY a.action ORDER BY a.action\",
+      ['ethereum', 'ethereum']
+    );
+    console.log('  INFO  gradient activity action breakdown:');
+    actionBreakdownR.rows.forEach(r => console.log('        ' + r.action + ': ' + r.cnt));
+
+    const actionMap = {};
+    actionBreakdownR.rows.forEach(r => actionMap[r.action] = parseInt(r.cnt));
+    if ((actionMap['create_strategy'] || 0) >= 8) {
+      console.log('  PASS  gradient create_strategy count >= 8');
+    } else {
+      console.log('  FAIL  gradient create_strategy count: ' + (actionMap['create_strategy'] || 0) + ' (expected >= 8)');
+      allPassed = false;
+    }
+    if ((actionMap['deleted'] || 0) >= 1) {
+      console.log('  PASS  gradient deleted count >= 1');
+    } else {
+      console.log('  FAIL  gradient deleted count: ' + (actionMap['deleted'] || 0) + ' (expected >= 1)');
+      allPassed = false;
+    }
+
+    // ── Gradient activities: sample row fully populated ──
+    const sampleR = await c.query(
+      \"SELECT a.* FROM \\\"activities-v2\\\" a INNER JOIN gradient_strategy_created_events g ON a.\\\"strategyId\\\" = g.\\\"strategyId\\\" AND a.\\\"blockchainType\\\" = g.\\\"blockchainType\\\" AND a.\\\"exchangeId\\\" = g.\\\"exchangeId\\\" WHERE a.\\\"blockchainType\\\"=\\\$1 AND a.\\\"exchangeId\\\"=\\\$2 AND a.action = 'create_strategy' LIMIT 1\",
+      ['ethereum', 'ethereum']
+    );
+    if (sampleR.rows.length > 0) {
+      const s = sampleR.rows[0];
+      const issues = [];
+      if (!s.baseSellToken || s.baseSellToken === 'UNKNOWN') issues.push('baseSellToken=' + s.baseSellToken);
+      if (!s.quoteBuyToken || s.quoteBuyToken === 'UNKNOWN') issues.push('quoteBuyToken=' + s.quoteBuyToken);
+      if (!s.baseSellTokenAddress) issues.push('baseSellTokenAddress empty');
+      if (!s.quoteBuyTokenAddress) issues.push('quoteBuyTokenAddress empty');
+      if (!s.token0Id) issues.push('token0Id null');
+      if (!s.token1Id) issues.push('token1Id null');
+      if (!s.blockNumber || s.blockNumber === 0) issues.push('blockNumber=' + s.blockNumber);
+      if (!s.txhash) issues.push('txhash empty');
+      if (!s.creationWallet) issues.push('creationWallet empty');
+      if (!s.currentOwner) issues.push('currentOwner empty');
+      if (!s.baseQuote || s.baseQuote.includes('UNKNOWN')) issues.push('baseQuote=' + s.baseQuote);
+      if (issues.length === 0) {
+        console.log('  PASS  gradient sample create_strategy row fully populated');
+        console.log('        strategyId=' + s.strategyId + ' base=' + s.baseSellToken + '/' + s.quoteBuyToken + ' block=' + s.blockNumber + ' owner=' + s.currentOwner);
+      } else {
+        console.log('  FAIL  gradient sample create_strategy row has issues: ' + issues.join(', '));
+        allPassed = false;
+      }
+    }
+
+    // ── gradient_strategy_realtime: has deleted rows ──
+    const deletedR = await c.query(
+      \"SELECT COUNT(*) as cnt FROM gradient_strategy_realtime WHERE \\\"blockchainType\\\"=\\\$1 AND \\\"exchangeId\\\"=\\\$2 AND deleted = true\",
+      ['ethereum', 'ethereum']
+    );
+    const deletedCnt = parseInt(deletedR.rows[0].cnt);
+    if (deletedCnt > 0) {
+      console.log('  PASS  gradient_strategy_realtime: ' + deletedCnt + ' deleted rows');
+    } else {
+      console.log('  FAIL  gradient_strategy_realtime: no deleted rows (expected >= 1 after E2E deletion)');
+      allPassed = false;
+    }
+
+    // ── All activities: no UNKNOWN anywhere ──
+    const allUnknownR = await c.query(
+      \"SELECT COUNT(*) as cnt FROM \\\"activities-v2\\\" WHERE \\\"blockchainType\\\"=\\\$1 AND \\\"exchangeId\\\"=\\\$2 AND (\\\"baseSellToken\\\" = 'UNKNOWN' OR \\\"quoteBuyToken\\\" = 'UNKNOWN')\",
+      ['ethereum', 'ethereum']
+    );
+    const allUnknownCnt = parseInt(allUnknownR.rows[0].cnt);
+    if (allUnknownCnt === 0) {
+      console.log('  PASS  all activities: zero UNKNOWN token names in entire table');
+    } else {
+      console.log('  FAIL  all activities: ' + allUnknownCnt + ' rows with UNKNOWN token names');
       allPassed = false;
     }
 

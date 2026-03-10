@@ -180,7 +180,7 @@ export class GradientActivityService {
             order0Liquidity: e.order0Liquidity,
             order1Liquidity: e.order1Liquidity,
           });
-          activities.push(this.createActivity(e, 'strategy_created', deployment, tokens, blockTimestamps, e.owner, t0Addr, t1Addr));
+          activities.push(this.createActivity(e, 'create_strategy', deployment, tokens, blockTimestamps, e.owner, t0Addr, t1Addr));
           break;
         }
         case 'updated': {
@@ -188,7 +188,7 @@ export class GradientActivityService {
           const state = strategyStates.get(e.strategyId);
           const t0 = state?.token0Address || '';
           const t1 = state?.token1Address || '';
-          const activity = this.createStrategyActivity(e, 'strategy_edited', deployment, tokens, blockTimestamps, state?.owner, t0, t1);
+          const activity = this.createStrategyActivity(e, 'edit_price', deployment, tokens, blockTimestamps, state?.owner, t0, t1);
 
           if (state) {
             state.order0Liquidity = e.order0Liquidity;
@@ -217,7 +217,7 @@ export class GradientActivityService {
           const state = strategyStates.get(e.strategyId);
           const t0 = e.token0?.address || state?.token0Address || '';
           const t1 = e.token1?.address || state?.token1Address || '';
-          activities.push(this.createActivity(e, 'strategy_deleted', deployment, tokens, blockTimestamps, state?.owner, t0, t1));
+          activities.push(this.createActivity(e, 'deleted', deployment, tokens, blockTimestamps, state?.owner, t0, t1));
           strategyStates.delete(e.strategyId);
           break;
         }
@@ -225,6 +225,14 @@ export class GradientActivityService {
           const r = entry.data;
           const state = strategyStates.get(r.strategyId);
           if (state) {
+            if (!state.token0Address || !tokens[state.token0Address]) {
+              throw new Error(`[Gradient] Token0 not found for address "${state.token0Address}" (strategyId=${r.strategyId}, transfer)`);
+            }
+            if (!state.token1Address || !tokens[state.token1Address]) {
+              throw new Error(`[Gradient] Token1 not found for address "${state.token1Address}" (strategyId=${r.strategyId}, transfer)`);
+            }
+            const t0 = tokens[state.token0Address];
+            const t1 = tokens[state.token1Address];
             const activity = new ActivityV2();
             activity.blockchainType = deployment.blockchainType;
             activity.exchangeId = deployment.exchangeId;
@@ -234,11 +242,11 @@ export class GradientActivityService {
             activity.newOwner = r.to;
             activity.currentOwner = r.to;
             activity.creationWallet = state.owner;
-            activity.baseSellToken = tokens[state.token0Address]?.symbol || '';
+            activity.baseSellToken = t0.symbol;
             activity.baseSellTokenAddress = state.token0Address;
-            activity.quoteBuyToken = tokens[state.token1Address]?.symbol || '';
+            activity.quoteBuyToken = t1.symbol;
             activity.quoteBuyTokenAddress = state.token1Address;
-            activity.baseQuote = `${activity.baseSellToken}/${activity.quoteBuyToken}`;
+            activity.baseQuote = `${t0.symbol}/${t1.symbol}`;
             activity.sellBudget = '0';
             activity.buyBudget = '0';
             activity.sellPriceA = '0'; activity.sellPriceMarg = '0'; activity.sellPriceB = '0';
@@ -248,6 +256,10 @@ export class GradientActivityService {
             activity.blockNumber = r.blockNumber;
             activity.transactionIndex = r.transactionIndex;
             activity.logIndex = r.logIndex;
+            activity.token0 = t0;
+            activity.token0Id = t0.id;
+            activity.token1 = t1;
+            activity.token1Id = t1.id;
             activities.push(activity);
             state.owner = r.to;
           }
@@ -275,10 +287,17 @@ export class GradientActivityService {
     token0Addr: string,
     token1Addr: string,
   ): ActivityV2 {
-    const t0Dec = tokens[token0Addr]?.decimals || 18;
-    const t1Dec = tokens[token1Addr]?.decimals || 18;
-    const t0Symbol = tokens[token0Addr]?.symbol || 'UNKNOWN';
-    const t1Symbol = tokens[token1Addr]?.symbol || 'UNKNOWN';
+    if (!token0Addr || !tokens[token0Addr]) {
+      throw new Error(`[Gradient] Token0 not found for address "${token0Addr}" (strategyId=${event.strategyId}, liquidity_updated)`);
+    }
+    if (!token1Addr || !tokens[token1Addr]) {
+      throw new Error(`[Gradient] Token1 not found for address "${token1Addr}" (strategyId=${event.strategyId}, liquidity_updated)`);
+    }
+
+    const t0Dec = tokens[token0Addr].decimals;
+    const t1Dec = tokens[token1Addr].decimals;
+    const t0Symbol = tokens[token0Addr].symbol;
+    const t1Symbol = tokens[token1Addr].symbol;
 
     const newLiq0 = new Decimal(event.liquidity0);
     const newLiq1 = new Decimal(event.liquidity1);
@@ -289,7 +308,7 @@ export class GradientActivityService {
     activity.blockchainType = deployment.blockchainType;
     activity.exchangeId = deployment.exchangeId;
     activity.strategyId = event.strategyId;
-    activity.action = 'token_sell_executed';
+    activity.action = 'trade_occurred';
     activity.baseQuote = `${t0Symbol}/${t1Symbol}`;
     activity.baseSellToken = t0Symbol;
     activity.baseSellTokenAddress = token0Addr;
@@ -310,6 +329,10 @@ export class GradientActivityService {
     activity.logIndex = event.logIndex;
     activity.currentOwner = state?.owner;
     activity.creationWallet = state?.owner;
+    activity.token0 = tokens[token0Addr];
+    activity.token0Id = tokens[token0Addr].id;
+    activity.token1 = tokens[token1Addr];
+    activity.token1Id = tokens[token1Addr].id;
 
     if (state) {
       const prevLiq0 = new Decimal(state.order0Liquidity);
@@ -360,19 +383,17 @@ export class GradientActivityService {
     token0Addr?: string,
     token1Addr?: string,
   ): ActivityV2 {
-    let t0Symbol = 'UNKNOWN';
-    let t1Symbol = 'UNKNOWN';
-    let t0Decimals = 18;
-    let t1Decimals = 18;
+    if (!token0Addr || !tokens[token0Addr]) {
+      throw new Error(`[Gradient] Token0 not found for address "${token0Addr}" (strategyId=${event.strategyId}, action=${action})`);
+    }
+    if (!token1Addr || !tokens[token1Addr]) {
+      throw new Error(`[Gradient] Token1 not found for address "${token1Addr}" (strategyId=${event.strategyId}, action=${action})`);
+    }
 
-    if (token0Addr && tokens[token0Addr]) {
-      t0Symbol = tokens[token0Addr].symbol;
-      t0Decimals = tokens[token0Addr].decimals;
-    }
-    if (token1Addr && tokens[token1Addr]) {
-      t1Symbol = tokens[token1Addr].symbol;
-      t1Decimals = tokens[token1Addr].decimals;
-    }
+    const t0Symbol = tokens[token0Addr].symbol;
+    const t1Symbol = tokens[token1Addr].symbol;
+    const t0Decimals = tokens[token0Addr].decimals;
+    const t1Decimals = tokens[token1Addr].decimals;
 
     const liq0 = new Decimal(event.order0Liquidity).div(new Decimal(10).pow(t0Decimals));
     const liq1 = new Decimal(event.order1Liquidity).div(new Decimal(10).pow(t1Decimals));
@@ -402,6 +423,10 @@ export class GradientActivityService {
     activity.logIndex = event.logIndex;
     activity.currentOwner = owner;
     activity.creationWallet = owner;
+    activity.token0 = tokens[token0Addr];
+    activity.token0Id = tokens[token0Addr].id;
+    activity.token1 = tokens[token1Addr];
+    activity.token1Id = tokens[token1Addr].id;
 
     return activity;
   }

@@ -58,11 +58,15 @@ export class GradientStrategyLiquidityUpdatedEventService {
 
       const entities = events.map((e) => {
         const blockNum = Number(e.blockNumber);
-        const token0 = tokens[e.returnValues.token0];
-        const token1 = tokens[e.returnValues.token1];
-        const pair = token0 && token1 && pairsDictionary[e.returnValues.token0]
-          ? pairsDictionary[e.returnValues.token0][e.returnValues.token1]
-          : undefined;
+        const t0Addr = e.returnValues.token0;
+        const t1Addr = e.returnValues.token1;
+        const token0 = tokens[t0Addr] || tokens[t0Addr.toLowerCase()];
+        const token1 = tokens[t1Addr] || tokens[t1Addr.toLowerCase()];
+        if (!token0 || !token1) {
+          throw new Error(`[Gradient] Token not found for StrategyLiquidityUpdated event: token0=${t0Addr} (found=${!!token0}), token1=${t1Addr} (found=${!!token1})`);
+        }
+        const pairKey = token0.address;
+        const pair = pairsDictionary[pairKey]?.[token1.address] || undefined;
 
         return this.repository.create({
           blockchainType: deployment.blockchainType,
@@ -97,11 +101,15 @@ export class GradientStrategyLiquidityUpdatedEventService {
   ): Promise<GradientStrategyLiquidityUpdatedEvent[]> {
     return this.repository
       .createQueryBuilder('e')
-      .where('e."blockId" >= :startBlock', { startBlock })
-      .andWhere('e."blockId" <= :endBlock', { endBlock })
+      .leftJoinAndSelect('e.block', 'block')
+      .leftJoinAndSelect('e.pair', 'pair')
+      .leftJoinAndSelect('e.token0', 'token0')
+      .leftJoinAndSelect('e.token1', 'token1')
+      .where('block.id >= :startBlock', { startBlock })
+      .andWhere('block.id <= :endBlock', { endBlock })
       .andWhere('e."blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
       .andWhere('e."exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
-      .orderBy('e."blockId"', 'ASC')
+      .orderBy('block.id', 'ASC')
       .addOrderBy('e."logIndex"', 'ASC')
       .getMany();
   }

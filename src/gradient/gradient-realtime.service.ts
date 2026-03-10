@@ -1,6 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { Repository, In, DataSource } from 'typeorm';
 import Web3 from 'web3';
 import Decimal from 'decimal.js';
 import { GradientStrategyRealtime } from './gradient-strategy-realtime.entity';
@@ -203,12 +203,12 @@ export class GradientRealtimeService {
 
       this.logger.log(`[Gradient] Fetched ${allStrategies.length} strategies for ${deployment.exchangeId}`);
 
+      await this.saveStrategies(allStrategies, deployment);
+      await this.markDeletedStrategies(allStrategies, deployment);
+
       if (allStrategies.length === 0) {
         return lastBlockNumber;
       }
-
-      await this.saveStrategies(allStrategies, deployment);
-      await this.markDeletedStrategies(allStrategies, deployment);
 
       await this.redis.client.set(this.getBlockRedisKey(deployment), lastBlockNumber.toString());
 
@@ -303,6 +303,53 @@ export class GradientRealtimeService {
       );
       this.logger.log(`[Gradient] Marked ${toMarkDeleted.length} strategies as deleted for ${deployment.exchangeId}`);
     }
+
+    await this.syncDeletionsFromEvents(deployment);
+  }
+
+  private async syncDeletionsFromEvents(deployment: Deployment): Promise<void> {
+    const deletedEventRows = await this.gradientRealtimeRepository.manager.query(
+      `SELECT d."strategyId", c."owner",
+              t0."address" AS "token0Address", t1."address" AS "token1Address",
+              d."order0Liquidity", d."order0InitialPrice", d."order0TradingStartTime", d."order0Expiry", d."order0MultiFactor", d."order0GradientType",
+              d."order1Liquidity", d."order1InitialPrice", d."order1TradingStartTime", d."order1Expiry", d."order1MultiFactor", d."order1GradientType"
+       FROM gradient_strategy_deleted_events d
+       LEFT JOIN gradient_strategy_created_events c ON c."strategyId" = d."strategyId" AND c."blockchainType" = d."blockchainType" AND c."exchangeId" = d."exchangeId"
+       LEFT JOIN tokens t0 ON d."token0Id" = t0."id"
+       LEFT JOIN tokens t1 ON d."token1Id" = t1."id"
+       WHERE d."blockchainType" = $1 AND d."exchangeId" = $2
+         AND d."strategyId" NOT IN (SELECT "strategyId" FROM gradient_strategy_realtime WHERE "blockchainType" = $1 AND "exchangeId" = $2)`,
+      [deployment.blockchainType, deployment.exchangeId],
+    );
+
+    if (deletedEventRows.length === 0) return;
+
+    const stubs = deletedEventRows.map((row: any) =>
+      this.gradientRealtimeRepository.create({
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        strategyId: row.strategyId,
+        owner: row.owner || '',
+        token0Address: row.token0Address || '',
+        token1Address: row.token1Address || '',
+        order0Liquidity: row.order0Liquidity || '0',
+        order0InitialPrice: row.order0InitialPrice || '0',
+        order0TradingStartTime: row.order0TradingStartTime || 0,
+        order0Expiry: row.order0Expiry || 0,
+        order0MultiFactor: row.order0MultiFactor || '0',
+        order0GradientType: row.order0GradientType || '0',
+        order1Liquidity: row.order1Liquidity || '0',
+        order1InitialPrice: row.order1InitialPrice || '0',
+        order1TradingStartTime: row.order1TradingStartTime || 0,
+        order1Expiry: row.order1Expiry || 0,
+        order1MultiFactor: row.order1MultiFactor || '0',
+        order1GradientType: row.order1GradientType || '0',
+        deleted: true,
+      }),
+    );
+
+    await this.gradientRealtimeRepository.save(stubs);
+    this.logger.log(`[Gradient] Synced ${stubs.length} deleted strategies from events for ${deployment.exchangeId}`);
   }
 
   async getStrategiesWithOwners(

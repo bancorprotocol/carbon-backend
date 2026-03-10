@@ -62,7 +62,7 @@ describe('ActivityController', () => {
     it('should return formatted activity data', async () => {
       const mockActivities = [
         {
-          action: 'token_sell_executed',
+          action: 'sell_high',
           strategyId: 123,
           currentOwner: '0xOwner',
           baseSellTokenAddress: '0xBase',
@@ -156,18 +156,19 @@ describe('ActivityController', () => {
 
     it('should format different action types correctly', async () => {
       const actions = [
-        'token_sell_executed',
-        'token_buy_executed',
-        'strategy_created',
-        'strategy_deposit',
-        'strategy_withdraw',
-        'strategy_transfer',
-        'strategy_edit',
-        'strategy_deleted',
-        'strategy_pause',
+        'sell_high',
+        'buy_low',
+        'create_strategy',
+        'deposit',
+        'withdraw',
+        'transfer_strategy',
+        'edit_price',
+        'deleted',
+        'strategy_paused',
+        'trade_occurred',
       ];
 
-      const expectedActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause'];
+      const expectedActions = ['sell', 'buy', 'create', 'deposit', 'withdraw', 'transfer', 'edit', 'delete', 'pause', 'trade'];
 
       for (let i = 0; i < actions.length; i++) {
         const mockActivities = [
@@ -235,7 +236,7 @@ describe('ActivityController', () => {
   describe('activityMeta', () => {
     it('should return activity meta with formatted actions', async () => {
       const mockMeta = {
-        actions: ['token_sell_executed', 'token_buy_executed', 'strategy_created'],
+        actions: ['sell_high', 'buy_low', 'create_strategy'],
       };
 
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
@@ -251,7 +252,7 @@ describe('ActivityController', () => {
     it('should call the same logic as activity', async () => {
       const mockActivities = [
         {
-          action: 'token_sell_executed',
+          action: 'sell_high',
           strategyId: 123,
           currentOwner: '0xOwner',
           baseSellTokenAddress: '0xBase',
@@ -283,7 +284,7 @@ describe('ActivityController', () => {
   describe('activityV2Meta', () => {
     it('should call the same logic as activityMeta', async () => {
       const mockMeta = {
-        actions: ['token_sell_executed', 'token_buy_executed'],
+        actions: ['sell_high', 'buy_low'],
       };
 
       deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
