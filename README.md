@@ -598,6 +598,21 @@ The system provides read-only API endpoints for reward data:
 
 **Note**: No write endpoints are provided for security. All campaign management must be done via direct database access.
 
+## Strategy CSV Export
+
+Generate a CSV of all strategy events (trades, deposits, withdrawals) for a given deployment, including per-event balance deltas, cumulative protocol fees, and trade direction.
+
+```bash
+npm run generate-strategy-csv -- --deployment <name> --output strategy_events.csv
+```
+
+**Options:**
+
+- `--deployment <name>` — Deployment to export. Available deployment names are defined in `DEPLOYMENT_MAP` inside `src/scripts/strategy-csv/generate-strategy-csv.ts`.
+- `--output <path>` — Output file path. Defaults to `strategy_events_<deployment>_<timestamp>.csv`.
+
+The script connects to the database using the same `.env` configuration as the main app.
+
 ## License
 
 Carbon Backend is licensed under the [MIT License](LICENSE).
