@@ -35,7 +35,11 @@
     "generate-merkl-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/generate-csv.ts",
     "compare-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/compare-csv-files.ts",
     "analyze-csv-differences": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/analyze-differences.ts",
-    "calculate-csv-totals": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/calculate-totals.ts"
+    "calculate-csv-totals": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/calculate-totals.ts",
+    "tenderly:testnet": "bash src/scripts/tenderly-testnet.sh",
+    "tenderly:testnet:delete": "bash src/scripts/tenderly-testnet-delete.sh",
+    "tenderly:testnet:test": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/tenderly-testnet-test.ts",
+    "tenderly:testnet:generate": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/tenderly-generate-data.ts"
   },
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
