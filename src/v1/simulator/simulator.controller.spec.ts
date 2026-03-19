@@ -63,12 +63,12 @@ describe('SimulatorController', () => {
       end: 1672617600, // 2023-01-02 00:00:00
       baseToken: '0xBaseToken',
       quoteToken: '0xQuoteToken',
-      sellBudget: 100,
-      buyBudget: 100,
-      sellMax: 120,
-      sellMin: 110,
-      buyMax: 90,
-      buyMin: 80,
+      sellBudget: '100',
+      buyBudget: '100',
+      sellMax: '120',
+      sellMin: '110',
+      buyMax: '90',
+      buyMin: '80',
     };
 
     const mockUsdPrices = [
