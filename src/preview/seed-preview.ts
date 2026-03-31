@@ -347,6 +347,26 @@ async function seed(): Promise<void> {
       console.log('    No last_processed_block entries found for this deployment');
     }
 
+    // 8b. Seed last_processed_block for services with non-standard key prefixes
+    //     These keys don't match the ${blockchainType}-${exchangeId}- pattern above.
+    //     Use explicit IDs above current max to avoid PK collisions (sequences reset later in step 9).
+    const maxIdResult = await local.query(`SELECT COALESCE(MAX(id), 0) AS max_id FROM last_processed_block`);
+    let nextId = parseInt(maxIdResult.rows[0].max_id, 10) + 1;
+    const extraKeys = [
+      `carbon-price-${blockchainType}-${exchangeId}`,
+      `carbon-graph-price-${blockchainType}-${exchangeId}`,
+    ];
+    for (const extraParam of extraKeys) {
+      await local.query(
+        `INSERT INTO last_processed_block (id, param, block, "createdAt", "updatedAt")
+         VALUES ($1, $2, $3, now(), now())`,
+        [nextId++, extraParam, forkBlock],
+      );
+    }
+    console.log(
+      `    Set ${extraKeys.length} extra last_processed_block entries (carbon-price, carbon-graph-price) to ${forkBlock}`,
+    );
+
     // 9. Reset SERIAL sequences so new inserts don't collide with seeded IDs
     console.log('  Resetting sequences...');
     const allSeededTables = await local.query(
@@ -366,12 +386,21 @@ async function seed(): Promise<void> {
     // 10. Delete any data with block > forkBlock (safety net)
     console.log('  Cleaning data beyond fork block...');
     const blockIdTables = [
-      'strategies', 'pairs',
-      'strategy-created-events', 'strategy-updated-events', 'strategy-deleted-events',
-      'pair-created-events', 'pair-trading-fee-ppm-updated-events', 'trading-fee-ppm-updated-events',
-      'tokens-traded-events', 'voucher-transfer-events',
-      'arbitrage-executed-events', 'arbitrage-executed-events-v2',
-      'vortex-funds-withdrawn-events', 'vortex-tokens-traded-events', 'vortex-trading-reset-events',
+      'strategies',
+      'pairs',
+      'strategy-created-events',
+      'strategy-updated-events',
+      'strategy-deleted-events',
+      'pair-created-events',
+      'pair-trading-fee-ppm-updated-events',
+      'trading-fee-ppm-updated-events',
+      'tokens-traded-events',
+      'voucher-transfer-events',
+      'arbitrage-executed-events',
+      'arbitrage-executed-events-v2',
+      'vortex-funds-withdrawn-events',
+      'vortex-tokens-traded-events',
+      'vortex-trading-reset-events',
     ];
     for (const table of blockIdTables) {
       try {
@@ -379,7 +408,9 @@ async function seed(): Promise<void> {
         if (delResult.rowCount > 0) {
           console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockId > ${forkBlock})`);
         }
-      } catch { /* table may not exist yet */ }
+      } catch {
+        /* table may not exist yet */
+      }
     }
     const blockNumTables = ['activities', 'activities-v2', 'dex-screener-events-v2', 'volume'];
     for (const table of blockNumTables) {
@@ -388,18 +419,22 @@ async function seed(): Promise<void> {
         if (delResult.rowCount > 0) {
           console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockNumber > ${forkBlock})`);
         }
-      } catch { /* table may not exist yet */ }
+      } catch {
+        /* table may not exist yet */
+      }
     }
     try {
       const delResult = await local.query(`DELETE FROM tvl WHERE "evt_block_number" > $1`, [forkBlock]);
       if (delResult.rowCount > 0) {
         console.log(`    Deleted ${delResult.rowCount} rows from tvl (evt_block_number > ${forkBlock})`);
       }
-    } catch { /* skip */ }
-    const blockDelResult = await local.query(
-      `DELETE FROM blocks WHERE id > $1 AND "blockchainType" = $2`,
-      [forkBlock, blockchainType],
-    );
+    } catch {
+      /* skip */
+    }
+    const blockDelResult = await local.query(`DELETE FROM blocks WHERE id > $1 AND "blockchainType" = $2`, [
+      forkBlock,
+      blockchainType,
+    ]);
     if (blockDelResult.rowCount > 0) {
       console.log(`    Deleted ${blockDelResult.rowCount} blocks with id > ${forkBlock}`);
     }
@@ -407,8 +442,8 @@ async function seed(): Promise<void> {
     await local.query("SET session_replication_role = 'origin'");
     console.log('Seed complete!');
   } finally {
-    await ext.end().catch(() => {});
-    await local.end().catch(() => {});
+    await ext.end().catch(() => undefined);
+    await local.end().catch(() => undefined);
   }
 }
 

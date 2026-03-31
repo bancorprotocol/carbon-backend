@@ -52,4 +52,3 @@ export interface StrategiesResponse {
     hasMore: boolean;
   };
 }
-

@@ -62,9 +62,7 @@ describe('GceProvider', () => {
       mockWait.mockResolvedValue([{}]);
       mockGet.mockResolvedValue([
         {
-          networkInterfaces: [
-            { accessConfigs: [{ natIP: '34.56.78.90' }] },
-          ],
+          networkInterfaces: [{ accessConfigs: [{ natIP: '34.56.78.90' }] }],
         },
       ]);
 
@@ -124,13 +122,19 @@ describe('GceProvider', () => {
   describe('getInstanceStatus', () => {
     it('should return RUNNING for a running instance', async () => {
       mockGet.mockResolvedValue([{ status: 'RUNNING' }]);
-      const status = await provider.getInstanceStatus('carbon-prev-test1234', 'test-project/us-central1-a/carbon-prev-test1234');
+      const status = await provider.getInstanceStatus(
+        'carbon-prev-test1234',
+        'test-project/us-central1-a/carbon-prev-test1234',
+      );
       expect(status).toBe('RUNNING');
     });
 
     it('should return null for a non-existent instance', async () => {
       mockGet.mockRejectedValue(new Error('Not found'));
-      const status = await provider.getInstanceStatus('carbon-prev-test1234', 'test-project/us-central1-a/carbon-prev-test1234');
+      const status = await provider.getInstanceStatus(
+        'carbon-prev-test1234',
+        'test-project/us-central1-a/carbon-prev-test1234',
+      );
       expect(status).toBeNull();
     });
   });

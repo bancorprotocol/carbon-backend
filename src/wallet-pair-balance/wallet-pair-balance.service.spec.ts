@@ -473,7 +473,11 @@ describe('WalletPairBalanceService', () => {
 
       const result = await service.getLatestBalances(mockDeployment);
 
-      expect(result['0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'].wallets['0x1234567890123456789012345678901234567890']).toEqual({
+      expect(
+        result['0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa_0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'].wallets[
+          '0x1234567890123456789012345678901234567890'
+        ],
+      ).toEqual({
         token0Balance: '16191.056562229417588987',
         token1Balance: '3241.00000000000002086',
       });

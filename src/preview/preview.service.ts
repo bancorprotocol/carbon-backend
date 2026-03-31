@@ -197,7 +197,12 @@ export class PreviewService {
     }
   }
 
-  private buildEnvVars(rpcEnvVar: string, rpcUrl: string, exchangeId: string, forkBlock: number): Record<string, string> {
+  private buildEnvVars(
+    rpcEnvVar: string,
+    rpcUrl: string,
+    exchangeId: string,
+    forkBlock: number,
+  ): Record<string, string> {
     const passthrough = [
       'PREVIEW_DB_PASSWORD',
       'EXTERNAL_DATABASE_HOST',

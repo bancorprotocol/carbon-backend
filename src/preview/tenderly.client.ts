@@ -25,8 +25,10 @@ export class TenderlyClient {
 
   constructor(private readonly configService: ConfigService) {
     const accessKey = this.configService.get<string>('TENDERLY_ACCESS_KEY');
-    const account = this.configService.get<string>('TENDERLY_ACCOUNT_SLUG') || this.configService.get<string>('TENDERLY_USERNAME');
-    const project = this.configService.get<string>('TENDERLY_PROJECT_SLUG') || this.configService.get<string>('TENDERLY_PROJECT');
+    const account =
+      this.configService.get<string>('TENDERLY_ACCOUNT_SLUG') || this.configService.get<string>('TENDERLY_USERNAME');
+    const project =
+      this.configService.get<string>('TENDERLY_PROJECT_SLUG') || this.configService.get<string>('TENDERLY_PROJECT');
 
     this.basePath = `${TENDERLY_API_BASE}/account/${account}/project/${project}`;
 
