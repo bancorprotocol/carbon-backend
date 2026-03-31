@@ -21,6 +21,18 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "gcloud:build:production": "CLOUDSDK_CORE_PROJECT=bancor-api gcloud builds submit --tag europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi --timeout 3600",
     "gcloud:build:staging": "CLOUDSDK_CORE_PROJECT=bancor-api gcloud builds submit --tag europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-staging --timeout 3600",
+    "gcloud:build:preview": "CLOUDSDK_CORE_PROJECT=bancor-api gcloud builds submit --config cloudbuild-preview.yaml --region europe-west2 --timeout 1200",
+    "preview": "bash src/scripts/preview-local.sh help",
+    "preview:build": "bash src/scripts/preview-local.sh build",
+    "preview:run": "bash src/scripts/preview-local.sh run",
+    "preview:start": "bash src/scripts/preview-local.sh start",
+    "preview:test": "bash src/scripts/preview-local.sh test",
+    "preview:stop": "bash src/scripts/preview-local.sh stop",
+    "preview:rebuild": "bash src/scripts/preview-local.sh rebuild",
+    "preview:logs": "bash src/scripts/preview-local.sh logs",
+    "preview:shell": "bash src/scripts/preview-local.sh shell",
+    "preview:db": "bash src/scripts/preview-local.sh db",
+    "preview:e2e": "bash src/scripts/test-preview-local-e2e.sh",
     "migration:create": "read -p 'Enter migration name: ' NAME && if [ -z \"$NAME\" ]; then echo 'Error: Migration name is required!' && exit 1; else typeorm-ts-node-commonjs migration:create src/migrations/$NAME; fi",
     "migration:generate": "npm run build && read -p 'Enter migration name: ' NAME && if [ -z \"$NAME\" ]; then echo 'Error: Migration name is required!' && exit 1; else typeorm-ts-node-commonjs migration:generate src/migrations/$NAME -d src/typeorm.config.ts; fi",
     "migration:run": "npm run build && typeorm-ts-node-commonjs migration:run -d src/typeorm.config.ts",
@@ -41,6 +53,7 @@
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
     "@ethersproject/bignumber": "^5.7.0",
+    "@google-cloud/compute": "^6.9.0",
     "@google-cloud/secret-manager": "^5.3.0",
     "@google-cloud/tasks": "^5.5.1",
     "@nestjs/axios": "^3.0.0",
@@ -116,7 +129,12 @@
     "rootDir": "src",
     "testRegex": ".*\\.spec\\.ts$",
     "transform": {
-      "^.+\\.(t|j)s$": "ts-jest"
+      "^.+\\.(t|j)s$": [
+        "ts-jest",
+        {
+          "isolatedModules": true
+        }
+      ]
     },
     "collectCoverageFrom": [
       "**/*.controller.ts",

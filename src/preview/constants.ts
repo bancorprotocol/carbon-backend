@@ -1,0 +1,56 @@
+import { BlockchainType, ExchangeId } from '../deployment/deployment.service';
+
+export interface NetworkMapping {
+  chainId: number;
+  exchangeId: ExchangeId;
+  blockchainType: BlockchainType;
+  rpcEnvVar: string;
+  name: string;
+}
+
+export const NETWORK_MAPPINGS: NetworkMapping[] = [
+  {
+    chainId: 1,
+    exchangeId: ExchangeId.OGEthereum,
+    blockchainType: BlockchainType.Ethereum,
+    rpcEnvVar: 'ETHEREUM_RPC_ENDPOINT',
+    name: 'Ethereum',
+  },
+  {
+    chainId: 1329,
+    exchangeId: ExchangeId.OGSei,
+    blockchainType: BlockchainType.Sei,
+    rpcEnvVar: 'SEI_RPC_ENDPOINT',
+    name: 'Sei',
+  },
+  {
+    chainId: 42220,
+    exchangeId: ExchangeId.OGCelo,
+    blockchainType: BlockchainType.Celo,
+    rpcEnvVar: 'CELO_RPC_ENDPOINT',
+    name: 'Celo',
+  },
+  {
+    chainId: 2632500,
+    exchangeId: ExchangeId.OGCoti,
+    blockchainType: BlockchainType.Coti,
+    rpcEnvVar: 'COTI_RPC_ENDPOINT',
+    name: 'Coti',
+  },
+];
+
+export function getNetworkMapping(chainId: number): NetworkMapping | undefined {
+  return NETWORK_MAPPINGS.find((m) => m.chainId === chainId);
+}
+
+export const PREVIEW_APP_PREFIX = 'carbon-prev';
+export const PREVIEW_MAX_AGE_HOURS = 48;
+
+export const TENDERLY_API_BASE = 'https://api.tenderly.co/api/v1';
+
+export const GCE_PROJECT = 'bancor-api';
+export const GCE_ZONE = 'europe-west2-b';
+export const GCE_MACHINE_TYPE = 'e2-small';
+export const GCE_NETWORK_TAG = 'preview-backend';
+export const GCE_COS_IMAGE_PROJECT = 'cos-cloud';
+export const GCE_COS_IMAGE_FAMILY = 'cos-stable';

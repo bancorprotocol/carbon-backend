@@ -1,0 +1,11 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-f'
+      - 'Dockerfile.preview'
+      - '-t'
+      - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-preview:latest'
+      - '.'
+images:
+  - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-preview:latest'
