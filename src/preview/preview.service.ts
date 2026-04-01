@@ -56,7 +56,11 @@ export class PreviewService {
     }
 
     const networkId = vnet.fork_config?.network_id;
-    const forkBlock = vnet.fork_config?.block_number;
+    const rawForkBlock = vnet.fork_config?.block_number;
+    const forkBlock =
+      typeof rawForkBlock === 'string' && rawForkBlock.startsWith('0x')
+        ? parseInt(rawForkBlock, 16)
+        : Number(rawForkBlock);
     const mapping = getNetworkMapping(networkId);
 
     if (!mapping) {
@@ -244,6 +248,7 @@ export class PreviewService {
       deployment: record.deployment,
       forkBlock: record.forkBlock,
       currentBlock: record.currentBlock,
+      rpcUrl: record.rpcUrl,
       createdAt: record.createdAt.toISOString(),
     };
   }

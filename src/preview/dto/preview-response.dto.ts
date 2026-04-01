@@ -16,6 +16,9 @@ export class PreviewResponseDto {
   @ApiProperty({ example: 24678050, nullable: true })
   currentBlock: number | null;
 
+  @ApiProperty({ example: 'https://rpc.vnet.tenderly.co/...' })
+  rpcUrl: string;
+
   @ApiProperty({ example: '2026-03-23T10:00:00.000Z' })
   createdAt: string;
 }

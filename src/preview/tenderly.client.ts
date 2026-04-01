@@ -9,7 +9,7 @@ export interface TenderlyVnet {
   display_name: string;
   fork_config: {
     network_id: number;
-    block_number: number;
+    block_number: number | string;
   };
   rpcs: Array<{
     name: string;
