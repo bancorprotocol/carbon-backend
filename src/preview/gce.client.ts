@@ -197,6 +197,10 @@ done
 
 docker-credential-gcr configure-docker --registries=europe-west2-docker.pkg.dev
 
+# Stop and remove any existing container (handles VM resets gracefully)
+docker stop preview 2>/dev/null || true
+docker rm preview 2>/dev/null || true
+
 docker pull ${image}
 
 # Block container access to the GCE metadata server (prevents secret exfiltration)

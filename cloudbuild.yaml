@@ -257,9 +257,7 @@ steps:
         '--set-env-vars=TAC_FASTLANE_THREAD_ID=4220407',
         '--set-env-vars=TAC_EXPLORER_URL=https://explorer.tac.build/tx/',
         '--set-env-vars=TAC_CARBON_WALLET_URL=https://tac.carbondefi.xyz/explore/strategies?search=',
-        '--set-env-vars=ENABLE_PREVIEW_API=1',
-        '--set-env-vars=PREVIEW_IMAGE_URI=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-preview:latest',
-        '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest,BASE_RPC_ENDPOINT=MC_BASE_RPC_ENDPOINT:latest,MANTLE_RPC_ENDPOINT=MC_MANTLE_RPC_ENDPOINT:latest,FANTOM_RPC_ENDPOINT=MC_FANTOM_RPC_ENDPOINT:latest,CARBON_BACKEND_SQL_CERTIFICATION=CARBON_BACKEND_SQL_CERTIFICATION:latest,DATABASE_URL=CM_DATABASE_READONLY_URL:latest,COINMARKETCAP_API_KEY=COINMARKETCAP_API_KEY:latest,CODEX_API_KEY=CODEX_API_KEY:latest,ETHEREUM_TELEGRAM_BOT_TOKEN=ETHEREUM_TELEGRAM_BOT_TOKEN:latest,SEI_TELEGRAM_BOT_TOKEN=SEI_TELEGRAM_BOT_TOKEN:latest,CELO_TELEGRAM_BOT_TOKEN=CELO_TELEGRAM_BOT_TOKEN:latest,BLAST_TELEGRAM_BOT_TOKEN=BLAST_TELEGRAM_BOT_TOKEN:latest,BASE_TELEGRAM_BOT_TOKEN=BASE_TELEGRAM_BOT_TOKEN:latest,FANTOM_TELEGRAM_BOT_TOKEN=FANTOM_TELEGRAM_BOT_TOKEN:latest,MANTLE_TELEGRAM_BOT_TOKEN=MANTLE_TELEGRAM_BOT_TOKEN:latest,LINEA_RPC_ENDPOINT=MC_LINEA_RPC_ENDPOINT:latest,LINEA_TELEGRAM_BOT_TOKEN=LINEA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_RPC_ENDPOINT=MC_BERACHAIN_RPC_ENDPOINT:latest,ETHEREUM_BANCOR_PROTECTION_TOKEN=ETHEREUM_BANCOR_PROTECTION_TOKEN:latest,COTI_RPC_ENDPOINT=MC_COTI_RPC_ENDPOINT:latest,COTI_TELEGRAM_BOT_TOKEN=COTI_TELEGRAM_BOT_TOKEN:latest,IOTA_RPC_ENDPOINT=MC_IOTA_RPC_ENDPOINT:latest,IOTA_TELEGRAM_BOT_TOKEN=IOTA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_TELEGRAM_BOT_TOKEN=BERACHAIN_TELEGRAM_BOT_TOKEN:latest,TAC_RPC_ENDPOINT=MC_TAC_RPC_ENDPOINT:latest,TAC_TELEGRAM_BOT_TOKEN=TAC_TELEGRAM_BOT_TOKEN:latest,MERKL_SNAPSHOT_SALT=MERKL_SNAPSHOT_SALT:latest,FLY_API_TOKEN=FLY_API_TOKEN:latest,FLY_ORG_SLUG=FLY_ORG_SLUG:latest,TENDERLY_ACCESS_KEY=TENDERLY_ACCESS_KEY:latest,TENDERLY_ACCOUNT_SLUG=TENDERLY_ACCOUNT_SLUG:latest,TENDERLY_PROJECT_SLUG=TENDERLY_PROJECT_SLUG:latest,EXTERNAL_DATABASE_HOST=EXTERNAL_DATABASE_HOST:latest,EXTERNAL_DATABASE_USERNAME=EXTERNAL_DATABASE_USERNAME:latest,EXTERNAL_DATABASE_PASSWORD=EXTERNAL_DATABASE_PASSWORD:latest,EXTERNAL_DATABASE_NAME=EXTERNAL_DATABASE_NAME:latest',
+        '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest,BASE_RPC_ENDPOINT=MC_BASE_RPC_ENDPOINT:latest,MANTLE_RPC_ENDPOINT=MC_MANTLE_RPC_ENDPOINT:latest,FANTOM_RPC_ENDPOINT=MC_FANTOM_RPC_ENDPOINT:latest,CARBON_BACKEND_SQL_CERTIFICATION=CARBON_BACKEND_SQL_CERTIFICATION:latest,DATABASE_URL=CM_DATABASE_READONLY_URL:latest,COINMARKETCAP_API_KEY=COINMARKETCAP_API_KEY:latest,CODEX_API_KEY=CODEX_API_KEY:latest,ETHEREUM_TELEGRAM_BOT_TOKEN=ETHEREUM_TELEGRAM_BOT_TOKEN:latest,SEI_TELEGRAM_BOT_TOKEN=SEI_TELEGRAM_BOT_TOKEN:latest,CELO_TELEGRAM_BOT_TOKEN=CELO_TELEGRAM_BOT_TOKEN:latest,BLAST_TELEGRAM_BOT_TOKEN=BLAST_TELEGRAM_BOT_TOKEN:latest,BASE_TELEGRAM_BOT_TOKEN=BASE_TELEGRAM_BOT_TOKEN:latest,FANTOM_TELEGRAM_BOT_TOKEN=FANTOM_TELEGRAM_BOT_TOKEN:latest,MANTLE_TELEGRAM_BOT_TOKEN=MANTLE_TELEGRAM_BOT_TOKEN:latest,LINEA_RPC_ENDPOINT=MC_LINEA_RPC_ENDPOINT:latest,LINEA_TELEGRAM_BOT_TOKEN=LINEA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_RPC_ENDPOINT=MC_BERACHAIN_RPC_ENDPOINT:latest,ETHEREUM_BANCOR_PROTECTION_TOKEN=ETHEREUM_BANCOR_PROTECTION_TOKEN:latest,COTI_RPC_ENDPOINT=MC_COTI_RPC_ENDPOINT:latest,COTI_TELEGRAM_BOT_TOKEN=COTI_TELEGRAM_BOT_TOKEN:latest,IOTA_RPC_ENDPOINT=MC_IOTA_RPC_ENDPOINT:latest,IOTA_TELEGRAM_BOT_TOKEN=IOTA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_TELEGRAM_BOT_TOKEN=BERACHAIN_TELEGRAM_BOT_TOKEN:latest,TAC_RPC_ENDPOINT=MC_TAC_RPC_ENDPOINT:latest,TAC_TELEGRAM_BOT_TOKEN=TAC_TELEGRAM_BOT_TOKEN:latest,MERKL_SNAPSHOT_SALT=MERKL_SNAPSHOT_SALT:latest',
         '--region=europe-west2',
         '--project=bancor-api',
         '--port=3000',
@@ -267,11 +265,124 @@ steps:
     waitFor: ['deploy_harvester']
     id: 'deploy_endpoint'
 
+  # Deploy the preview API service
+  - name: 'gcr.io/cloud-builders/gcloud'
+    args:
+      [
+        'run',
+        'deploy',
+        'carbon-preview-api',
+        '--image=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest',
+        '--set-env-vars=REDIS_URL=redis://10.109.105.124:6379',
+        '--set-env-vars=SHOULD_HARVEST=0',
+        '--set-env-vars=SHOULD_POLL_QUOTES=0',
+        '--set-env-vars=POLL_QUOTES_INTERVAL=60000',
+        '--set-env-vars=DB_SYNC=0',
+        '--set-env-vars=SHOULD_POLL_HISTORIC_QUOTES=0',
+        '--set-env-vars=POLL_HISTORIC_QUOTES_INTERVAL=300000',
+        '--set-env-vars=SHOULD_UPDATE_ANALYTICS=0',
+        '--set-env-vars=DATABASE_SSL_ENABLED=1',
+        '--set-env-vars=TELEGRAM_CHAT_ID=-1002180246468',
+        '--set-env-vars=GOOGLE_CLOUD_PROJECT=bancor-api',
+        '--set-env-vars=API_URL=https://api.carbondefi.xyz',
+        '--set-env-vars=QUEUE_NAME=bancor-alerts',
+        '--set-env-vars=QUEUE_LOCATION=europe-west2',
+        '--set-env-vars=ETHEREUM_CARBON_THREAD_ID=4514853',
+        '--set-env-vars=ETHEREUM_FASTLANE_THREAD_ID=4514851',
+        '--set-env-vars=ETHEREUM_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=ETHEREUM_EXPLORER_URL=https://etherscan.io/tx/',
+        '--set-env-vars=ETHEREUM_CARBON_WALLET_URL=https://app.carbondefi.xyz/explore/strategies?search=',
+        '--set-env-vars=SEI_CARBON_THREAD_ID=4505433',
+        '--set-env-vars=SEI_FASTLANE_THREAD_ID=4505431',
+        '--set-env-vars=SEI_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=SEI_EXPLORER_URL=https://seitrace.com/tx/',
+        '--set-env-vars=SEI_CARBON_WALLET_URL=https://sei.carbondefi.xyz/explore/strategies?search=',
+        '--set-env-vars=CELO_CARBON_THREAD_ID=4505429',
+        '--set-env-vars=CELO_FASTLANE_THREAD_ID=4505427',
+        '--set-env-vars=CELO_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=CELO_EXPLORER_URL=https://celoscan.io/tx/',
+        '--set-env-vars=CELO_CARBON_WALLET_URL=https://celo.carbondefi.xyz/explore/strategies?search=',
+        '--set-env-vars=BLAST_CARBON_THREAD_ID=10000000',
+        '--set-env-vars=BLAST_FASTLANE_THREAD_ID=1494502',
+        '--set-env-vars=BLAST_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=BLAST_EXPLORER_URL=https://blastscan.io/tx/',
+        '--set-env-vars=BLAST_CARBON_WALLET_URL=https://blast.carbondefi.xyz/explore/wallet/',
+        '--set-env-vars=BASE_CARBON_THREAD_ID=4514841',
+        '--set-env-vars=BASE_FASTLANE_THREAD_ID=4514826',
+        '--set-env-vars=BASE_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=BASE_EXPLORER_URL=https://basescan.org/tx/',
+        '--set-env-vars=BASE_GRAPHENE_WALLET_URL=https://graphene.velocimeter.xyz/explore/wallet/',
+        '--set-env-vars=FANTOM_CARBON_THREAD_ID=1119007',
+        '--set-env-vars=FANTOM_FASTLANE_THREAD_ID=1118995',
+        '--set-env-vars=FANTOM_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=FANTOM_EXPLORER_URL=https://ftmscan.com/tx/',
+        '--set-env-vars=FANTOM_GRAPHENE_WALLET_URL=https://graphene.velocimeter.xyz/explore/wallet/',
+        '--set-env-vars=MANTLE_CARBON_THREAD_ID=6560468',
+        '--set-env-vars=MANTLE_FASTLANE_THREAD_ID=6540299',
+        '--set-env-vars=MANTLE_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=MANTLE_EXPLORER_URL=https://explorer.mantle.xyz/tx/',
+        '--set-env-vars=MANTLE_GRAPHENE_WALLET_URL=https://graphene.velocimeter.xyz/explore/wallet/',
+        '--set-env-vars=LINEA_FASTLANE_THREAD_ID=1066788',
+        '--set-env-vars=LINEA_VORTEX_THREAD_ID=6025784',
+        '--set-env-vars=LINEA_EXPLORER_URL=https://lineascan.build/tx/',
+        '--set-env-vars=LINEA_XFAI_WALLET_URL=https://strategies.xfai.com/explore/wallet/',
+        '--set-env-vars=ETHEREUM_BANCOR_PROTECTION_THREAD_ID=-734918549',
+        '--set-env-vars=TELEGRAM_CALLBACK_URL=https://api.carbondefi.xyz/notifications/telegram',
+        '--set-env-vars=COTI_CARBON_THREAD_ID=3937066',
+        '--set-env-vars=COTI_FASTLANE_THREAD_ID=7026910',
+        '--set-env-vars=COTI_EXPLORER_URL=https://mainnet.cotiscan.io/tx/',
+        '--set-env-vars=COTI_WALLET_URL=https://coti.carbondefi.xyz/explore/strategies?search=',
+        '--set-env-vars=IOTA_CARBON_THREAD_ID=2681431',
+        '--set-env-vars=IOTA_EXPLORER_URL=https://explorer.evm.iota.org/tx/',
+        '--set-env-vars=IOTA_WALLET_URL=https://explorer.evm.iota.org/address/',
+        '--set-env-vars=BERACHAIN_FASTLANE_THREAD_ID=3202150',
+        '--set-env-vars=BERACHAIN_EXPLORER_URL=https://berascan.com/tx/',
+        '--set-env-vars=BERACHAIN_WALLET_URL=https://berascan.com/address/',
+        '--set-env-vars=TAC_CARBON_THREAD_ID=4220406',
+        '--set-env-vars=TAC_FASTLANE_THREAD_ID=4220407',
+        '--set-env-vars=TAC_EXPLORER_URL=https://explorer.tac.build/tx/',
+        '--set-env-vars=TAC_CARBON_WALLET_URL=https://tac.carbondefi.xyz/explore/strategies?search=',
+        '--set-env-vars=ENABLE_PREVIEW_API=1',
+        '--set-env-vars=PREVIEW_IMAGE_URI=europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-preview:latest',
+        '--set-secrets=COINGECKO_API_KEY=COINGECKO_API_KEY:latest,ETHEREUM_RPC_ENDPOINT=CM_ETHEREUM_RPC_ENDPOINT:latest,SEI_RPC_ENDPOINT=MC_SEI_RPC_ENDPOINT:latest,CELO_RPC_ENDPOINT=CM_CELO_RPC_ENDPOINT:latest,BLAST_RPC_ENDPOINT=MC_BLAST_RPC_ENDPOINT:latest,BASE_RPC_ENDPOINT=MC_BASE_RPC_ENDPOINT:latest,MANTLE_RPC_ENDPOINT=MC_MANTLE_RPC_ENDPOINT:latest,FANTOM_RPC_ENDPOINT=MC_FANTOM_RPC_ENDPOINT:latest,CARBON_BACKEND_SQL_CERTIFICATION=CARBON_BACKEND_SQL_CERTIFICATION:latest,DATABASE_URL=CM_DATABASE_READONLY_URL:latest,COINMARKETCAP_API_KEY=COINMARKETCAP_API_KEY:latest,CODEX_API_KEY=CODEX_API_KEY:latest,ETHEREUM_TELEGRAM_BOT_TOKEN=ETHEREUM_TELEGRAM_BOT_TOKEN:latest,SEI_TELEGRAM_BOT_TOKEN=SEI_TELEGRAM_BOT_TOKEN:latest,CELO_TELEGRAM_BOT_TOKEN=CELO_TELEGRAM_BOT_TOKEN:latest,BLAST_TELEGRAM_BOT_TOKEN=BLAST_TELEGRAM_BOT_TOKEN:latest,BASE_TELEGRAM_BOT_TOKEN=BASE_TELEGRAM_BOT_TOKEN:latest,FANTOM_TELEGRAM_BOT_TOKEN=FANTOM_TELEGRAM_BOT_TOKEN:latest,MANTLE_TELEGRAM_BOT_TOKEN=MANTLE_TELEGRAM_BOT_TOKEN:latest,LINEA_RPC_ENDPOINT=MC_LINEA_RPC_ENDPOINT:latest,LINEA_TELEGRAM_BOT_TOKEN=LINEA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_RPC_ENDPOINT=MC_BERACHAIN_RPC_ENDPOINT:latest,ETHEREUM_BANCOR_PROTECTION_TOKEN=ETHEREUM_BANCOR_PROTECTION_TOKEN:latest,COTI_RPC_ENDPOINT=MC_COTI_RPC_ENDPOINT:latest,COTI_TELEGRAM_BOT_TOKEN=COTI_TELEGRAM_BOT_TOKEN:latest,IOTA_RPC_ENDPOINT=MC_IOTA_RPC_ENDPOINT:latest,IOTA_TELEGRAM_BOT_TOKEN=IOTA_TELEGRAM_BOT_TOKEN:latest,BERACHAIN_TELEGRAM_BOT_TOKEN=BERACHAIN_TELEGRAM_BOT_TOKEN:latest,TAC_RPC_ENDPOINT=MC_TAC_RPC_ENDPOINT:latest,TAC_TELEGRAM_BOT_TOKEN=TAC_TELEGRAM_BOT_TOKEN:latest,MERKL_SNAPSHOT_SALT=MERKL_SNAPSHOT_SALT:latest,FLY_API_TOKEN=FLY_API_TOKEN:latest,FLY_ORG_SLUG=FLY_ORG_SLUG:latest,TENDERLY_ACCESS_KEY=TENDERLY_ACCESS_KEY:latest,TENDERLY_ACCOUNT_SLUG=TENDERLY_ACCOUNT_SLUG:latest,TENDERLY_PROJECT_SLUG=TENDERLY_PROJECT_SLUG:latest,EXTERNAL_DATABASE_HOST=EXTERNAL_DATABASE_HOST:latest,EXTERNAL_DATABASE_USERNAME=EXTERNAL_DATABASE_USERNAME:latest,EXTERNAL_DATABASE_PASSWORD=EXTERNAL_DATABASE_PASSWORD:latest,EXTERNAL_DATABASE_NAME=EXTERNAL_DATABASE_NAME:latest',
+        '--region=europe-west2',
+        '--project=bancor-api',
+        '--port=3000',
+      ]
+    waitFor: ['deploy_endpoint']
+    id: 'deploy_preview_api'
+
   # Update the traffic
   - name: 'gcr.io/cloud-builders/gcloud'
     args: ['run', 'services', 'update-traffic', 'carbon-multi-harvester-2', '--to-latest', '--region', 'europe-west2']
-    waitFor: ['deploy_endpoint']
+    waitFor: ['deploy_preview_api']
     id: 'update_traffic'
+
+  # Reset running preview VMs to pick up the latest image
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        INSTANCES=$(gcloud compute instances list \
+          --filter="name~'^carbon-prev-'" \
+          --zones=europe-west2-b \
+          --format="value(name)" \
+          --project=bancor-api)
+        if [ -z "$INSTANCES" ]; then
+          echo "No preview VMs to reset"
+          exit 0
+        fi
+        echo "Resetting preview VMs: $INSTANCES"
+        for vm in $INSTANCES; do
+          echo "Resetting $vm..."
+          gcloud compute instances reset "$vm" \
+            --zone=europe-west2-b \
+            --project=bancor-api || echo "Warning: failed to reset $vm"
+        done
+        echo "All preview VMs reset"
+    waitFor: ['update_traffic']
+    id: 'reset_preview_vms'
 
 images:
   - 'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-multi:latest'
