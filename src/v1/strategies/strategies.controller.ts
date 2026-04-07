@@ -40,6 +40,10 @@ export class StrategiesController {
         max: strategy.highestRate0,
         marginal: strategy.marginalRate0,
       },
+      encoded: {
+        order0: JSON.parse(strategy.order0),
+        order1: JSON.parse(strategy.order1),
+      },
     }));
 
     // Apply pagination if requested
