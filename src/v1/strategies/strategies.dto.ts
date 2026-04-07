@@ -33,6 +33,18 @@ export interface Order {
   marginal: string;
 }
 
+export interface EncodedOrder {
+  y: string;
+  z: string;
+  A: string;
+  B: string;
+}
+
+export interface EncodedStrategy {
+  order0: EncodedOrder;
+  order1: EncodedOrder;
+}
+
 export interface Strategy {
   id: string;
   owner: string;
@@ -40,6 +52,7 @@ export interface Strategy {
   quote: string;
   buy: Order;
   sell: Order;
+  encoded: EncodedStrategy;
 }
 
 export interface StrategiesResponse {
