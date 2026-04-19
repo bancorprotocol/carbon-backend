@@ -117,7 +117,6 @@ export class StrategyService {
     deployment: Deployment,
     deletionEvent = false,
   ) {
-    // Fetch existing strategies in the current block range
     const existingStrategies = await this.strategyRepository.find({
       where: {
         blockchainType: deployment.blockchainType,
@@ -125,68 +124,51 @@ export class StrategyService {
       },
     });
 
-    const strategies = [];
+    const strategyMap = new Map<string, Strategy>();
+    existingStrategies.forEach((s) => strategyMap.set(s.strategyId, s));
+
     events.forEach((e) => {
-      // Use the same decoding logic as activity API
       const parsedOrder0 = parseOrder(e.order0);
       const parsedOrder1 = parseOrder(e.order1);
       const decimals0 = new Decimal(e.token0.decimals);
       const decimals1 = new Decimal(e.token1.decimals);
       const processedOrders = processOrders(parsedOrder0, parsedOrder1, decimals0, decimals1);
 
-      const strategyIndex = existingStrategies.findIndex((s) => s.strategyId === e.strategyId);
+      let strategy = strategyMap.get(e.strategyId);
 
-      let newStrategy;
-      if (strategyIndex >= 0) {
-        // Update existing strategy
-        newStrategy = existingStrategies[strategyIndex];
-        newStrategy.token0 = e.token0;
-        newStrategy.token1 = e.token1;
-        newStrategy.block = e.block;
-        newStrategy.pair = e.pair;
-        newStrategy.liquidity0 = processedOrders.liquidity0.toString();
-        newStrategy.lowestRate0 = processedOrders.sellPriceA.toString();
-        newStrategy.highestRate0 = processedOrders.sellPriceB.toString();
-        newStrategy.marginalRate0 = processedOrders.sellPriceMarg.toString();
-        newStrategy.liquidity1 = processedOrders.liquidity1.toString();
-        newStrategy.lowestRate1 = processedOrders.buyPriceA.toString();
-        newStrategy.highestRate1 = processedOrders.buyPriceB.toString();
-        newStrategy.marginalRate1 = processedOrders.buyPriceMarg.toString();
-        newStrategy.encodedOrder0 = e.order0;
-        newStrategy.encodedOrder1 = e.order1;
-        newStrategy.deleted = deletionEvent;
-
-        // Update owner if this is a created event
-        if ('owner' in e) {
-          newStrategy.owner = e.owner;
-        }
-      } else {
-        // Create new strategy
-        newStrategy = this.strategyRepository.create({
-          token0: e.token0,
-          token1: e.token1,
-          block: e.block,
-          pair: e.pair,
-          liquidity0: processedOrders.liquidity0.toString(),
-          lowestRate0: processedOrders.sellPriceA.toString(),
-          highestRate0: processedOrders.sellPriceB.toString(),
-          marginalRate0: processedOrders.sellPriceMarg.toString(),
-          liquidity1: processedOrders.liquidity1.toString(),
-          lowestRate1: processedOrders.buyPriceA.toString(),
-          highestRate1: processedOrders.buyPriceB.toString(),
-          marginalRate1: processedOrders.buyPriceMarg.toString(),
-          encodedOrder0: e.order0,
-          encodedOrder1: e.order1,
-          owner: 'owner' in e ? e.owner : null,
+      if (!strategy) {
+        strategy = this.strategyRepository.create({
           blockchainType: deployment.blockchainType,
           exchangeId: deployment.exchangeId,
-          deleted: deletionEvent,
           strategyId: e.strategyId,
         });
+        strategyMap.set(e.strategyId, strategy);
       }
 
-      strategies.push(newStrategy);
+      strategy.token0 = e.token0;
+      strategy.token1 = e.token1;
+      strategy.block = e.block;
+      strategy.pair = e.pair;
+      strategy.liquidity0 = processedOrders.liquidity0.toString();
+      strategy.lowestRate0 = processedOrders.sellPriceA.toString();
+      strategy.highestRate0 = processedOrders.sellPriceB.toString();
+      strategy.marginalRate0 = processedOrders.sellPriceMarg.toString();
+      strategy.liquidity1 = processedOrders.liquidity1.toString();
+      strategy.lowestRate1 = processedOrders.buyPriceA.toString();
+      strategy.highestRate1 = processedOrders.buyPriceB.toString();
+      strategy.marginalRate1 = processedOrders.buyPriceMarg.toString();
+      strategy.encodedOrder0 = e.order0;
+      strategy.encodedOrder1 = e.order1;
+      strategy.deleted = deletionEvent;
+
+      if ('owner' in e) {
+        strategy.owner = e.owner;
+      }
     });
+
+    const strategies = Array.from(strategyMap.values()).filter(
+      (s) => events.some((e) => e.strategyId === s.strategyId),
+    );
 
     const BATCH_SIZE = 1000;
     for (let i = 0; i < strategies.length; i += BATCH_SIZE) {

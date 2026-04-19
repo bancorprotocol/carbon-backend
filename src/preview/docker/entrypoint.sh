@@ -32,10 +32,10 @@ if [ -n "${TENDERLY_VNET_ID}" ]; then
 import json, sys
 
 CHAIN_MAP = {
-    1:       {'deployment': 'ethereum', 'rpc_var': 'ETHEREUM_RPC_ENDPOINT'},
-    1329:    {'deployment': 'sei',      'rpc_var': 'SEI_RPC_ENDPOINT'},
-    42220:   {'deployment': 'celo',     'rpc_var': 'CELO_RPC_ENDPOINT'},
-    2632500: {'deployment': 'coti',     'rpc_var': 'COTI_RPC_ENDPOINT'},
+    1:       {'deployment': 'ethereum', 'rpc_var': 'ETHEREUM_RPC_ENDPOINT', 'wss_var': 'ETHEREUM_WSS_ENDPOINT'},
+    1329:    {'deployment': 'sei',      'rpc_var': 'SEI_RPC_ENDPOINT',      'wss_var': 'SEI_WSS_ENDPOINT'},
+    42220:   {'deployment': 'celo',     'rpc_var': 'CELO_RPC_ENDPOINT',     'wss_var': 'CELO_WSS_ENDPOINT'},
+    2632500: {'deployment': 'coti',     'rpc_var': 'COTI_RPC_ENDPOINT',     'wss_var': 'COTI_WSS_ENDPOINT'},
 }
 
 vnet = json.loads(sys.stdin.read())
@@ -73,7 +73,17 @@ if not rpc_url and rpcs:
 if rpc_url.startswith('wss://'):
     rpc_url = rpc_url.replace('wss://', 'https://', 1)
 
+# Find WSS URL for realtime event subscriptions
+wss_url = ''
+for rpc in rpcs:
+    url = rpc.get('url', '')
+    if url.startswith('wss://'):
+        wss_url = url
+        break
+
 print(f\"{chain['rpc_var']}={rpc_url}\")
+if wss_url:
+    print(f\"{chain['wss_var']}={wss_url}\")
 print(f\"FORK_BLOCK_NUMBER={block}\")
 print(f\"PREVIEW_DEPLOYMENT={chain['deployment']}\")
 " <<< "${VNET_JSON}")
@@ -112,6 +122,7 @@ if [ ! -s "$PGDATA/PG_VERSION" ]; then
   echo "host all all 0.0.0.0/0 scram-sha-256" >> "$PGDATA/pg_hba.conf"
   cat >> "$PGDATA/postgresql.conf" <<PGCONF
 listen_addresses='*'
+shared_buffers = 256MB
 max_wal_size = 256MB
 min_wal_size = 64MB
 checkpoint_completion_target = 0.5
@@ -120,6 +131,8 @@ max_wal_senders = 0
 temp_file_limit = 256MB
 work_mem = 16MB
 maintenance_work_mem = 128MB
+shared_preload_libraries = 'timescaledb,pg_prewarm'
+pg_prewarm.autoprewarm = on
 PGCONF
 fi
 
@@ -159,9 +172,16 @@ fi
 
 # 5. Reclaim disk — the bulk inserts generate large WAL files
 echo "$(ts) --- Compacting database ---"
-su-exec postgres psql -d carbon_preview -c "VACUUM;" 2>/dev/null
+su-exec postgres psql -d carbon_preview -c "VACUUM ANALYZE;" 2>/dev/null
 su-exec postgres psql -d carbon_preview -c "CHECKPOINT;" 2>/dev/null
 echo "$(ts) Compaction done"
+
+# 5b. Prewarm hot-path tables + indexes into shared_buffers, then dump the
+#     buffer map so autoprewarm restores it when supervisord restarts PG.
+echo "$(ts) --- Prewarming database ---"
+su-exec postgres psql -d carbon_preview -q -f /usr/src/app/prewarm.sql
+su-exec postgres psql -d carbon_preview -q -c "SELECT autoprewarm_dump_now();"
+echo "$(ts) Prewarm complete (autoprewarm dump saved)"
 
 # 6. Stop the temporary PostgreSQL (supervisord will manage it)
 echo "$(ts) --- Stopping temporary services (supervisord will restart them) ---"

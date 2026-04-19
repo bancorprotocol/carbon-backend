@@ -59,6 +59,7 @@ describe('PreviewService', () => {
             getVnet: jest.fn(),
             getCurrentBlock: jest.fn(),
             getAdminRpcUrl: jest.fn(),
+            getWssUrl: jest.fn(),
             listVnets: jest.fn(),
           },
         },
@@ -115,6 +116,7 @@ describe('PreviewService', () => {
       gceProvider.instanceExists.mockResolvedValue(false);
       tenderlyClient.getVnet.mockResolvedValue(mockVnet);
       tenderlyClient.getAdminRpcUrl.mockReturnValue('https://admin.rpc.tenderly.co/test');
+      tenderlyClient.getWssUrl.mockReturnValue(undefined);
       tenderlyClient.getCurrentBlock.mockResolvedValue(20000050);
       gceProvider.createInstance.mockResolvedValue({ instanceId: 'instance-2', url: 'http://5.6.7.8:3000' });
 
@@ -144,6 +146,7 @@ describe('PreviewService', () => {
       repo.findOneBy.mockResolvedValue(null);
       tenderlyClient.getVnet.mockResolvedValue(mockVnet);
       tenderlyClient.getAdminRpcUrl.mockReturnValue('https://admin.rpc.tenderly.co/test');
+      tenderlyClient.getWssUrl.mockReturnValue('wss://virtual.mainnet.rpc.tenderly.co/wss-test');
       tenderlyClient.getCurrentBlock.mockResolvedValue(20000050);
       gceProvider.createInstance.mockResolvedValue({ instanceId: 'instance-1', url: 'http://1.2.3.4:3000' });
 
@@ -154,10 +157,28 @@ describe('PreviewService', () => {
       expect(result.forkBlock).toBe(20000000);
       expect(gceProvider.createInstance).toHaveBeenCalledWith(
         'carbon-prev-abc-123-',
-        expect.objectContaining({ PREVIEW_DEPLOYMENT: 'ethereum', IS_FORK: '1' }),
+        expect.objectContaining({
+          PREVIEW_DEPLOYMENT: 'ethereum',
+          IS_FORK: '1',
+          ETHEREUM_WSS_ENDPOINT: 'wss://virtual.mainnet.rpc.tenderly.co/wss-test',
+        }),
         'test-image:latest',
       );
       expect(repo.save).toHaveBeenCalled();
+    });
+
+    it('should not pass WSS env var when no WSS URL is available', async () => {
+      repo.findOneBy.mockResolvedValue(null);
+      tenderlyClient.getVnet.mockResolvedValue(mockVnet);
+      tenderlyClient.getAdminRpcUrl.mockReturnValue('https://admin.rpc.tenderly.co/test');
+      tenderlyClient.getWssUrl.mockReturnValue(undefined);
+      tenderlyClient.getCurrentBlock.mockResolvedValue(20000050);
+      gceProvider.createInstance.mockResolvedValue({ instanceId: 'instance-1', url: 'http://1.2.3.4:3000' });
+
+      await service.create('abc-123-def-456');
+
+      const envArg = gceProvider.createInstance.mock.calls[0][1];
+      expect(envArg).not.toHaveProperty('ETHEREUM_WSS_ENDPOINT');
     });
   });
 

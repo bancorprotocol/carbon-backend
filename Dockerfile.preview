@@ -42,6 +42,7 @@ COPY --from=builder /usr/src/app/dist ./dist
 COPY . .
 
 COPY src/preview/docker/supervisord.conf /etc/supervisord.conf
+COPY src/preview/docker/prewarm.sql /usr/src/app/prewarm.sql
 COPY src/preview/docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 

@@ -74,6 +74,8 @@ export class PreviewService {
       throw new BadRequestException('Could not find Admin RPC URL in Tenderly vnet response');
     }
 
+    const wssUrl = this.tenderlyClient.getWssUrl(vnet);
+
     let currentBlock: number | null = null;
     try {
       currentBlock = await this.tenderlyClient.getCurrentBlock(adminRpcUrl);
@@ -84,7 +86,14 @@ export class PreviewService {
     const shortId = tenderlyId.substring(0, 8);
     const instanceName = `${PREVIEW_APP_PREFIX}-${shortId}`;
 
-    const env = this.buildEnvVars(mapping.rpcEnvVar, adminRpcUrl, mapping.exchangeId, forkBlock);
+    const env = this.buildEnvVars(
+      mapping.rpcEnvVar,
+      adminRpcUrl,
+      mapping.wssEnvVar,
+      wssUrl,
+      mapping.exchangeId,
+      forkBlock,
+    );
     const { instanceId, url } = await this.gceProvider.createInstance(instanceName, env, this.previewImageUri);
 
     const record = this.repo.create({
@@ -204,6 +213,8 @@ export class PreviewService {
   private buildEnvVars(
     rpcEnvVar: string,
     rpcUrl: string,
+    wssEnvVar: string,
+    wssUrl: string | undefined,
     exchangeId: string,
     forkBlock: number,
   ): Record<string, string> {
@@ -232,6 +243,10 @@ export class PreviewService {
       SEND_NOTIFICATIONS: '0',
       NODE_ENV: 'production',
     };
+
+    if (wssUrl) {
+      env[wssEnvVar] = wssUrl;
+    }
 
     for (const key of passthrough) {
       const val = this.configService.get<string>(key);

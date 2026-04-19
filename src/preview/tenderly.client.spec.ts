@@ -109,4 +109,23 @@ describe('TenderlyClient', () => {
       expect(url).toBeUndefined();
     });
   });
+
+  describe('getWssUrl', () => {
+    it('should extract WSS URL from rpcs', () => {
+      const vnet = {
+        ...mockVnet,
+        rpcs: [
+          ...mockVnet.rpcs,
+          { name: 'WSS RPC', url: 'wss://virtual.mainnet.rpc.tenderly.co/wss-test' },
+        ],
+      };
+      const url = client.getWssUrl(vnet);
+      expect(url).toBe('wss://virtual.mainnet.rpc.tenderly.co/wss-test');
+    });
+
+    it('should return undefined when no WSS URL exists', () => {
+      const url = client.getWssUrl(mockVnet);
+      expect(url).toBeUndefined();
+    });
+  });
 });

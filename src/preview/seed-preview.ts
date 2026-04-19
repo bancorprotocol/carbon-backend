@@ -201,17 +201,20 @@ async function seed(): Promise<void> {
     );
     console.log(`    ${pairCount} pairs copied`);
 
-    // 4. Strategies (non-deleted only)
+    // 4. Strategies — copy ALL for the deployment, capping blockId to forkBlock
+    //    so the FK to blocks is valid (strategies updated on mainnet after forkBlock
+    //    still exist on the fork but their latest blockId might exceed forkBlock).
     console.log('  Copying strategies...');
     const strategyCount = await copyRows(
       ext,
       local,
-      `SELECT s.id, s."blockchainType", s."exchangeId", s."strategyId", s."blockId", s."pairId",
+      `SELECT s.id, s."blockchainType", s."exchangeId", s."strategyId",
+              LEAST(s."blockId", $3) AS "blockId", s."pairId",
               s."token0Id", s."token1Id", s.deleted, s.liquidity0, s."lowestRate0", s."highestRate0",
               s."marginalRate0", s.liquidity1, s."lowestRate1", s."highestRate1", s."marginalRate1",
               s."encodedOrder0", s."encodedOrder1", s.owner, s."createdAt", s."updatedAt"
        FROM strategies s
-       WHERE s."blockchainType" = $1 AND s."exchangeId" = $2 AND s."blockId" <= $3`,
+       WHERE s."blockchainType" = $1 AND s."exchangeId" = $2`,
       [blockchainType, exchangeId, forkBlock],
       'strategies',
     );

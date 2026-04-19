@@ -68,6 +68,7 @@ export interface Deployment {
       ethereumAddress: string;
     };
   };
+  wssEndpoint?: string;
   contracts: {
     [contractName: string]: {
       address: string;
@@ -122,6 +123,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGEthereum,
         blockchainType: BlockchainType.Ethereum,
         rpcEndpoint: this.configService.get('ETHEREUM_RPC_ENDPOINT'),
+        wssEndpoint: this.configService.get('ETHEREUM_WSS_ENDPOINT') || undefined,
         harvestEventsBatchSize: 100000,
         harvestConcurrency: 10,
         multicallAddress: '0x5Eb3fa2DFECdDe21C950813C665E9364fa609bD2',
@@ -228,51 +230,51 @@ export class DeploymentService {
       //     },
       //   },
       // },
-      {
-        exchangeId: ExchangeId.OGCelo,
-        blockchainType: BlockchainType.Celo,
-        rpcEndpoint: this.configService.get('CELO_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
-        harvestConcurrency: 1,
-        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        startBlock: 26808466,
-        gasToken: {
-          name: 'Celo',
-          symbol: 'CELO',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
-        contracts: {
-          CarbonController: {
-            address: '0x6619871118D144c1c28eC3b23036FC1f0829ed3a',
-          },
-          CarbonVoucher: {
-            address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
-          },
-          BancorArbitrage: {
-            address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
-          },
-          BancorArbitrageV2: {
-            address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
-          },
-          CarbonVortex: {
-            address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
-          },
-        },
-        notifications: {
-          explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
-          title: 'Celo',
-          telegram: {
-            botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
-              fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
-              vortexId: this.configService.get('CELO_VORTEX_THREAD_ID'),
-            },
-          },
-        },
-      },
+      // {
+      //   exchangeId: ExchangeId.OGCelo,
+      //   blockchainType: BlockchainType.Celo,
+      //   rpcEndpoint: this.configService.get('CELO_RPC_ENDPOINT'),
+      //   harvestEventsBatchSize: 1000,
+      //   harvestConcurrency: 1,
+      //   multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
+      //   startBlock: 26808466,
+      //   gasToken: {
+      //     name: 'Celo',
+      //     symbol: 'CELO',
+      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      //   },
+      //   nativeTokenAlias: '0x471ece3750da237f93b8e339c536989b8978a438',
+      //   contracts: {
+      //     CarbonController: {
+      //       address: '0x6619871118D144c1c28eC3b23036FC1f0829ed3a',
+      //     },
+      //     CarbonVoucher: {
+      //       address: '0x5E994Ac7d65d81f51a76e0bB5a236C6fDA8dBF9A',
+      //     },
+      //     BancorArbitrage: {
+      //       address: '0x8c05EA305235a67c7095a32Ad4a2Ee2688aDe636',
+      //     },
+      //     BancorArbitrageV2: {
+      //       address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
+      //     },
+      //     CarbonVortex: {
+      //       address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
+      //     },
+      //   },
+      //   notifications: {
+      //     explorerUrl: this.configService.get('CELO_EXPLORER_URL'),
+      //     carbonWalletUrl: this.configService.get('CELO_CARBON_WALLET_URL'),
+      //     title: 'Celo',
+      //     telegram: {
+      //       botToken: this.configService.get('CELO_TELEGRAM_BOT_TOKEN'),
+      //       threads: {
+      //         carbonThreadId: this.configService.get('CELO_CARBON_THREAD_ID'),
+      //         fastlaneId: this.configService.get('CELO_FASTLANE_THREAD_ID'),
+      //         vortexId: this.configService.get('CELO_VORTEX_THREAD_ID'),
+      //       },
+      //     },
+      //   },
+      // },
       // {
       //   exchangeId: ExchangeId.OGBlast,
       //   blockchainType: BlockchainType.Blast,
@@ -609,65 +611,65 @@ export class DeploymentService {
       //     },
       //   },
       // },
-      {
-        exchangeId: ExchangeId.OGCoti,
-        blockchainType: BlockchainType.Coti,
-        rpcEndpoint: this.configService.get('COTI_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
-        harvestConcurrency: 3,
-        multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
-        startBlock: 47878,
-        gasToken: {
-          name: 'COTI',
-          symbol: 'COTI',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
-        contracts: {
-          CarbonController: {
-            address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
-          },
-          CarbonVoucher: {
-            address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
-          },
-          BancorArbitrage: {
-            address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
-          },
-          BancorArbitrageV2: {
-            address: '0x2ec4cCAA4394633eCdCcc987E0E9A398F837e3DD',
-          },
-        },
-        notifications: {
-          explorerUrl: this.configService.get('COTI_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('COTI_WALLET_URL'),
-          title: 'Coti',
-          telegram: {
-            botToken: this.configService.get('COTI_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              carbonThreadId: this.configService.get('COTI_CARBON_THREAD_ID'),
-              fastlaneId: this.configService.get('COTI_FASTLANE_THREAD_ID'),
-            },
-          },
-        },
-        mapEthereumTokens: {
-          '0xDDB3422497E61e13543BeA06989C0789117555c5': '0xDDB3422497E61e13543BeA06989C0789117555c5', // coti
-          '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
-          '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
-          '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc.e
-          '0x639acc80569c5fc83c6fbf2319a6cc38bbfe26d1': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
-          '0x8c39b1fd0e6260fdf20652fc436d25026832bfea': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // usdc.e
-        },
-        graphPriceAnchors: {
-          primary: {
-            localAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
-            ethereumAddress: '0xDDB3422497E61e13543BeA06989C0789117555c5',
-          },
-          secondary: {
-            localAddress: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
-            ethereumAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          },
-        },
-      },
+      // {
+      //   exchangeId: ExchangeId.OGCoti,
+      //   blockchainType: BlockchainType.Coti,
+      //   rpcEndpoint: this.configService.get('COTI_RPC_ENDPOINT'),
+      //   harvestEventsBatchSize: 1000,
+      //   harvestConcurrency: 3,
+      //   multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
+      //   startBlock: 47878,
+      //   gasToken: {
+      //     name: 'COTI',
+      //     symbol: 'COTI',
+      //     address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
+      //   },
+      //   nativeTokenAlias: '0xDDB3422497E61e13543BeA06989C0789117555c5',
+      //   contracts: {
+      //     CarbonController: {
+      //       address: '0x59f21012B2E9BA67ce6a7605E74F945D0D4C84EA',
+      //     },
+      //     CarbonVoucher: {
+      //       address: '0xA4682A2A5Fe02feFF8Bd200240A41AD0E6EaF8d5',
+      //     },
+      //     BancorArbitrage: {
+      //       address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
+      //     },
+      //     BancorArbitrageV2: {
+      //       address: '0x2ec4cCAA4394633eCdCcc987E0E9A398F837e3DD',
+      //     },
+      //   },
+      //   notifications: {
+      //     explorerUrl: this.configService.get('COTI_EXPLORER_URL'),
+      //     carbonWalletUrl: this.configService.get('COTI_WALLET_URL'),
+      //     title: 'Coti',
+      //     telegram: {
+      //       botToken: this.configService.get('COTI_TELEGRAM_BOT_TOKEN'),
+      //       threads: {
+      //         carbonThreadId: this.configService.get('COTI_CARBON_THREAD_ID'),
+      //         fastlaneId: this.configService.get('COTI_FASTLANE_THREAD_ID'),
+      //       },
+      //     },
+      //   },
+      //   mapEthereumTokens: {
+      //     '0xDDB3422497E61e13543BeA06989C0789117555c5': '0xDDB3422497E61e13543BeA06989C0789117555c5', // coti
+      //     '0x7637c7838ec4ec6b85080f28a678f8e234bb83d1': '0xaf2ca40d3fc4459436d11b94d21fa4b8a89fb51d', // gcoti
+      //     '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee': '0xDDB3422497E61e13543BeA06989C0789117555c5', // native token (coti)
+      //     '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc.e
+      //     '0x639acc80569c5fc83c6fbf2319a6cc38bbfe26d1': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
+      //     '0x8c39b1fd0e6260fdf20652fc436d25026832bfea': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // usdc.e
+      //   },
+      //   graphPriceAnchors: {
+      //     primary: {
+      //       localAddress: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee',
+      //       ethereumAddress: '0xDDB3422497E61e13543BeA06989C0789117555c5',
+      //     },
+      //     secondary: {
+      //       localAddress: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
+      //       ethereumAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
+      //     },
+      //   },
+      // },
       // {
       //   exchangeId: ExchangeId.IotaGraphene,
       //   blockchainType: BlockchainType.Iota,

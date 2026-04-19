@@ -81,4 +81,8 @@ export class TenderlyClient {
   getAdminRpcUrl(vnet: TenderlyVnet): string | undefined {
     return vnet.rpcs?.find((rpc) => rpc.name === 'Admin RPC')?.url;
   }
+
+  getWssUrl(vnet: TenderlyVnet): string | undefined {
+    return vnet.rpcs?.find((rpc) => rpc.url?.startsWith('wss://'))?.url;
+  }
 }

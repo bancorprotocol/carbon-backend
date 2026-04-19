@@ -5,20 +5,38 @@ import { StrategyRealtimeService } from './strategy-realtime.service';
 import { StrategyRealtime } from './strategy-realtime.entity';
 import { HarvesterService, ContractsNames } from '../harvester/harvester.service';
 import { BlockchainType, Deployment, ExchangeId } from '../deployment/deployment.service';
-import { TokensByAddress } from '../token/token.service';
+import { TokensByAddress, TokenService } from '../token/token.service';
 
 // Mock Web3
 jest.mock('web3', () => {
-  return jest.fn().mockImplementation(() => ({
+  const mockWeb3 = jest.fn().mockImplementation(() => ({
     eth: {
       abi: {
         decodeParameter: jest.fn(),
       },
+      Contract: jest.fn().mockImplementation(() => ({
+        events: {},
+      })),
     },
   }));
+  (mockWeb3 as any).providers = {
+    WebsocketProvider: jest.fn().mockImplementation(() => ({
+      disconnect: jest.fn(),
+      on: jest.fn(),
+    })),
+  };
+  return mockWeb3;
 });
 
+jest.mock('web3-providers-ws', () => ({
+  WebSocketProvider: jest.fn().mockImplementation(() => ({
+    disconnect: jest.fn(),
+    on: jest.fn(),
+  })),
+}));
+
 describe('StrategyRealtimeService', () => {
+  let module: TestingModule;
   let service: StrategyRealtimeService;
   let repository: jest.Mocked<Repository<StrategyRealtime>>;
   let harvesterService: jest.Mocked<HarvesterService>;
@@ -89,6 +107,7 @@ describe('StrategyRealtimeService', () => {
       marginalRate1: '750',
       encodedOrder0: JSON.stringify({ y: '10000000000000000000', z: '10000000000000000000', A: '0', B: '1000' }),
       encodedOrder1: JSON.stringify({ y: '1000000000', z: '1000000000', A: '0', B: '2000' }),
+      updatedAtBlock: null,
       deleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -111,6 +130,7 @@ describe('StrategyRealtimeService', () => {
       marginalRate1: '600',
       encodedOrder0: JSON.stringify({ y: '20000000000000000000', z: '20000000000000000000', A: '0', B: '1500' }),
       encodedOrder1: JSON.stringify({ y: '2000000000', z: '2000000000', A: '0', B: '2500' }),
+      updatedAtBlock: null,
       deleted: false,
       createdAt: new Date(),
       updatedAt: new Date(),
@@ -125,7 +145,7 @@ describe('StrategyRealtimeService', () => {
       },
     };
 
-    const module: TestingModule = await Test.createTestingModule({
+    module = await Test.createTestingModule({
       providers: [
         StrategyRealtimeService,
         {
@@ -133,10 +153,11 @@ describe('StrategyRealtimeService', () => {
           useValue: {
             find: jest.fn(),
             findOne: jest.fn(),
-            create: jest.fn(),
-            save: jest.fn(),
+            create: jest.fn().mockImplementation((data) => ({ ...data })),
+            save: jest.fn().mockImplementation((data) => Promise.resolve(data)),
             update: jest.fn(),
             delete: jest.fn(),
+            createQueryBuilder: jest.fn(),
           },
         },
         {
@@ -144,6 +165,12 @@ describe('StrategyRealtimeService', () => {
           useValue: {
             getContract: jest.fn(),
             genericMulticall: jest.fn(),
+          },
+        },
+        {
+          provide: TokenService,
+          useValue: {
+            getOrCreateTokenByAddress: jest.fn(),
           },
         },
         {
@@ -352,6 +379,316 @@ describe('StrategyRealtimeService', () => {
         },
         order: { strategyId: 'ASC' },
       });
+    });
+  });
+
+  // ─── guardedWrite tests ──────────────────────────────────────────────
+
+  describe('guardedWrite', () => {
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn(),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should update when DB has updatedAtBlock = null (conditional update succeeds)', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });
+
+      const result = await service.guardedWrite('100', mockDeployment, 5000, { owner: '0xNewOwner' });
+
+      expect(result).toBe(true);
+      expect(mockQueryBuilder.set).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: '0xNewOwner', updatedAtBlock: 5000 }),
+      );
+    });
+
+    it('should update when DB has updatedAtBlock <= incoming block', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 1 });
+
+      const result = await service.guardedWrite('100', mockDeployment, 6000, { owner: '0xNewOwner' });
+
+      expect(result).toBe(true);
+    });
+
+    it('should skip write when DB has updatedAtBlock > incoming block', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 0 });
+
+      const result = await service.guardedWrite('100', mockDeployment, 3000, { owner: '0xNewOwner' });
+
+      expect(result).toBe(false);
+    });
+
+    it('should insert new row when update affects 0 and createFields provided', async () => {
+      mockQueryBuilder.execute.mockResolvedValue({ affected: 0 });
+
+      const createFields = { owner: '0xCreator', token0Address: '0xT0', token1Address: '0xT1' };
+      const result = await service.guardedWrite('999', mockDeployment, 5000, createFields, createFields);
+
+      expect(result).toBe(true);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strategyId: '999',
+          owner: '0xCreator',
+          updatedAtBlock: 5000,
+          blockchainType: mockDeployment.blockchainType,
+          exchangeId: mockDeployment.exchangeId,
+        }),
+      );
+      expect(repository.save).toHaveBeenCalled();
+    });
+
+    it('should retry update on unique constraint violation during insert', async () => {
+      // First call: update finds no row
+      mockQueryBuilder.execute.mockResolvedValueOnce({ affected: 0 });
+      // Insert fails with unique constraint
+      repository.save.mockRejectedValueOnce({ code: '23505' });
+      // Retry: update succeeds (row was inserted concurrently)
+      mockQueryBuilder.execute.mockResolvedValueOnce({ affected: 1 });
+
+      const createFields = { owner: '0xCreator' };
+      const result = await service.guardedWrite('999', mockDeployment, 5000, createFields, createFields);
+
+      expect(result).toBe(true);
+      expect(mockQueryBuilder.execute).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ─── Event handler tests ─────────────────────────────────────────────
+
+  describe('applyStrategyCreated', () => {
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0 }),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should create entity with correct owner, tokens, and computed rates', async () => {
+      const returnValues = {
+        id: '200',
+        owner: '0xCreatorAddress',
+        token0: '0xToken1Address',
+        token1: '0xToken2Address',
+        order0: { y: '1000000000000000000', z: '1000000000000000000', A: '0', B: '500' },
+        order1: { y: '500000', z: '500000', A: '0', B: '1000' },
+      };
+
+      const result = await service.applyStrategyCreated(returnValues, 10000, mockDeployment, mockTokens);
+
+      expect(result).toBe(true);
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          strategyId: '200',
+          owner: '0xCreatorAddress',
+          token0Address: '0xToken1Address',
+          token1Address: '0xToken2Address',
+          updatedAtBlock: 10000,
+        }),
+      );
+    });
+
+    it('should fetch unknown token on-demand via TokenService and succeed', async () => {
+      const tokenService = module.get(TokenService);
+      (tokenService.getOrCreateTokenByAddress as jest.Mock).mockResolvedValue({
+        address: '0xNewToken',
+        symbol: 'NEW',
+        name: 'New Token',
+        decimals: 18,
+      });
+
+      const returnValues = {
+        id: '300',
+        owner: '0xCreatorAddress',
+        token0: '0xNewToken',
+        token1: '0xToken2Address',
+        order0: { y: '1000000000000000000', z: '1000000000000000000', A: '0', B: '500' },
+        order1: { y: '500000', z: '500000', A: '0', B: '1000' },
+      };
+
+      const result = await service.applyStrategyCreated(returnValues, 10000, mockDeployment, mockTokens);
+
+      expect(result).toBe(true);
+      expect(tokenService.getOrCreateTokenByAddress).toHaveBeenCalledWith('0xNewToken', mockDeployment);
+    });
+
+    it('should return false when on-demand token fetch also fails', async () => {
+      const tokenService = module.get(TokenService);
+      (tokenService.getOrCreateTokenByAddress as jest.Mock).mockRejectedValue(new Error('RPC error'));
+
+      const returnValues = {
+        id: '200',
+        owner: '0xCreatorAddress',
+        token0: '0xUnknownToken',
+        token1: '0xToken2Address',
+        order0: { y: '1000', z: '1000', A: '0', B: '500' },
+        order1: { y: '500', z: '500', A: '0', B: '1000' },
+      };
+
+      const result = await service.applyStrategyCreated(returnValues, 10000, mockDeployment, mockTokens);
+
+      expect(result).toBe(false);
+    });
+  });
+
+  describe('applyStrategyUpdated', () => {
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should update orders and rates but NOT include owner in update fields', async () => {
+      const returnValues = {
+        id: '100',
+        token0: '0xToken1Address',
+        token1: '0xToken2Address',
+        order0: { y: '2000000000000000000', z: '2000000000000000000', A: '0', B: '700' },
+        order1: { y: '800000', z: '800000', A: '0', B: '1200' },
+        reason: 0,
+      };
+
+      const result = await service.applyStrategyUpdated(returnValues, 10001, mockDeployment, mockTokens);
+
+      expect(result).toBe(true);
+      const setCall = mockQueryBuilder.set.mock.calls[0][0];
+      expect(setCall).not.toHaveProperty('owner');
+      expect(setCall.updatedAtBlock).toBe(10001);
+      expect(setCall.deleted).toBe(false);
+      expect(setCall).toHaveProperty('liquidity0');
+      expect(setCall).toHaveProperty('encodedOrder0');
+    });
+  });
+
+  describe('applyStrategyDeleted', () => {
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should set deleted: true with updatedAtBlock', async () => {
+      const returnValues = { id: '100' };
+
+      const result = await service.applyStrategyDeleted(returnValues, 10002, mockDeployment);
+
+      expect(result).toBe(true);
+      expect(mockQueryBuilder.set).toHaveBeenCalledWith(
+        expect.objectContaining({ deleted: true, updatedAtBlock: 10002 }),
+      );
+    });
+  });
+
+  describe('applyVoucherTransfer', () => {
+    let mockQueryBuilder: any;
+
+    beforeEach(() => {
+      mockQueryBuilder = {
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      };
+      repository.createQueryBuilder.mockReturnValue(mockQueryBuilder);
+    });
+
+    it('should update owner to event.to (new owner)', async () => {
+      const returnValues = {
+        tokenId: '100',
+        from: '0xOwner1',
+        to: '0xNewOwner',
+      };
+
+      const result = await service.applyVoucherTransfer(returnValues, 10003, mockDeployment);
+
+      expect(result).toBe(true);
+      expect(mockQueryBuilder.set).toHaveBeenCalledWith(
+        expect.objectContaining({ owner: '0xNewOwner', updatedAtBlock: 10003 }),
+      );
+    });
+
+    it('should use tokenId as strategyId', async () => {
+      const returnValues = {
+        tokenId: '42',
+        from: '0xOld',
+        to: '0xNew',
+      };
+
+      await service.applyVoucherTransfer(returnValues, 10004, mockDeployment);
+
+      expect(mockQueryBuilder.andWhere).toHaveBeenCalledWith(
+        expect.stringContaining('strategyId'),
+        expect.objectContaining({ strategyId: '42' }),
+      );
+    });
+  });
+
+  // ─── WSS lifecycle tests ─────────────────────────────────────────────
+
+  describe('stopEventListener', () => {
+    it('should clean up subscriptions and provider', () => {
+      const mockSub = { unsubscribe: jest.fn() };
+      (service as any).wssSubscriptions = [mockSub];
+      (service as any).wssProvider = { disconnect: jest.fn() };
+      (service as any).wssDeployment = mockDeployment;
+      (service as any).wssTokens = mockTokens;
+
+      service.stopEventListener();
+
+      expect(mockSub.unsubscribe).toHaveBeenCalled();
+      expect((service as any).wssSubscriptions).toEqual([]);
+      expect((service as any).wssProvider).toBeNull();
+      expect((service as any).wssDeployment).toBeNull();
+      expect((service as any).wssTokens).toBeNull();
+    });
+  });
+
+  describe('updateTokens', () => {
+    it('should update the stored tokens reference', () => {
+      const newTokens: TokensByAddress = {
+        '0xNewToken': {
+          id: 3,
+          address: '0xNewToken',
+          symbol: 'NEW',
+          name: 'New Token',
+          decimals: 18,
+          blockchainType: BlockchainType.Ethereum,
+          exchangeId: ExchangeId.OGEthereum,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      };
+
+      service.updateTokens(newTokens);
+
+      expect((service as any).wssTokens).toBe(newTokens);
     });
   });
 });

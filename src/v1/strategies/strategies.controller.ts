@@ -10,8 +10,8 @@ export class StrategiesController {
   constructor(private deploymentService: DeploymentService, private strategyRealtimeService: StrategyRealtimeService) {}
 
   @Get()
-  @CacheTTL(10 * 1000) // Cache for 10 seconds
-  @Header('Cache-Control', 'public, max-age=10')
+  @CacheTTL(1 * 1000) // Cache for 10 seconds
+  @Header('Cache-Control', 'public, max-age=1')
   @ApiExchangeIdParam()
   async getStrategies(
     @ExchangeIdParam() exchangeId: ExchangeId,

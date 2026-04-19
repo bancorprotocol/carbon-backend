@@ -62,7 +62,10 @@ export class GceProvider {
           },
         ],
         metadata: {
-          items: [{ key: 'startup-script', value: startupScript }],
+          items: [
+            { key: 'startup-script', value: startupScript },
+            { key: 'google-monitoring-enabled', value: 'true' },
+          ],
         },
         serviceAccounts: [
           {
@@ -70,6 +73,7 @@ export class GceProvider {
             scopes: [
               'https://www.googleapis.com/auth/devstorage.read_only',
               'https://www.googleapis.com/auth/logging.write',
+              'https://www.googleapis.com/auth/monitoring.write',
             ],
           },
         ],
