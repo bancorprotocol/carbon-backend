@@ -153,7 +153,11 @@ export class ActivityV2Service {
       );
     }
 
-    queryBuilder.orderBy('activity.timestamp', 'DESC');
+    queryBuilder
+      .orderBy('activity.timestamp', 'DESC')
+      .addOrderBy('activity.blockNumber', 'DESC')
+      .addOrderBy('activity.transactionIndex', 'DESC')
+      .addOrderBy('activity.logIndex', 'DESC');
 
     if ('limit' in params && params.limit) {
       queryBuilder.take(params.limit);
