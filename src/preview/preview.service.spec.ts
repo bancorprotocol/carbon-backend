@@ -196,13 +196,84 @@ describe('PreviewService', () => {
     });
 
     it('should update status to ready when GCE reports RUNNING and health check passes', async () => {
-      repo.findOneBy.mockResolvedValue({ ...mockRecord, status: 'creating' });
+      repo.findOneBy.mockResolvedValue({ ...mockRecord, status: 'creating', createdAt: new Date() });
       gceProvider.getInstanceStatus.mockResolvedValue('RUNNING');
       const originalFetch = globalThis.fetch;
       globalThis.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
 
       const result = await service.getStatus('abc-123-def-456');
       expect(result.status).toBe('ready');
+      expect(repo.update).toHaveBeenCalledWith(1, { status: 'ready' });
+
+      globalThis.fetch = originalFetch;
+    });
+  });
+
+  describe('reconcileStatus', () => {
+    it('returns the existing status without GCE calls for terminal records', async () => {
+      const ready = { ...mockRecord, status: 'ready' } as PreviewBackend;
+      const result = await service.reconcileStatus(ready);
+      expect(result).toBe('ready');
+      expect(gceProvider.getInstanceStatus).not.toHaveBeenCalled();
+    });
+
+    it('flips creating record to error when GCE reports TERMINATED', async () => {
+      const record = { ...mockRecord, status: 'creating', createdAt: new Date() } as PreviewBackend;
+      gceProvider.getInstanceStatus.mockResolvedValue('TERMINATED');
+
+      const result = await service.reconcileStatus(record);
+      expect(result).toBe('error');
+      expect(repo.update).toHaveBeenCalledWith(1, { status: 'error' });
+    });
+
+    it('keeps a fresh creating record as creating when GCE is PROVISIONING', async () => {
+      const record = { ...mockRecord, status: 'creating', createdAt: new Date() } as PreviewBackend;
+      gceProvider.getInstanceStatus.mockResolvedValue('PROVISIONING');
+
+      const result = await service.reconcileStatus(record);
+      expect(result).toBe('creating');
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+
+    it('marks an aged-out creating record as error so cleanup can reap it', async () => {
+      const oldCreatedAt = new Date(Date.now() - 30 * 60 * 1000);
+      const record = { ...mockRecord, status: 'creating', createdAt: oldCreatedAt } as PreviewBackend;
+      gceProvider.getInstanceStatus.mockResolvedValue('PROVISIONING');
+
+      const result = await service.reconcileStatus(record);
+      expect(result).toBe('error');
+      expect(repo.update).toHaveBeenCalledWith(1, { status: 'error' });
+    });
+
+    it('does not error a record on transient GCE lookup failures', async () => {
+      const record = { ...mockRecord, status: 'creating', createdAt: new Date() } as PreviewBackend;
+      gceProvider.getInstanceStatus.mockRejectedValue(new Error('GCE 500'));
+
+      const result = await service.reconcileStatus(record);
+      expect(result).toBe('creating');
+      expect(repo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reconcilePending', () => {
+    it('does nothing when no creating/seeding records exist', async () => {
+      repo.find.mockResolvedValue([]);
+      await service.reconcilePending();
+      expect(gceProvider.getInstanceStatus).not.toHaveBeenCalled();
+    });
+
+    it('reconciles every pending record and tolerates per-record failures', async () => {
+      const a = { ...mockRecord, id: 1, status: 'creating', createdAt: new Date() };
+      const b = { ...mockRecord, id: 2, instanceName: 'b', status: 'seeding', createdAt: new Date() };
+      repo.find.mockResolvedValue([a, b]);
+      // first record's GCE check succeeds → ready; second one throws → cron must continue
+      gceProvider.getInstanceStatus.mockResolvedValueOnce('RUNNING').mockRejectedValueOnce(new Error('boom'));
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = jest.fn().mockResolvedValue({ ok: true }) as any;
+
+      await service.reconcilePending();
+
+      expect(gceProvider.getInstanceStatus).toHaveBeenCalledTimes(2);
       expect(repo.update).toHaveBeenCalledWith(1, { status: 'ready' });
 
       globalThis.fetch = originalFetch;

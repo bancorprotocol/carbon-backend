@@ -185,7 +185,19 @@ export class HarvesterService {
     }
 
     await Promise.all(tasks);
-    return events;
+
+    // Some RPCs (notably Tenderly virtual networks) return duplicate log
+    // entries within a single eth_getLogs response. Dedupe by the tuple that
+    // identifies a log on-chain so callers always see each event exactly once.
+    const seen = new Set<string>();
+    const deduped: any[] = [];
+    for (const e of events) {
+      const k = `${e.blockNumber}-${e.transactionIndex}-${e.logIndex}-${e.transactionHash}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      deduped.push(e);
+    }
+    return deduped;
   }
 
   getContract(contractName: ContractsNames, version?: number, address?: string, deployment?: Deployment): any {

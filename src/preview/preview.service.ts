@@ -2,11 +2,16 @@ import { Injectable, Logger, NotFoundException, BadRequestException, ConflictExc
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConfigService } from '@nestjs/config';
-import { Cron } from '@nestjs/schedule';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PreviewBackend } from './preview-backend.entity';
 import { TenderlyClient } from './tenderly.client';
 import { GceProvider } from './gce.client';
-import { getNetworkMapping, PREVIEW_APP_PREFIX, PREVIEW_MAX_AGE_HOURS } from './constants';
+import {
+  getNetworkMapping,
+  PREVIEW_ABANDON_AFTER_MINUTES,
+  PREVIEW_APP_PREFIX,
+  PREVIEW_MAX_AGE_HOURS,
+} from './constants';
 import { PreviewResponseDto } from './dto/preview-response.dto';
 
 @Injectable()
@@ -123,28 +128,71 @@ export class PreviewService {
     if (!record) {
       throw new NotFoundException(`No preview backend found for Tenderly ID ${tenderlyId}`);
     }
+    const status = await this.reconcileStatus(record);
+    return this.toResponse(record, status);
+  }
 
-    let status = record.status;
-    if (status === 'creating' || status === 'seeding') {
-      try {
-        const gceStatus = await this.gceProvider.getInstanceStatus(record.instanceName, record.instanceId);
-
-        if (gceStatus === 'RUNNING') {
-          const isHealthy = await this.checkHealth(record.url);
-          if (isHealthy) {
-            status = 'ready';
-            await this.repo.update(record.id, { status: 'ready' });
-          }
-        } else if (gceStatus === 'TERMINATED' || gceStatus === 'STOPPED') {
-          status = 'error';
-          await this.repo.update(record.id, { status: 'error' });
-        }
-      } catch {
-        // keep current status on transient errors
-      }
+  // Promotes a preview from `creating`/`seeding` to `ready` when the GCE VM is
+  // running and its container is responding to health probes, or to `error`
+  // when GCE has terminated the VM or the record has been stuck for too long.
+  // Idempotent and safe to call from multiple paths (HTTP handlers, cron,
+  // proxy controller); UPDATE is keyed by id and only flips the status column.
+  async reconcileStatus(record: PreviewBackend): Promise<string> {
+    if (record.status !== 'creating' && record.status !== 'seeding') {
+      return record.status;
     }
 
-    return this.toResponse(record, status);
+    try {
+      const gceStatus = await this.gceProvider.getInstanceStatus(record.instanceName, record.instanceId);
+
+      if (gceStatus === 'RUNNING') {
+        if (await this.checkHealth(record.url)) {
+          await this.repo.update(record.id, { status: 'ready' });
+          this.logger.log(`Preview ${record.instanceName} is healthy — promoted to 'ready'`);
+          return 'ready';
+        }
+      } else if (gceStatus === 'TERMINATED' || gceStatus === 'STOPPED') {
+        await this.repo.update(record.id, { status: 'error' });
+        this.logger.warn(`Preview ${record.instanceName} GCE status is ${gceStatus} — marked as error`);
+        return 'error';
+      }
+    } catch (error) {
+      this.logger.warn(`Reconcile transient failure for ${record.instanceName}: ${error.message}`);
+    }
+
+    // Records that never become healthy must not loop forever in `creating`.
+    // Flip to `error` so the existing cleanup cron destroys them on the next
+    // pass; the operator (or a human retry) can create a fresh preview.
+    const ageMinutes = (Date.now() - record.createdAt.getTime()) / (1000 * 60);
+    if (ageMinutes > PREVIEW_ABANDON_AFTER_MINUTES) {
+      await this.repo.update(record.id, { status: 'error' });
+      this.logger.warn(
+        `Preview ${record.instanceName} stuck in '${record.status}' for ${ageMinutes.toFixed(1)}min — marked as error`,
+      );
+      return 'error';
+    }
+
+    return record.status;
+  }
+
+  // Drives status transitions even when nothing is polling GET. Without this
+  // a freshly-created preview would sit in `creating` until something happened
+  // to call getStatus() (e.g. a frontend poll), which means the proxy stays
+  // permanently 503 for any caller that just creates and proxies.
+  @Cron(CronExpression.EVERY_30_SECONDS)
+  async reconcilePending(): Promise<void> {
+    const pending = await this.repo.find({
+      where: [{ status: 'creating' }, { status: 'seeding' }],
+    });
+    if (pending.length === 0) return;
+
+    for (const record of pending) {
+      try {
+        await this.reconcileStatus(record);
+      } catch (error) {
+        this.logger.error(`Reconcile failed for ${record.instanceName}: ${error.message}`);
+      }
+    }
   }
 
   async delete(tenderlyId: string): Promise<void> {
@@ -228,7 +276,6 @@ export class PreviewService {
       'CODEX_API_KEY',
       'COINGECKO_API_KEY',
       'COINMARKETCAP_API_KEY',
-      'DUNE_API_KEY',
     ];
 
     const env: Record<string, string> = {
@@ -238,6 +285,7 @@ export class PreviewService {
       FORK_BLOCK_NUMBER: String(forkBlock),
       SHOULD_HARVEST: '1',
       SHOULD_UPDATE_ANALYTICS: '1',
+      SHOULD_UPDATE_REALTIME: '1',
       SHOULD_POLL_QUOTES: '0',
       SHOULD_POLL_HISTORIC_QUOTES: '0',
       SEND_NOTIFICATIONS: '0',

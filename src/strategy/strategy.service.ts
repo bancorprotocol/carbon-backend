@@ -166,8 +166,8 @@ export class StrategyService {
       }
     });
 
-    const strategies = Array.from(strategyMap.values()).filter(
-      (s) => events.some((e) => e.strategyId === s.strategyId),
+    const strategies = Array.from(strategyMap.values()).filter((s) =>
+      events.some((e) => e.strategyId === s.strategyId),
     );
 
     const BATCH_SIZE = 1000;

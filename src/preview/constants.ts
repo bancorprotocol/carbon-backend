@@ -50,6 +50,12 @@ export function getNetworkMapping(chainId: number): NetworkMapping | undefined {
 
 export const PREVIEW_APP_PREFIX = 'carbon-prev';
 export const PREVIEW_MAX_AGE_HOURS = 48;
+// A preview that has not become healthy within this many minutes of creation
+// is considered abandoned and gets flipped to `error` so the cleanup cron can
+// reap it instead of the reconciler churning against GCE forever. Tuned to be
+// generous enough for cold COS image pulls (~5min) plus the carbon container
+// boot + health-up time on a slow network.
+export const PREVIEW_ABANDON_AFTER_MINUTES = 15;
 
 export const TENDERLY_API_BASE = 'https://api.tenderly.co/api/v1';
 

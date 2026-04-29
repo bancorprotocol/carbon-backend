@@ -1,24 +1,24 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiHideProperty } from '@nestjs/swagger';
 
 export class PreviewResponseDto {
-  @ApiProperty({ example: 'https://carbon-prev-d64732df.fly.dev' })
+  @ApiHideProperty()
   url: string;
 
-  @ApiProperty({ enum: ['existing', 'creating', 'seeding', 'ready', 'error'] })
+  @ApiHideProperty()
   status: string;
 
-  @ApiProperty({ example: 'ethereum' })
+  @ApiHideProperty()
   deployment: string;
 
-  @ApiProperty({ example: 24677999 })
+  @ApiHideProperty()
   forkBlock: number;
 
-  @ApiProperty({ example: 24678050, nullable: true })
+  @ApiHideProperty()
   currentBlock: number | null;
 
-  @ApiProperty({ example: 'https://rpc.vnet.tenderly.co/...' })
+  @ApiHideProperty()
   rpcUrl: string;
 
-  @ApiProperty({ example: '2026-03-23T10:00:00.000Z' })
+  @ApiHideProperty()
   createdAt: string;
 }

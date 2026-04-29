@@ -613,6 +613,59 @@ npm run generate-strategy-csv -- --deployment <name> --output strategy_events.cs
 
 The script connects to the database using the same `.env` configuration as the main app.
 
+## Preview Backends
+
+The Preview module spins up an ephemeral, isolated Carbon backend that points at a [Tenderly Virtual TestNet](https://docs.tenderly.co/virtual-testnets) instead of a live RPC. It provisions a GCE VM running a self-contained image (postgres + carbon-backend) seeded from the latest production snapshot and exposes it via the proxy controller at `/v1/proxy/:tenderlyId`. The upstream deployment prefix is derived from the preview record itself (set at creation time from the Tenderly vnet's chain id), so callers don't need to repeat it. Stale instances are reaped automatically (default: 48h or when the source vnet is gone).
+
+### Environment Variables
+
+```bash
+# --- Tenderly API access (required) ---
+TENDERLY_ACCESS_KEY=your-tenderly-access-key
+TENDERLY_ACCOUNT_SLUG=your-account-slug
+TENDERLY_PROJECT_SLUG=your-project-slug
+
+# --- Preview container ---
+# The published preview image to run on the VM. Optional; defaults to the
+# Bancor-hosted image in europe-west2 Artifact Registry.
+PREVIEW_IMAGE_URI=europe-west2-docker.pkg.dev/<project>/<repo>/carbon-preview:latest
+# Postgres password for the in-container DB. Required.
+PREVIEW_DB_PASSWORD=choose-a-strong-password
+
+# --- GCE provisioning (optional, defaults in src/preview/constants.ts) ---
+GCE_PROJECT=bancor-api
+GCE_ZONE=europe-west2-b
+GCE_MACHINE_TYPE=e2-custom-2-4096
+
+# --- Snapshot source DB (passed through to the preview container for seeding) ---
+EXTERNAL_DATABASE_HOST=...
+EXTERNAL_DATABASE_PORT=5432
+EXTERNAL_DATABASE_USERNAME=...
+EXTERNAL_DATABASE_PASSWORD=...
+EXTERNAL_DATABASE_NAME=...
+
+# --- Quote/price providers (passed through so the preview can update analytics) ---
+CODEX_API_KEY=...
+COINGECKO_API_KEY=...
+COINMARKETCAP_API_KEY=...
+DUNE_API_KEY=...
+```
+
+The set of variables forwarded from the orchestrator to the preview container lives in `src/preview/preview.service.ts` (`buildEnvVars` → `passthrough`). Add a key there if a new credential needs to reach the preview.
+
+### Infrastructure Requirements
+
+- **Google Cloud auth** — the orchestrator uses Application Default Credentials. Locally that means `gcloud auth application-default login`; in deployment it relies on the runtime service account. The principal needs `compute.instances.{create,get,delete}` and `compute.images.get` on `GCE_PROJECT`.
+- **Artifact Registry access** — the GCE VM's default service account must be able to pull `PREVIEW_IMAGE_URI` (typically the `Artifact Registry Reader` role on the host project).
+- **Firewall rule** — preview VMs are tagged `preview-backend` and serve on port `3000`. A firewall rule allowing TCP/3000 to that tag is required for the orchestrator's health checks and for the proxy controller to reach the instance.
+- **Supported networks** — only the chains listed in `NETWORK_MAPPINGS` (`src/preview/constants.ts`) can be previewed: Ethereum (1), Sei (1329), Celo (42220), Coti (2632500). The corresponding `<CHAIN>_RPC_ENDPOINT` is overwritten with the Tenderly Admin RPC inside the container.
+
+### Verifying Setup
+
+1. Confirm Tenderly creds: hit `GET https://api.tenderly.co/api/v1/account/<slug>/project/<slug>/vnets` with `X-Access-Key`.
+2. Create a vnet in Tenderly on a supported chain, then `POST /preview/backends` with `{ "tenderlyId": "<vnet-id>" }`.
+3. Poll `GET /preview/backends/:tenderlyId` until `status: "ready"`, then route requests through `/v1/proxy/:tenderlyId/...`.
+
 ## License
 
 Carbon Backend is licensed under the [MIT License](LICENSE).

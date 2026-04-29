@@ -622,32 +622,32 @@ export class StrategyRealtimeService implements OnModuleDestroy {
       const order1 = parseOrder(encodedOrder1);
       const processed = processOrders(order0, order1, decimals0, decimals1);
 
-      const entity =
-        existingEntity ||
-        this.strategyRealtimeRepository.create({
-          blockchainType: deployment.blockchainType,
-          exchangeId: deployment.exchangeId,
-          strategyId,
-        });
-
-      entity.owner = strategy.owner;
-      entity.token0Address = token0Address;
-      entity.token1Address = token1Address;
-      entity.liquidity0 = processed.liquidity0.toString();
-      entity.lowestRate0 = processed.sellPriceA.toString();
-      entity.highestRate0 = processed.sellPriceB.toString();
-      entity.marginalRate0 = processed.sellPriceMarg.toString();
-      entity.liquidity1 = processed.liquidity1.toString();
-      entity.lowestRate1 = processed.buyPriceA.toString();
-      entity.highestRate1 = processed.buyPriceB.toString();
-      entity.marginalRate1 = processed.buyPriceMarg.toString();
-      entity.encodedOrder0 = encodedOrder0;
-      entity.encodedOrder1 = encodedOrder1;
-      entity.deleted = false;
-
-      if (syncBlock !== undefined) {
-        entity.updatedAtBlock = syncBlock;
-      }
+      // Always build a fresh entity (without the existing PK `id`) so the
+      // batched upsert below resolves conflicts on the unique key
+      // (blockchainType, exchangeId, strategyId) rather than on the PK. This
+      // keeps saveStrategies idempotent against concurrent writers (the
+      // initial WSS sync, the 60s guarded safety-net sync, the polling
+      // fallback, and WSS event handlers writing via guardedWrite).
+      const entity = this.strategyRealtimeRepository.create({
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        strategyId,
+        owner: strategy.owner,
+        token0Address,
+        token1Address,
+        liquidity0: processed.liquidity0.toString(),
+        lowestRate0: processed.sellPriceA.toString(),
+        highestRate0: processed.sellPriceB.toString(),
+        marginalRate0: processed.sellPriceMarg.toString(),
+        liquidity1: processed.liquidity1.toString(),
+        lowestRate1: processed.buyPriceA.toString(),
+        highestRate1: processed.buyPriceB.toString(),
+        marginalRate1: processed.buyPriceMarg.toString(),
+        encodedOrder0,
+        encodedOrder1,
+        deleted: false,
+        ...(syncBlock !== undefined ? { updatedAtBlock: syncBlock } : {}),
+      });
 
       strategyEntities.push(entity);
     }
@@ -655,7 +655,10 @@ export class StrategyRealtimeService implements OnModuleDestroy {
     const BATCH_SIZE = 500;
     for (let i = 0; i < strategyEntities.length; i += BATCH_SIZE) {
       const batch = strategyEntities.slice(i, i + BATCH_SIZE);
-      await this.strategyRealtimeRepository.save(batch);
+      await this.strategyRealtimeRepository.upsert(batch, {
+        conflictPaths: ['blockchainType', 'exchangeId', 'strategyId'],
+        skipUpdateIfNoValuesChanged: true,
+      });
     }
   }
 

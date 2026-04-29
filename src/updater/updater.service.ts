@@ -39,6 +39,12 @@ export class UpdaterService {
   private isUpdatingAnalytics: Record<string, boolean> = {};
   private isUpdatingRealtime: Record<string, boolean> = {};
 
+  // Fallback polling interval used only when WSS isn't available (no
+  // wssEndpoint configured, or initWssRealtimeStrategy fails). When WSS is
+  // healthy, real-time updates flow through WSS event handlers and the 60s
+  // guarded full sync registered inside initWssRealtimeStrategy.
+  private static readonly REALTIME_FALLBACK_INTERVAL_MS = 30000;
+
   constructor(
     private configService: ConfigService,
     private harvesterService: HarvesterService,
@@ -79,13 +85,15 @@ export class UpdaterService {
         this.scheduleDeploymentUpdate(deployment, updateInterval);
       });
 
-      // Schedule realtime strategy updates
+      // Real-time strategy sync: prefer WSS (push events + 60s guarded
+      // safety-net sync). Fall back to the periodic full sync only when WSS
+      // isn't configured for the deployment. If WSS init throws at runtime,
+      // initWssRealtimeStrategy itself registers the polling fallback.
       deployments.forEach((deployment) => {
         if (deployment.wssEndpoint) {
           this.initWssRealtimeStrategy(deployment);
         } else {
-          const realtimeInterval = 3000;
-          this.scheduleRealtimeStrategyUpdate(deployment, realtimeInterval);
+          this.scheduleRealtimeStrategyUpdate(deployment, UpdaterService.REALTIME_FALLBACK_INTERVAL_MS);
         }
       });
     }
@@ -121,9 +129,14 @@ export class UpdaterService {
         await this.updateRealtimeStrategiesGuarded(deployment);
       }, 60000);
     } catch (error) {
-      console.log(`CARBON SERVICE - WSS init failed for ${deploymentKey}, falling back to polling:`, error.message);
-      const realtimeInterval = 3000;
-      this.scheduleRealtimeStrategyUpdate(deployment, realtimeInterval);
+      // WSS init failed — fall back to periodic polling so the deployment
+      // still receives strategy updates. Without this fallback, a transient
+      // WSS error at startup would leave realtime data permanently stale.
+      console.log(
+        `CARBON SERVICE - WSS init failed for ${deploymentKey}, falling back to periodic sync:`,
+        error.message,
+      );
+      this.scheduleRealtimeStrategyUpdate(deployment, UpdaterService.REALTIME_FALLBACK_INTERVAL_MS);
     }
   }
 

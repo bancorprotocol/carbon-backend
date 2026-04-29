@@ -4,6 +4,14 @@ ts() { date "+%Y-%m-%d %H:%M:%S"; }
 
 echo "$(ts) === Preview Backend Startup ==="
 
+# Fail fast if required env vars are missing — the password is baked into both
+# DATABASE_URL and `ALTER USER postgres PASSWORD ...`, so an empty value would
+# silently leave Postgres with no password.
+if [ -z "${PREVIEW_DB_PASSWORD}" ]; then
+  echo "$(ts) ERROR: PREVIEW_DB_PASSWORD is required but not set"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 0. Resolve Tenderly vnet → RPC endpoint, fork block, deployment
 #    If TENDERLY_VNET_ID is set, auto-derive FORK_BLOCK_NUMBER,
