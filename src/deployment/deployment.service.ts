@@ -684,17 +684,17 @@ export class DeploymentService {
             address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
           },
         },
-        notifications: {
-          explorerUrl: this.configService.get('IOTA_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('IOTA_CARBON_WALLET_URL'),
-          title: 'IOTA',
-          telegram: {
-            botToken: this.configService.get('IOTA_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              fastlaneId: this.configService.get('IOTA_FASTLANE_THREAD_ID'),
-            },
-          },
-        },
+        // notifications: {
+        //   explorerUrl: this.configService.get('IOTA_EXPLORER_URL'),
+        //   carbonWalletUrl: this.configService.get('IOTA_CARBON_WALLET_URL'),
+        //   title: 'IOTA',
+        //   telegram: {
+        //     botToken: this.configService.get('IOTA_TELEGRAM_BOT_TOKEN'),
+        //     threads: {
+        //       fastlaneId: this.configService.get('IOTA_FASTLANE_THREAD_ID'),
+        //     },
+        //   },
+        // },
       },
       {
         exchangeId: ExchangeId.OGTac,
