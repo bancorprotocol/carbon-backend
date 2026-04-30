@@ -16,7 +16,6 @@ export enum BlockchainType {
   Linea = 'linea',
   Berachain = 'berachain',
   Coti = 'coti',
-  Iota = 'iota',
   Tac = 'tac',
 }
 
@@ -33,7 +32,6 @@ export enum ExchangeId {
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
   OGCoti = 'coti',
-  IotaGraphene = 'iota-graphene',
   OGTac = 'tac',
 }
 
@@ -652,49 +650,6 @@ export class DeploymentService {
             ethereumAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
           },
         },
-      },
-      {
-        exchangeId: ExchangeId.IotaGraphene,
-        blockchainType: BlockchainType.Iota,
-        rpcEndpoint: this.configService.get('IOTA_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
-        harvestConcurrency: 1,
-        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        startBlock: 1936296,
-        gasToken: {
-          name: 'IOTA',
-          symbol: 'IOTA',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0x6e47f8d48a01b44DF3fFF35d258A10A3AEdC114c',
-        contracts: {
-          CarbonController: {
-            address: '0x0E4d23092A4a12caAd0E22e0892EcEC7C09DC51c',
-          },
-          CarbonVoucher: {
-            address: '0xCB66807CE7a762F469aeb1478c09a6DAfEcB801C',
-          },
-          BancorArbitrage: {
-            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
-          },
-          BancorArbitrageV2: {
-            address: '0xeAA4368A09E5e7889C6Ae3D44A7F5eb8587a456c',
-          },
-          Vortex: {
-            address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
-          },
-        },
-        // notifications: {
-        //   explorerUrl: this.configService.get('IOTA_EXPLORER_URL'),
-        //   carbonWalletUrl: this.configService.get('IOTA_CARBON_WALLET_URL'),
-        //   title: 'IOTA',
-        //   telegram: {
-        //     botToken: this.configService.get('IOTA_TELEGRAM_BOT_TOKEN'),
-        //     threads: {
-        //       fastlaneId: this.configService.get('IOTA_FASTLANE_THREAD_ID'),
-        //     },
-        //   },
-        // },
       },
       {
         exchangeId: ExchangeId.OGTac,

@@ -62,7 +62,6 @@ export class HistoricQuoteService implements OnModuleInit {
       { name: 'carbon-defi', enabled: true },
       { name: 'carbon-graph', enabled: true },
     ],
-    [BlockchainType.Iota]: [],
     [BlockchainType.Tac]: [
       { name: 'carbon-defi', enabled: true },
       // { name: 'carbon-graph', enabled: true },
