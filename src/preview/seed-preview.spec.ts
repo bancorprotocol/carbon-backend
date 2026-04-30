@@ -28,7 +28,7 @@ describe('seed-preview', () => {
     });
 
     it('should return undefined for unsupported chains', () => {
-      expect(DEPLOYMENT_TO_BLOCKCHAIN['fantom']).toBeUndefined();
+      expect(DEPLOYMENT_TO_BLOCKCHAIN['unsupported-chain']).toBeUndefined();
     });
   });
 });

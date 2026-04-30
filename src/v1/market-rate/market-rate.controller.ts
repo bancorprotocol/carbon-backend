@@ -18,14 +18,11 @@ export class MarketRateController {
     ],
     [BlockchainType.Sei]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Celo]: [{ name: 'codex', enabled: true }],
-    [BlockchainType.Blast]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Base]: [{ name: 'codex', enabled: true }],
-    [BlockchainType.Fantom]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Mantle]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Linea]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Berachain]: [{ name: 'codex', enabled: true }],
     [BlockchainType.Coti]: [],
-    [BlockchainType.Iota]: [],
     [BlockchainType.Tac]: [],
   };
 

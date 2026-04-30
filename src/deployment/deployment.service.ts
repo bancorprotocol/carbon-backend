@@ -9,14 +9,11 @@ export enum BlockchainType {
   Ethereum = 'ethereum',
   Sei = 'sei-network',
   Celo = 'celo',
-  Blast = 'blast',
   Base = 'base',
-  Fantom = 'fantom',
   Mantle = 'mantle',
   Linea = 'linea',
   Berachain = 'berachain',
   Coti = 'coti',
-  Iota = 'iota',
   Tac = 'tac',
 }
 
@@ -24,16 +21,13 @@ export enum ExchangeId {
   OGEthereum = 'ethereum',
   OGSei = 'sei',
   OGCelo = 'celo',
-  OGBlast = 'blast',
   BaseGraphene = 'base-graphene',
-  FantomGraphene = 'fantom-graphene',
   MantleGraphene = 'mantle-graphene',
   MantleSupernova = 'mantle-supernova',
   LineaXFai = 'linea-xfai',
   BaseAlienBase = 'base-alienbase',
   BerachainGraphene = 'berachain-graphene',
   OGCoti = 'coti',
-  IotaGraphene = 'iota-graphene',
   OGTac = 'tac',
 }
 
@@ -288,53 +282,6 @@ export class DeploymentService {
         },
       },
       {
-        exchangeId: ExchangeId.OGBlast,
-        blockchainType: BlockchainType.Blast,
-        rpcEndpoint: this.configService.get('BLAST_RPC_ENDPOINT'),
-        wssEndpoint: this.resolveWssEndpoint('BLAST_WSS_ENDPOINT', 'BLAST_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
-        harvestConcurrency: 5,
-        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        startBlock: 6257000,
-        gasToken: {
-          name: 'Ether',
-          symbol: 'ETH',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0x4300000000000000000000000000000000000004',
-        contracts: {
-          CarbonController: {
-            address: '0xfBF49e30Ed1b610E24148c23D32eD5f3F2fC5Dba',
-          },
-          CarbonVoucher: {
-            address: '0xfA76DcA90d334C8fD3Ae479f9B4c32a31A37eDB1',
-          },
-          BancorArbitrage: {
-            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
-          },
-          BancorArbitrageV2: {
-            address: '0x4A0c4eF72e0BA9d6A2d34dAD6E794378d9Ad4130',
-          },
-          CarbonVortex: {
-            address: '0x0f54099D787e26c90c487625B4dE819eC5A9BDAA',
-          },
-        },
-        notifications: {
-          explorerUrl: this.configService.get('BLAST_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('BLAST_CARBON_WALLET_URL'),
-          title: 'Blast',
-          disabledEvents: [EventTypes.TokensTradedEvent],
-          telegram: {
-            botToken: this.configService.get('BLAST_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              carbonThreadId: this.configService.get('BLAST_CARBON_THREAD_ID'),
-              fastlaneId: this.configService.get('BLAST_FASTLANE_THREAD_ID'),
-              vortexId: this.configService.get('BLAST_VORTEX_THREAD_ID'),
-            },
-          },
-        },
-      },
-      {
         exchangeId: ExchangeId.BaseGraphene,
         blockchainType: BlockchainType.Base,
         rpcEndpoint: this.configService.get('BASE_RPC_ENDPOINT'),
@@ -376,49 +323,6 @@ export class DeploymentService {
               carbonThreadId: this.configService.get('BASE_CARBON_THREAD_ID'),
               fastlaneId: this.configService.get('BASE_FASTLANE_THREAD_ID'),
               vortexId: this.configService.get('BASE_VORTEX_THREAD_ID'),
-            },
-          },
-        },
-      },
-      {
-        exchangeId: ExchangeId.FantomGraphene,
-        blockchainType: BlockchainType.Fantom,
-        rpcEndpoint: this.configService.get('FANTOM_RPC_ENDPOINT'),
-        wssEndpoint: this.resolveWssEndpoint('FANTOM_WSS_ENDPOINT', 'FANTOM_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 20000,
-        harvestConcurrency: 10,
-        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        startBlock: 69969086,
-        gasToken: {
-          name: 'Fantom',
-          symbol: 'FTM',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0x21be370D5312f44cB42ce377BC9b8a0cEF1A4C83',
-        contracts: {
-          CarbonController: {
-            address: '0xf37102e11E06276ac9D393277BD7b63b3393b361',
-          },
-          CarbonVoucher: {
-            address: '0xf779D71178d96b5151D25DE608ac2Ab0558F6aA2',
-          },
-          BancorArbitrage: {
-            address: '0xFe19CbA3aB1A189B7FC17cAa798Df64Ad2b54d4D',
-          },
-          CarbonVortex: {
-            address: '0x4A0c4eF72e0BA9d6A2d34dAD6E794378d9Ad4130',
-          },
-        },
-        notifications: {
-          explorerUrl: this.configService.get('FANTOM_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('FANTOM_GRAPHENE_WALLET_URL'),
-          title: 'Graphene on Fantom',
-          telegram: {
-            botToken: this.configService.get('FANTOM_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              carbonThreadId: this.configService.get('FANTOM_CARBON_THREAD_ID'),
-              fastlaneId: this.configService.get('FANTOM_FASTLANE_THREAD_ID'),
-              vortexId: this.configService.get('FANTOM_VORTEX_THREAD_ID'),
             },
           },
         },
@@ -688,50 +592,6 @@ export class DeploymentService {
           secondary: {
             localAddress: '0xf1Feebc4376c68B7003450ae66343Ae59AB37D3C',
             ethereumAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-          },
-        },
-      },
-      {
-        exchangeId: ExchangeId.IotaGraphene,
-        blockchainType: BlockchainType.Iota,
-        rpcEndpoint: this.configService.get('IOTA_RPC_ENDPOINT'),
-        wssEndpoint: this.resolveWssEndpoint('IOTA_WSS_ENDPOINT', 'IOTA_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 1000,
-        harvestConcurrency: 1,
-        multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
-        startBlock: 1936296,
-        gasToken: {
-          name: 'IOTA',
-          symbol: 'IOTA',
-          address: '0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE',
-        },
-        nativeTokenAlias: '0x6e47f8d48a01b44DF3fFF35d258A10A3AEdC114c',
-        contracts: {
-          CarbonController: {
-            address: '0x0E4d23092A4a12caAd0E22e0892EcEC7C09DC51c',
-          },
-          CarbonVoucher: {
-            address: '0xCB66807CE7a762F469aeb1478c09a6DAfEcB801C',
-          },
-          BancorArbitrage: {
-            address: '0xC7Dd38e64822108446872c5C2105308058c5C55C',
-          },
-          BancorArbitrageV2: {
-            address: '0xeAA4368A09E5e7889C6Ae3D44A7F5eb8587a456c',
-          },
-          Vortex: {
-            address: '0xe4816658ad10bF215053C533cceAe3f59e1f1087',
-          },
-        },
-        notifications: {
-          explorerUrl: this.configService.get('IOTA_EXPLORER_URL'),
-          carbonWalletUrl: this.configService.get('IOTA_CARBON_WALLET_URL'),
-          title: 'IOTA',
-          telegram: {
-            botToken: this.configService.get('IOTA_TELEGRAM_BOT_TOKEN'),
-            threads: {
-              fastlaneId: this.configService.get('IOTA_FASTLANE_THREAD_ID'),
-            },
           },
         },
       },
