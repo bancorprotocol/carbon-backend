@@ -163,7 +163,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGSei,
         blockchainType: BlockchainType.Sei,
         rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 200,
+        harvestEventsBatchSize: 50,
         harvestConcurrency: 1,
         multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
         startBlock: 79146720,
