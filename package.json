@@ -49,7 +49,8 @@
     "analyze-csv-differences": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/analyze-differences.ts",
     "calculate-csv-totals": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/calculate-totals.ts",
     "generate-strategy-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/strategy-csv/generate-strategy-csv.ts",
-    "prepare-audit-data": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/prepare-rewards-auditor-data.ts"
+    "prepare-audit-data": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/prepare-rewards-auditor-data.ts",
+    "qa:compare-staging-prod": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/qa-compare-staging-vs-prod.ts"
   },
   "dependencies": {
     "@codex-data/sdk": "^0.6.2",
