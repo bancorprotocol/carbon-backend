@@ -175,7 +175,7 @@ export class UpdaterService {
       this.isUpdatingRealtime[deploymentKey] = true;
 
       const tokens = await this.tokenService.allByAddress(deployment);
-      this.strategyRealtimeService.updateTokens(tokens);
+      this.strategyRealtimeService.updateTokens(deployment, tokens);
       await this.strategyRealtimeService.update(deployment, tokens, true);
 
       console.log(`CARBON SERVICE - Finished guarded full sync for ${deploymentKey} in:`, Date.now() - t, 'ms');

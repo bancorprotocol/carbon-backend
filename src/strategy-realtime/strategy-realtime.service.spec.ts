@@ -652,26 +652,98 @@ describe('StrategyRealtimeService', () => {
 
   // ─── WSS lifecycle tests ─────────────────────────────────────────────
 
-  describe('stopEventListener', () => {
-    it('should clean up subscriptions and provider', () => {
+  describe('stopChannel / stopAllEventListeners', () => {
+    it('should clean up subscriptions and provider for a specific deployment', async () => {
       const mockSub = { unsubscribe: jest.fn() };
-      (service as any).wssSubscriptions = [mockSub];
-      (service as any).wssProvider = { disconnect: jest.fn() };
-      (service as any).wssDeployment = mockDeployment;
-      (service as any).wssTokens = mockTokens;
+      const mockProvider = { disconnect: jest.fn() };
+      const key = `${mockDeployment.blockchainType}-${mockDeployment.exchangeId}`;
+      (service as any).channels.set(key, {
+        deployment: mockDeployment,
+        tokens: mockTokens,
+        provider: mockProvider,
+        web3: {},
+        subs: [mockSub],
+        keepalive: null,
+        connectedOnce: true,
+        resubscribing: false,
+      });
 
-      service.stopEventListener();
+      await service.stopChannel(key);
 
       expect(mockSub.unsubscribe).toHaveBeenCalled();
-      expect((service as any).wssSubscriptions).toEqual([]);
-      expect((service as any).wssProvider).toBeNull();
-      expect((service as any).wssDeployment).toBeNull();
-      expect((service as any).wssTokens).toBeNull();
+      expect(mockProvider.disconnect).toHaveBeenCalled();
+      expect((service as any).channels.has(key)).toBe(false);
+    });
+
+    it('should be a no-op when stopping a key that has no channel', async () => {
+      await expect(service.stopChannel('does-not-exist')).resolves.toBeUndefined();
+    });
+
+    it('stopAllEventListeners should clean up every channel', () => {
+      const mockSub1 = { unsubscribe: jest.fn() };
+      const mockSub2 = { unsubscribe: jest.fn() };
+      (service as any).channels.set('ethereum-ethereum', {
+        deployment: mockDeployment,
+        tokens: mockTokens,
+        provider: { disconnect: jest.fn() },
+        web3: {},
+        subs: [mockSub1],
+        keepalive: null,
+        connectedOnce: true,
+        resubscribing: false,
+      });
+      (service as any).channels.set('sei-network-sei', {
+        deployment: mockDeployment,
+        tokens: mockTokens,
+        provider: { disconnect: jest.fn() },
+        web3: {},
+        subs: [mockSub2],
+        keepalive: null,
+        connectedOnce: true,
+        resubscribing: false,
+      });
+
+      service.stopAllEventListeners();
+
+      expect(mockSub1.unsubscribe).toHaveBeenCalled();
+      expect(mockSub2.unsubscribe).toHaveBeenCalled();
+      expect((service as any).channels.size).toBe(0);
     });
   });
 
   describe('updateTokens', () => {
-    it('should update the stored tokens reference', () => {
+    it('should update the tokens map only for the matching deployment channel', () => {
+      const ethKey = `${mockDeployment.blockchainType}-${mockDeployment.exchangeId}`;
+      const seiDeployment: Deployment = {
+        ...mockDeployment,
+        blockchainType: BlockchainType.Sei,
+        exchangeId: ExchangeId.OGSei,
+      };
+      const seiKey = `${seiDeployment.blockchainType}-${seiDeployment.exchangeId}`;
+      const ethTokens: TokensByAddress = { ...mockTokens };
+      const seiTokens: TokensByAddress = {};
+
+      (service as any).channels.set(ethKey, {
+        deployment: mockDeployment,
+        tokens: ethTokens,
+        provider: null,
+        web3: null,
+        subs: [],
+        keepalive: null,
+        connectedOnce: false,
+        resubscribing: false,
+      });
+      (service as any).channels.set(seiKey, {
+        deployment: seiDeployment,
+        tokens: seiTokens,
+        provider: null,
+        web3: null,
+        subs: [],
+        keepalive: null,
+        connectedOnce: false,
+        resubscribing: false,
+      });
+
       const newTokens: TokensByAddress = {
         '0xNewToken': {
           id: 3,
@@ -686,9 +758,15 @@ describe('StrategyRealtimeService', () => {
         },
       };
 
-      service.updateTokens(newTokens);
+      service.updateTokens(mockDeployment, newTokens);
 
-      expect((service as any).wssTokens).toBe(newTokens);
+      expect((service as any).channels.get(ethKey).tokens).toBe(newTokens);
+      expect((service as any).channels.get(seiKey).tokens).toBe(seiTokens);
+    });
+
+    it('should be a no-op when there is no channel for the deployment', () => {
+      expect(() => service.updateTokens(mockDeployment, mockTokens)).not.toThrow();
     });
   });
+
 });
