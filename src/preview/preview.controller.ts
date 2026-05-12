@@ -9,7 +9,7 @@ import { PreviewResponseDto } from './dto/preview-response.dto';
 const previewResponseSchema: SchemaObject = {
   type: 'object',
   properties: {
-    url: { type: 'string', example: 'https://carbon-prev-d64732df.fly.dev' },
+    url: { type: 'string', example: 'http://34.142.123.45:3000' },
     status: { type: 'string', enum: ['existing', 'creating', 'seeding', 'ready', 'error'] },
     deployment: { type: 'string', example: 'ethereum' },
     forkBlock: { type: 'number', example: 24677999 },
