@@ -47,17 +47,21 @@ const STRATEGY_ARRAY_ABI_TYPE = {
   ],
 };
 
+interface WssChannel {
+  deployment: Deployment;
+  tokens: TokensByAddress;
+  provider: any;
+  web3: any;
+  subs: any[];
+  keepalive: ReturnType<typeof setInterval> | null;
+  connectedOnce: boolean;
+  resubscribing: boolean;
+}
+
 @Injectable()
 export class StrategyRealtimeService implements OnModuleDestroy {
   private readonly logger = new Logger(StrategyRealtimeService.name);
-  private wssProvider: any;
-  private wssWeb3: any;
-  private wssSubscriptions: any[] = [];
-  private wssDeployment: Deployment | null = null;
-  private wssTokens: TokensByAddress | null = null;
-  private wssConnectedOnce = false;
-  private wssResubscribing = false;
-  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
+  private channels = new Map<string, WssChannel>();
 
   constructor(
     @InjectRepository(StrategyRealtime)
@@ -68,7 +72,7 @@ export class StrategyRealtimeService implements OnModuleDestroy {
   ) {}
 
   onModuleDestroy() {
-    this.stopEventListener();
+    this.stopAllEventListeners();
   }
 
   private getDeploymentKey(deployment: Deployment): string {
@@ -87,12 +91,23 @@ export class StrategyRealtimeService implements OnModuleDestroy {
       return;
     }
 
-    this.wssDeployment = deployment;
-    this.wssTokens = tokens;
-    this.wssConnectedOnce = false;
+    const key = this.getDeploymentKey(deployment);
+    await this.stopChannel(key);
+
+    const channel: WssChannel = {
+      deployment,
+      tokens,
+      provider: null,
+      web3: null,
+      subs: [],
+      keepalive: null,
+      connectedOnce: false,
+      resubscribing: false,
+    };
+    this.channels.set(key, channel);
 
     try {
-      this.wssProvider = new WebSocketProvider(
+      channel.provider = new WebSocketProvider(
         deployment.wssEndpoint,
         {},
         {
@@ -102,28 +117,28 @@ export class StrategyRealtimeService implements OnModuleDestroy {
         },
       );
 
-      this.wssWeb3 = new Web3(this.wssProvider);
+      channel.web3 = new Web3(channel.provider);
 
-      this.wssProvider.on('connect', () => {
-        if (!this.wssConnectedOnce) {
-          this.wssConnectedOnce = true;
+      channel.provider.on('connect', () => {
+        if (!channel.connectedOnce) {
+          channel.connectedOnce = true;
           return;
         }
         this.logger.log(`WSS reconnected for ${deployment.exchangeId}, re-subscribing...`);
-        this.resubscribe().catch((err) =>
+        this.resubscribe(channel).catch((err) =>
           this.logger.error(`WSS re-subscribe failed for ${deployment.exchangeId}: ${err.message}`),
         );
       });
 
-      this.wssProvider.on('disconnect', () => {
+      channel.provider.on('disconnect', () => {
         this.logger.warn(`WSS disconnected for ${deployment.exchangeId}, waiting for auto-reconnect...`);
       });
 
-      await this.subscribe(deployment);
+      await this.subscribe(channel);
 
-      this.keepaliveInterval = setInterval(async () => {
+      channel.keepalive = setInterval(async () => {
         try {
-          await this.wssWeb3.eth.getBlockNumber();
+          await channel.web3.eth.getBlockNumber();
         } catch {
           this.logger.warn(`WSS keepalive ping failed for ${deployment.exchangeId}`);
         }
@@ -132,119 +147,138 @@ export class StrategyRealtimeService implements OnModuleDestroy {
       this.logger.log(`WSS event listener started for ${deployment.exchangeId} at ${deployment.wssEndpoint}`);
     } catch (error) {
       this.logger.error(`Failed to start WSS event listener for ${deployment.exchangeId}: ${error.message}`);
+      await this.stopChannel(key);
     }
   }
 
-  private async subscribe(deployment: Deployment): Promise<void> {
+  private async subscribe(channel: WssChannel): Promise<void> {
+    const { deployment, web3 } = channel;
     const controllerAddress = deployment.contracts.CarbonController.address;
-    const controllerContract = new this.wssWeb3.eth.Contract(CarbonControllerABI, controllerAddress);
+    const controllerContract = new web3.eth.Contract(CarbonControllerABI, controllerAddress);
 
     const voucherAddress = deployment.contracts.CarbonVoucher?.address;
-    const voucherContract = voucherAddress ? new this.wssWeb3.eth.Contract(CarbonVoucherABI, voucherAddress) : null;
+    const voucherContract = voucherAddress ? new web3.eth.Contract(CarbonVoucherABI, voucherAddress) : null;
 
     const createdSub = await (controllerContract.events as any).StrategyCreated();
-    createdSub.on('data', (event: any) => this.handleEvent('StrategyCreated', event));
-    createdSub.on('error', (err: any) => this.logger.error(`WSS StrategyCreated error: ${err.message}`));
-    this.wssSubscriptions.push(createdSub);
+    createdSub.on('data', (event: any) => this.handleEvent('StrategyCreated', event, channel));
+    createdSub.on('error', (err: any) =>
+      this.logger.error(`WSS StrategyCreated error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(createdSub);
 
     const updatedSub = await (controllerContract.events as any).StrategyUpdated();
-    updatedSub.on('data', (event: any) => this.handleEvent('StrategyUpdated', event));
-    updatedSub.on('error', (err: any) => this.logger.error(`WSS StrategyUpdated error: ${err.message}`));
-    this.wssSubscriptions.push(updatedSub);
+    updatedSub.on('data', (event: any) => this.handleEvent('StrategyUpdated', event, channel));
+    updatedSub.on('error', (err: any) =>
+      this.logger.error(`WSS StrategyUpdated error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(updatedSub);
 
     const deletedSub = await (controllerContract.events as any).StrategyDeleted();
-    deletedSub.on('data', (event: any) => this.handleEvent('StrategyDeleted', event));
-    deletedSub.on('error', (err: any) => this.logger.error(`WSS StrategyDeleted error: ${err.message}`));
-    this.wssSubscriptions.push(deletedSub);
+    deletedSub.on('data', (event: any) => this.handleEvent('StrategyDeleted', event, channel));
+    deletedSub.on('error', (err: any) =>
+      this.logger.error(`WSS StrategyDeleted error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(deletedSub);
 
     if (voucherContract) {
       const transferSub = await (voucherContract.events as any).Transfer();
-      transferSub.on('data', (event: any) => this.handleEvent('Transfer', event));
-      transferSub.on('error', (err: any) => this.logger.error(`WSS VoucherTransfer error: ${err.message}`));
-      this.wssSubscriptions.push(transferSub);
+      transferSub.on('data', (event: any) => this.handleEvent('Transfer', event, channel));
+      transferSub.on('error', (err: any) =>
+        this.logger.error(`WSS VoucherTransfer error for ${deployment.exchangeId}: ${err.message}`),
+      );
+      channel.subs.push(transferSub);
     }
   }
 
-  private async resubscribe(): Promise<void> {
-    if (this.wssResubscribing || !this.wssDeployment) return;
-    this.wssResubscribing = true;
+  private async resubscribe(channel: WssChannel): Promise<void> {
+    if (channel.resubscribing) return;
+    channel.resubscribing = true;
 
     try {
-      for (const sub of this.wssSubscriptions) {
+      for (const sub of channel.subs) {
         try {
           sub.unsubscribe?.();
         } catch {
           /* old subs are already dead */
         }
       }
-      this.wssSubscriptions = [];
+      channel.subs = [];
 
-      await this.subscribe(this.wssDeployment);
-      this.logger.log(`WSS re-subscribed successfully for ${this.wssDeployment.exchangeId}`);
+      await this.subscribe(channel);
+      this.logger.log(`WSS re-subscribed successfully for ${channel.deployment.exchangeId}`);
     } finally {
-      this.wssResubscribing = false;
+      channel.resubscribing = false;
     }
   }
 
-  stopEventListener(): void {
-    if (this.keepaliveInterval) {
-      clearInterval(this.keepaliveInterval);
-      this.keepaliveInterval = null;
+  async stopChannel(key: string): Promise<void> {
+    const channel = this.channels.get(key);
+    if (!channel) return;
+    this.channels.delete(key);
+
+    if (channel.keepalive) {
+      clearInterval(channel.keepalive);
+      channel.keepalive = null;
     }
 
-    for (const sub of this.wssSubscriptions) {
+    for (const sub of channel.subs) {
       try {
         sub.unsubscribe?.();
-      } catch (e) {
+      } catch {
         /* ignore cleanup errors */
       }
     }
-    this.wssSubscriptions = [];
+    channel.subs = [];
 
-    if (this.wssProvider) {
+    if (channel.provider) {
       try {
-        this.wssProvider.disconnect?.();
-      } catch (e) {
+        channel.provider.disconnect?.();
+      } catch {
         /* ignore */
       }
-      this.wssProvider = null;
+      channel.provider = null;
     }
-
-    this.wssWeb3 = null;
-    this.wssDeployment = null;
-    this.wssTokens = null;
+    channel.web3 = null;
   }
 
-  updateTokens(tokens: TokensByAddress): void {
-    this.wssTokens = tokens;
+  stopAllEventListeners(): void {
+    for (const key of [...this.channels.keys()]) {
+      this.stopChannel(key).catch(() => undefined);
+    }
   }
 
-  private async handleEvent(eventName: string, event: any): Promise<void> {
-    if (!this.wssDeployment || !this.wssTokens) return;
+  updateTokens(deployment: Deployment, tokens: TokensByAddress): void {
+    const channel = this.channels.get(this.getDeploymentKey(deployment));
+    if (channel) channel.tokens = tokens;
+  }
 
+  private async handleEvent(eventName: string, event: any, channel: WssChannel): Promise<void> {
     const blockNumber = Number(event.blockNumber);
     const returnValues = event.returnValues;
+    const { deployment, tokens } = channel;
 
     try {
       switch (eventName) {
         case 'StrategyCreated':
-          await this.applyStrategyCreated(returnValues, blockNumber, this.wssDeployment, this.wssTokens);
+          await this.applyStrategyCreated(returnValues, blockNumber, deployment, tokens);
           break;
         case 'StrategyUpdated':
-          await this.applyStrategyUpdated(returnValues, blockNumber, this.wssDeployment, this.wssTokens);
+          await this.applyStrategyUpdated(returnValues, blockNumber, deployment, tokens);
           break;
         case 'StrategyDeleted':
-          await this.applyStrategyDeleted(returnValues, blockNumber, this.wssDeployment);
+          await this.applyStrategyDeleted(returnValues, blockNumber, deployment);
           break;
         case 'Transfer':
-          await this.applyVoucherTransfer(returnValues, blockNumber, this.wssDeployment);
+          await this.applyVoucherTransfer(returnValues, blockNumber, deployment);
           break;
       }
 
-      await this.redis.client.set(this.getBlockRedisKey(this.wssDeployment), blockNumber.toString());
-      this.logger.log(`WSS ${eventName} processed at block ${blockNumber} for ${this.wssDeployment.exchangeId}`);
+      await this.redis.client.set(this.getBlockRedisKey(deployment), blockNumber.toString());
+      this.logger.log(`WSS ${eventName} processed at block ${blockNumber} for ${deployment.exchangeId}`);
     } catch (error) {
-      this.logger.error(`Error processing WSS ${eventName} at block ${blockNumber}: ${error.message}`);
+      this.logger.error(
+        `Error processing WSS ${eventName} at block ${blockNumber} for ${deployment.exchangeId}: ${error.message}`,
+      );
     }
   }
 

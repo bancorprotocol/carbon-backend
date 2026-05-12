@@ -326,21 +326,21 @@ steps:
     args:
       - '-c'
       - |
-        INSTANCES=$(gcloud compute instances list \
+        INSTANCES=$$(gcloud compute instances list \
           --filter="name~'^carbon-prev-'" \
           --zones=europe-west2-b \
           --format="value(name)" \
           --project=bancor-api)
-        if [ -z "$INSTANCES" ]; then
+        if [ -z "$$INSTANCES" ]; then
           echo "No preview VMs to reset"
           exit 0
         fi
-        echo "Resetting preview VMs: $INSTANCES"
-        for vm in $INSTANCES; do
-          echo "Resetting $vm..."
-          gcloud compute instances reset "$vm" \
+        echo "Resetting preview VMs: $$INSTANCES"
+        for vm in $$INSTANCES; do
+          echo "Resetting $$vm..."
+          gcloud compute instances reset "$$vm" \
             --zone=europe-west2-b \
-            --project=bancor-api || echo "Warning: failed to reset $vm"
+            --project=bancor-api || echo "Warning: failed to reset $$vm"
         done
         echo "All preview VMs reset"
     waitFor: ['update_traffic']
