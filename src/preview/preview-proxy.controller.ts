@@ -61,11 +61,7 @@ export class PreviewProxyController {
   // it would only invite mismatches. The bare URL (no trailing segments)
   // intentionally 404s.
   @All('*')
-  async proxy(
-    @Param('tenderlyId') tenderlyId: string,
-    @Req() req: Request,
-    @Res() res: Response,
-  ): Promise<void> {
+  async proxy(@Param('tenderlyId') tenderlyId: string, @Req() req: Request, @Res() res: Response): Promise<void> {
     const rest = String((req.params as Record<string, string>)['0'] ?? '');
     await this.proxyRequest(tenderlyId, rest, req, res);
   }
