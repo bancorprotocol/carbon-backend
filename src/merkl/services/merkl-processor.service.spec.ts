@@ -1236,20 +1236,14 @@ describe('MerklProcessorService', () => {
 
       // FIRST RUN: lastProcessedEpochNumber = 0, so all epochs are processable
       const calculateEpochsInRange = (service as any).calculateEpochsInRange.bind(service);
-      const allEpochs = calculateEpochsInRange(
-        campaign,
-        campaign.startDate.getTime(),
-        campaign.endDate.getTime(),
-      );
+      const allEpochs = calculateEpochsInRange(campaign, campaign.startDate.getTime(), campaign.endDate.getTime());
 
       expect(allEpochs.length).toBe(6); // 24 hours / 4 hours = 6 epochs
 
       // After first run processes epoch 1 (with partial sub-epochs),
       // getLastProcessedEpochNumber returns 1
       const lastProcessedEpochNumber = 1;
-      const epochsToProcessSecondRun = allEpochs.filter(
-        (epoch: any) => epoch.epochNumber > lastProcessedEpochNumber,
-      );
+      const epochsToProcessSecondRun = allEpochs.filter((epoch: any) => epoch.epochNumber > lastProcessedEpochNumber);
 
       // BUG PROOF: Epoch 1 is filtered out even though it was only partially processed
       expect(epochsToProcessSecondRun.length).toBe(5); // Epochs 2-6
@@ -1272,19 +1266,14 @@ describe('MerklProcessorService', () => {
       // globalEndTimestamp is 2.5 hours into the first epoch (not yet elapsed)
       const globalEndTimestamp = new Date('2025-01-01T02:30:00Z').getTime();
 
-      const allEpochs = calculateEpochsInRange(
-        campaign,
-        campaign.startDate.getTime(),
-        globalEndTimestamp,
-      );
+      const allEpochs = calculateEpochsInRange(campaign, campaign.startDate.getTime(), globalEndTimestamp);
 
       const lastProcessedEpochNumber = 0;
 
       // THE FIX: only process epochs that are fully elapsed
       const epochsToProcess = allEpochs.filter(
         (epoch: any) =>
-          epoch.epochNumber > lastProcessedEpochNumber &&
-          epoch.endTimestamp.getTime() <= globalEndTimestamp,
+          epoch.epochNumber > lastProcessedEpochNumber && epoch.endTimestamp.getTime() <= globalEndTimestamp,
       );
 
       // Epoch 1 ends at 04:00, which is AFTER globalEndTimestamp (02:30)
@@ -1293,16 +1282,11 @@ describe('MerklProcessorService', () => {
 
       // Now simulate globalEndTimestamp after epoch 1 completes
       const globalEndTimestamp2 = new Date('2025-01-01T04:00:01Z').getTime();
-      const allEpochs2 = calculateEpochsInRange(
-        campaign,
-        campaign.startDate.getTime(),
-        globalEndTimestamp2,
-      );
+      const allEpochs2 = calculateEpochsInRange(campaign, campaign.startDate.getTime(), globalEndTimestamp2);
 
       const epochsToProcess2 = allEpochs2.filter(
         (epoch: any) =>
-          epoch.epochNumber > lastProcessedEpochNumber &&
-          epoch.endTimestamp.getTime() <= globalEndTimestamp2,
+          epoch.epochNumber > lastProcessedEpochNumber && epoch.endTimestamp.getTime() <= globalEndTimestamp2,
       );
 
       // Now epoch 1 IS fully elapsed, so it should be processable

@@ -50,7 +50,7 @@ export class ActivityV2Service {
     await this.initializeStrategyStates(lastProcessedBlock, deployment, strategyStates);
 
     // Process blocks in batches
-    for (let batchStart = lastProcessedBlock + 1; batchStart < endBlock; batchStart += this.BATCH_SIZE) {
+    for (let batchStart = lastProcessedBlock + 1; batchStart <= endBlock; batchStart += this.BATCH_SIZE) {
       const batchEnd = Math.min(batchStart + this.BATCH_SIZE - 1, endBlock);
 
       // Fetch events in parallel
@@ -153,7 +153,11 @@ export class ActivityV2Service {
       );
     }
 
-    queryBuilder.orderBy('activity.timestamp', 'DESC');
+    queryBuilder
+      .orderBy('activity.timestamp', 'DESC')
+      .addOrderBy('activity.blockNumber', 'DESC')
+      .addOrderBy('activity.transactionIndex', 'DESC')
+      .addOrderBy('activity.logIndex', 'DESC');
 
     if ('limit' in params && params.limit) {
       queryBuilder.take(params.limit);
@@ -548,8 +552,8 @@ export class ActivityV2Service {
     activity.quoteBuyTokenAddress = state.token1.address;
     activity.token0 = state.token0;
     activity.token1 = state.token1;
-    activity.order0 = state.order0;
-    activity.order1 = state.order1;
+    activity.order0 = typeof state.order0 === 'string' ? state.order0 : JSON.stringify(state.order0);
+    activity.order1 = typeof state.order1 === 'string' ? state.order1 : JSON.stringify(state.order1);
 
     // Process orders using the updated processOrders function.
     const order0 = parseOrder(state.order0);

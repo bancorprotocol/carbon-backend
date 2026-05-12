@@ -1,13 +1,16 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import Web3 from 'web3';
+import { WebSocketProvider } from 'web3-providers-ws';
 import Decimal from 'decimal.js';
 import { StrategyRealtime } from './strategy-realtime.entity';
 import { Deployment } from '../deployment/deployment.service';
-import { TokensByAddress } from '../token/token.service';
+import { TokensByAddress, TokenService } from '../token/token.service';
 import { HarvesterService, ContractsNames } from '../harvester/harvester.service';
 import { parseOrder, processOrders } from '../activity/activity.utils';
+import { CarbonController as CarbonControllerABI } from '../abis/CarbonController.abi';
+import { CarbonVoucher as CarbonVoucherABI } from '../abis/CarbonVoucher.abi';
 
 const STRATEGY_REALTIME_BLOCK_KEY = 'strategy-realtime:block';
 
@@ -25,7 +28,6 @@ interface ContractStrategy {
   orders: [ContractOrder, ContractOrder];
 }
 
-// ABI types for decoding multicall results
 const STRATEGY_ARRAY_ABI_TYPE = {
   type: 'tuple[]',
   components: [
@@ -46,15 +48,28 @@ const STRATEGY_ARRAY_ABI_TYPE = {
 };
 
 @Injectable()
-export class StrategyRealtimeService {
+export class StrategyRealtimeService implements OnModuleDestroy {
   private readonly logger = new Logger(StrategyRealtimeService.name);
+  private wssProvider: any;
+  private wssWeb3: any;
+  private wssSubscriptions: any[] = [];
+  private wssDeployment: Deployment | null = null;
+  private wssTokens: TokensByAddress | null = null;
+  private wssConnectedOnce = false;
+  private wssResubscribing = false;
+  private keepaliveInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(
     @InjectRepository(StrategyRealtime)
     private strategyRealtimeRepository: Repository<StrategyRealtime>,
     private harvesterService: HarvesterService,
+    private tokenService: TokenService,
     @Inject('REDIS') private redis: any,
   ) {}
+
+  onModuleDestroy() {
+    this.stopEventListener();
+  }
 
   private getDeploymentKey(deployment: Deployment): string {
     return `${deployment.blockchainType}-${deployment.exchangeId}`;
@@ -64,7 +79,360 @@ export class StrategyRealtimeService {
     return `${STRATEGY_REALTIME_BLOCK_KEY}:${this.getDeploymentKey(deployment)}`;
   }
 
-  async update(deployment: Deployment, tokens: TokensByAddress): Promise<number> {
+  // ─── WSS Event Listener ──────────────────────────────────────────────
+
+  async startEventListener(deployment: Deployment, tokens: TokensByAddress): Promise<void> {
+    if (!deployment.wssEndpoint) {
+      this.logger.warn(`No WSS endpoint configured for ${deployment.exchangeId}, skipping event listener`);
+      return;
+    }
+
+    this.wssDeployment = deployment;
+    this.wssTokens = tokens;
+    this.wssConnectedOnce = false;
+
+    try {
+      this.wssProvider = new WebSocketProvider(
+        deployment.wssEndpoint,
+        {},
+        {
+          autoReconnect: true,
+          delay: 1000,
+          maxAttempts: Number.MAX_SAFE_INTEGER,
+        },
+      );
+
+      this.wssWeb3 = new Web3(this.wssProvider);
+
+      this.wssProvider.on('connect', () => {
+        if (!this.wssConnectedOnce) {
+          this.wssConnectedOnce = true;
+          return;
+        }
+        this.logger.log(`WSS reconnected for ${deployment.exchangeId}, re-subscribing...`);
+        this.resubscribe().catch((err) =>
+          this.logger.error(`WSS re-subscribe failed for ${deployment.exchangeId}: ${err.message}`),
+        );
+      });
+
+      this.wssProvider.on('disconnect', () => {
+        this.logger.warn(`WSS disconnected for ${deployment.exchangeId}, waiting for auto-reconnect...`);
+      });
+
+      await this.subscribe(deployment);
+
+      this.keepaliveInterval = setInterval(async () => {
+        try {
+          await this.wssWeb3.eth.getBlockNumber();
+        } catch {
+          this.logger.warn(`WSS keepalive ping failed for ${deployment.exchangeId}`);
+        }
+      }, 30000);
+
+      this.logger.log(`WSS event listener started for ${deployment.exchangeId} at ${deployment.wssEndpoint}`);
+    } catch (error) {
+      this.logger.error(`Failed to start WSS event listener for ${deployment.exchangeId}: ${error.message}`);
+    }
+  }
+
+  private async subscribe(deployment: Deployment): Promise<void> {
+    const controllerAddress = deployment.contracts.CarbonController.address;
+    const controllerContract = new this.wssWeb3.eth.Contract(CarbonControllerABI, controllerAddress);
+
+    const voucherAddress = deployment.contracts.CarbonVoucher?.address;
+    const voucherContract = voucherAddress ? new this.wssWeb3.eth.Contract(CarbonVoucherABI, voucherAddress) : null;
+
+    const createdSub = await (controllerContract.events as any).StrategyCreated();
+    createdSub.on('data', (event: any) => this.handleEvent('StrategyCreated', event));
+    createdSub.on('error', (err: any) => this.logger.error(`WSS StrategyCreated error: ${err.message}`));
+    this.wssSubscriptions.push(createdSub);
+
+    const updatedSub = await (controllerContract.events as any).StrategyUpdated();
+    updatedSub.on('data', (event: any) => this.handleEvent('StrategyUpdated', event));
+    updatedSub.on('error', (err: any) => this.logger.error(`WSS StrategyUpdated error: ${err.message}`));
+    this.wssSubscriptions.push(updatedSub);
+
+    const deletedSub = await (controllerContract.events as any).StrategyDeleted();
+    deletedSub.on('data', (event: any) => this.handleEvent('StrategyDeleted', event));
+    deletedSub.on('error', (err: any) => this.logger.error(`WSS StrategyDeleted error: ${err.message}`));
+    this.wssSubscriptions.push(deletedSub);
+
+    if (voucherContract) {
+      const transferSub = await (voucherContract.events as any).Transfer();
+      transferSub.on('data', (event: any) => this.handleEvent('Transfer', event));
+      transferSub.on('error', (err: any) => this.logger.error(`WSS VoucherTransfer error: ${err.message}`));
+      this.wssSubscriptions.push(transferSub);
+    }
+  }
+
+  private async resubscribe(): Promise<void> {
+    if (this.wssResubscribing || !this.wssDeployment) return;
+    this.wssResubscribing = true;
+
+    try {
+      for (const sub of this.wssSubscriptions) {
+        try {
+          sub.unsubscribe?.();
+        } catch {
+          /* old subs are already dead */
+        }
+      }
+      this.wssSubscriptions = [];
+
+      await this.subscribe(this.wssDeployment);
+      this.logger.log(`WSS re-subscribed successfully for ${this.wssDeployment.exchangeId}`);
+    } finally {
+      this.wssResubscribing = false;
+    }
+  }
+
+  stopEventListener(): void {
+    if (this.keepaliveInterval) {
+      clearInterval(this.keepaliveInterval);
+      this.keepaliveInterval = null;
+    }
+
+    for (const sub of this.wssSubscriptions) {
+      try {
+        sub.unsubscribe?.();
+      } catch (e) {
+        /* ignore cleanup errors */
+      }
+    }
+    this.wssSubscriptions = [];
+
+    if (this.wssProvider) {
+      try {
+        this.wssProvider.disconnect?.();
+      } catch (e) {
+        /* ignore */
+      }
+      this.wssProvider = null;
+    }
+
+    this.wssWeb3 = null;
+    this.wssDeployment = null;
+    this.wssTokens = null;
+  }
+
+  updateTokens(tokens: TokensByAddress): void {
+    this.wssTokens = tokens;
+  }
+
+  private async handleEvent(eventName: string, event: any): Promise<void> {
+    if (!this.wssDeployment || !this.wssTokens) return;
+
+    const blockNumber = Number(event.blockNumber);
+    const returnValues = event.returnValues;
+
+    try {
+      switch (eventName) {
+        case 'StrategyCreated':
+          await this.applyStrategyCreated(returnValues, blockNumber, this.wssDeployment, this.wssTokens);
+          break;
+        case 'StrategyUpdated':
+          await this.applyStrategyUpdated(returnValues, blockNumber, this.wssDeployment, this.wssTokens);
+          break;
+        case 'StrategyDeleted':
+          await this.applyStrategyDeleted(returnValues, blockNumber, this.wssDeployment);
+          break;
+        case 'Transfer':
+          await this.applyVoucherTransfer(returnValues, blockNumber, this.wssDeployment);
+          break;
+      }
+
+      await this.redis.client.set(this.getBlockRedisKey(this.wssDeployment), blockNumber.toString());
+      this.logger.log(`WSS ${eventName} processed at block ${blockNumber} for ${this.wssDeployment.exchangeId}`);
+    } catch (error) {
+      this.logger.error(`Error processing WSS ${eventName} at block ${blockNumber}: ${error.message}`);
+    }
+  }
+
+  // ─── Token Resolution ──────────────────────────────────────────────
+
+  private async resolveToken(
+    address: string,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<{ decimals: number } | null> {
+    if (tokens[address]) return tokens[address];
+
+    try {
+      const token = await this.tokenService.getOrCreateTokenByAddress(address, deployment);
+      tokens[address] = token;
+      return token;
+    } catch (error) {
+      this.logger.error(`Failed to fetch token metadata for ${address}: ${error.message}`);
+      return null;
+    }
+  }
+
+  // ─── Event Handlers ──────────────────────────────────────────────────
+
+  async applyStrategyCreated(
+    returnValues: any,
+    blockNumber: number,
+    deployment: Deployment,
+    tokens: TokensByAddress,
+  ): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    const owner = returnValues.owner;
+    const token0Address = returnValues.token0;
+    const token1Address = returnValues.token1;
+
+    const token0 = await this.resolveToken(token0Address, tokens, deployment);
+    const token1 = await this.resolveToken(token1Address, tokens, deployment);
+    if (!token0 || !token1) {
+      this.logger.warn(`WSS StrategyCreated: unable to resolve token info for ${strategyId}`);
+      return false;
+    }
+
+    const orderFields = this.buildOrderFields(returnValues.order0, returnValues.order1, token0, token1);
+
+    const updateFields: Partial<StrategyRealtime> = {
+      owner,
+      token0Address,
+      token1Address,
+      ...orderFields,
+      deleted: false,
+    };
+
+    return this.guardedWrite(strategyId, deployment, blockNumber, updateFields, updateFields);
+  }
+
+  async applyStrategyUpdated(
+    returnValues: any,
+    blockNumber: number,
+    deployment: Deployment,
+    tokens: TokensByAddress,
+  ): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    const token0Address = returnValues.token0;
+    const token1Address = returnValues.token1;
+
+    const token0 = await this.resolveToken(token0Address, tokens, deployment);
+    const token1 = await this.resolveToken(token1Address, tokens, deployment);
+    if (!token0 || !token1) {
+      this.logger.warn(`WSS StrategyUpdated: unable to resolve token info for ${strategyId}`);
+      return false;
+    }
+
+    const orderFields = this.buildOrderFields(returnValues.order0, returnValues.order1, token0, token1);
+
+    const updateFields: Partial<StrategyRealtime> = {
+      token0Address,
+      token1Address,
+      ...orderFields,
+      deleted: false,
+    };
+
+    return this.guardedWrite(strategyId, deployment, blockNumber, updateFields);
+  }
+
+  async applyStrategyDeleted(returnValues: any, blockNumber: number, deployment: Deployment): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    return this.guardedWrite(strategyId, deployment, blockNumber, { deleted: true });
+  }
+
+  async applyVoucherTransfer(returnValues: any, blockNumber: number, deployment: Deployment): Promise<boolean> {
+    const strategyId = returnValues.tokenId.toString();
+    const newOwner = returnValues.to;
+    return this.guardedWrite(strategyId, deployment, blockNumber, { owner: newOwner });
+  }
+
+  private buildOrderFields(
+    rawOrder0: any,
+    rawOrder1: any,
+    token0: { decimals: number },
+    token1: { decimals: number },
+  ): Partial<StrategyRealtime> {
+    const encodedOrder0 = JSON.stringify({
+      y: rawOrder0.y.toString(),
+      z: rawOrder0.z.toString(),
+      A: rawOrder0.A.toString(),
+      B: rawOrder0.B.toString(),
+    });
+    const encodedOrder1 = JSON.stringify({
+      y: rawOrder1.y.toString(),
+      z: rawOrder1.z.toString(),
+      A: rawOrder1.A.toString(),
+      B: rawOrder1.B.toString(),
+    });
+
+    const decimals0 = new Decimal(token0.decimals);
+    const decimals1 = new Decimal(token1.decimals);
+    const order0 = parseOrder(encodedOrder0);
+    const order1 = parseOrder(encodedOrder1);
+    const processed = processOrders(order0, order1, decimals0, decimals1);
+
+    return {
+      liquidity0: processed.liquidity0.toString(),
+      lowestRate0: processed.sellPriceA.toString(),
+      highestRate0: processed.sellPriceB.toString(),
+      marginalRate0: processed.sellPriceMarg.toString(),
+      liquidity1: processed.liquidity1.toString(),
+      lowestRate1: processed.buyPriceA.toString(),
+      highestRate1: processed.buyPriceB.toString(),
+      marginalRate1: processed.buyPriceMarg.toString(),
+      encodedOrder0,
+      encodedOrder1,
+    };
+  }
+
+  // ─── Guarded Write ───────────────────────────────────────────────────
+
+  /**
+   * Atomically update a strategy row only if the incoming blockNumber is >= the existing updatedAtBlock.
+   * If the row doesn't exist and createFields is provided, insert it.
+   * Returns true if a write occurred, false if skipped (DB had newer data).
+   */
+  async guardedWrite(
+    strategyId: string,
+    deployment: Deployment,
+    blockNumber: number,
+    updateFields: Partial<StrategyRealtime>,
+    createFields?: Partial<StrategyRealtime>,
+  ): Promise<boolean> {
+    const result = await this.strategyRealtimeRepository
+      .createQueryBuilder()
+      .update(StrategyRealtime)
+      .set({ ...updateFields, updatedAtBlock: blockNumber })
+      .where('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+      .andWhere('"strategyId" = :strategyId', { strategyId })
+      .andWhere('("updatedAtBlock" IS NULL OR "updatedAtBlock" <= :blockNumber)', { blockNumber })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      return true;
+    }
+
+    if (createFields) {
+      try {
+        const entity = this.strategyRealtimeRepository.create({
+          ...createFields,
+          strategyId,
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          updatedAtBlock: blockNumber,
+        });
+        await this.strategyRealtimeRepository.save(entity);
+        return true;
+      } catch (e: any) {
+        if (e.code === '23505') {
+          // Row was inserted concurrently — retry the update (without createFields to avoid infinite loop)
+          return this.guardedWrite(strategyId, deployment, blockNumber, updateFields);
+        }
+        throw e;
+      }
+    }
+
+    return false;
+  }
+
+  // ─── Full Contract Sync (existing + guarded) ─────────────────────────
+
+  async update(deployment: Deployment, tokens: TokensByAddress, guarded = false): Promise<number> {
     const carbonController = this.harvesterService.getContract(
       ContractsNames.CarbonController,
       undefined,
@@ -72,12 +440,10 @@ export class StrategyRealtimeService {
       deployment,
     );
     const contractAddress = deployment.contracts.CarbonController.address;
-    // Web3 instance needed for ABI decoding in multicall results
     const web3 = new Web3(deployment.rpcEndpoint);
     let lastBlockNumber = 0;
 
     try {
-      // Step 1: Fetch all pairs from the contract
       const pairs: [string, string][] = await carbonController.methods.pairs().call();
       this.logger.log(`Found ${pairs.length} pairs for ${deployment.exchangeId}`);
 
@@ -85,7 +451,6 @@ export class StrategyRealtimeService {
         return lastBlockNumber;
       }
 
-      // Step 2: Use multicall to get strategy counts for all pairs at once
       const countCallsEncoded = pairs.map(([token0, token1]) =>
         carbonController.methods.strategiesByPairCount(token0, token1).encodeABI(),
       );
@@ -97,7 +462,6 @@ export class StrategyRealtimeService {
       );
       lastBlockNumber = countBlockNumber;
 
-      // Decode the counts and identify pairs with strategies
       const pairsWithCounts: { pair: [string, string]; count: number }[] = [];
       for (let i = 0; i < pairs.length; i++) {
         if (countResults[i].success) {
@@ -111,12 +475,10 @@ export class StrategyRealtimeService {
       this.logger.log(`Found ${pairsWithCounts.length} pairs with strategies for ${deployment.exchangeId}`);
 
       if (pairsWithCounts.length === 0) {
-        // No strategies exist, clear any existing realtime data
         await this.markDeletedStrategies([], deployment);
         return lastBlockNumber;
       }
 
-      // Step 3: Use multicall to fetch all strategies for all pairs
       const STRATEGY_CHUNK_SIZE = 100;
       const strategyCallsEncoded: string[] = [];
       const callMetadata: { pair: [string, string]; startIndex: number; endIndex: number }[] = [];
@@ -140,7 +502,6 @@ export class StrategyRealtimeService {
         await this.harvesterService.genericMulticall(contractAddress, strategyCallsEncoded, deployment);
       lastBlockNumber = strategyBlockNumber;
 
-      // Decode all strategies
       const allStrategies: ContractStrategy[] = [];
       for (let i = 0; i < strategyResults.length; i++) {
         if (strategyResults[i].success && strategyResults[i].data !== '0x') {
@@ -179,17 +540,17 @@ export class StrategyRealtimeService {
         return lastBlockNumber;
       }
 
-      // Step 4: Process and save strategies
-      await this.saveStrategies(allStrategies, deployment, tokens);
+      await this.saveStrategies(allStrategies, deployment, tokens, lastBlockNumber);
 
-      // Step 5: Remove strategies that no longer exist in the contract
-      await this.markDeletedStrategies(allStrategies, deployment);
+      if (!guarded) {
+        await this.markDeletedStrategies(allStrategies, deployment);
+      }
 
-      // Store the block number in Redis for later retrieval by API instances
       await this.redis.client.set(this.getBlockRedisKey(deployment), lastBlockNumber.toString());
 
+      const mode = guarded ? ' (guarded)' : '';
       this.logger.log(
-        `Successfully updated ${allStrategies.length} strategies at block ${lastBlockNumber} for ${deployment.exchangeId}`,
+        `Successfully updated ${allStrategies.length} strategies at block ${lastBlockNumber} for ${deployment.exchangeId}${mode}`,
       );
 
       return lastBlockNumber;
@@ -203,8 +564,8 @@ export class StrategyRealtimeService {
     strategies: ContractStrategy[],
     deployment: Deployment,
     tokens: TokensByAddress,
+    syncBlock?: number,
   ): Promise<void> {
-    // Fetch existing strategies for this deployment to get their IDs
     const existingStrategies = await this.strategyRealtimeRepository.find({
       where: {
         blockchainType: deployment.blockchainType,
@@ -212,7 +573,6 @@ export class StrategyRealtimeService {
       },
     });
 
-    // Create a map of strategyId -> existing entity for quick lookup
     const existingMap = new Map<string, StrategyRealtime>();
     for (const existing of existingStrategies) {
       existingMap.set(existing.strategyId, existing);
@@ -224,7 +584,6 @@ export class StrategyRealtimeService {
       const token0Address = strategy.tokens[0];
       const token1Address = strategy.tokens[1];
 
-      // Get token decimals from the tokens dictionary
       const token0 = tokens[token0Address];
       const token1 = tokens[token1Address];
 
@@ -233,7 +592,17 @@ export class StrategyRealtimeService {
         continue;
       }
 
-      // Create encoded order JSON strings (same format as existing system)
+      const strategyId = strategy.id.toString();
+      const existingEntity = existingMap.get(strategyId);
+
+      if (
+        syncBlock !== undefined &&
+        existingEntity?.updatedAtBlock != null &&
+        existingEntity.updatedAtBlock > syncBlock
+      ) {
+        continue;
+      }
+
       const encodedOrder0 = JSON.stringify({
         y: strategy.orders[0].y,
         z: strategy.orders[0].z,
@@ -247,58 +616,55 @@ export class StrategyRealtimeService {
         B: strategy.orders[1].B,
       });
 
-      // Use the shared processOrders function from activity.utils
       const decimals0 = new Decimal(token0.decimals);
       const decimals1 = new Decimal(token1.decimals);
       const order0 = parseOrder(encodedOrder0);
       const order1 = parseOrder(encodedOrder1);
       const processed = processOrders(order0, order1, decimals0, decimals1);
 
-      const strategyId = strategy.id.toString();
-      const existingEntity = existingMap.get(strategyId);
-
-      // Use existing entity if found, otherwise create new one
-      const entity =
-        existingEntity ||
-        this.strategyRealtimeRepository.create({
-          blockchainType: deployment.blockchainType,
-          exchangeId: deployment.exchangeId,
-          strategyId,
-        });
-
-      // Update fields
-      entity.owner = strategy.owner;
-      entity.token0Address = token0Address;
-      entity.token1Address = token1Address;
-      // sell side (order0): sellPriceA = min, sellPriceB = max, sellPriceMarg = marginal
-      entity.liquidity0 = processed.liquidity0.toString();
-      entity.lowestRate0 = processed.sellPriceA.toString();
-      entity.highestRate0 = processed.sellPriceB.toString();
-      entity.marginalRate0 = processed.sellPriceMarg.toString();
-      // buy side (order1): buyPriceA = min, buyPriceB = max, buyPriceMarg = marginal
-      entity.liquidity1 = processed.liquidity1.toString();
-      entity.lowestRate1 = processed.buyPriceA.toString();
-      entity.highestRate1 = processed.buyPriceB.toString();
-      entity.marginalRate1 = processed.buyPriceMarg.toString();
-      entity.encodedOrder0 = encodedOrder0;
-      entity.encodedOrder1 = encodedOrder1;
-      entity.deleted = false; // Ensure strategy is marked as active
+      // Always build a fresh entity (without the existing PK `id`) so the
+      // batched upsert below resolves conflicts on the unique key
+      // (blockchainType, exchangeId, strategyId) rather than on the PK. This
+      // keeps saveStrategies idempotent against concurrent writers (the
+      // initial WSS sync, the 60s guarded safety-net sync, the polling
+      // fallback, and WSS event handlers writing via guardedWrite).
+      const entity = this.strategyRealtimeRepository.create({
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        strategyId,
+        owner: strategy.owner,
+        token0Address,
+        token1Address,
+        liquidity0: processed.liquidity0.toString(),
+        lowestRate0: processed.sellPriceA.toString(),
+        highestRate0: processed.sellPriceB.toString(),
+        marginalRate0: processed.sellPriceMarg.toString(),
+        liquidity1: processed.liquidity1.toString(),
+        lowestRate1: processed.buyPriceA.toString(),
+        highestRate1: processed.buyPriceB.toString(),
+        marginalRate1: processed.buyPriceMarg.toString(),
+        encodedOrder0,
+        encodedOrder1,
+        deleted: false,
+        ...(syncBlock !== undefined ? { updatedAtBlock: syncBlock } : {}),
+      });
 
       strategyEntities.push(entity);
     }
 
-    // Save strategies in batches
     const BATCH_SIZE = 500;
     for (let i = 0; i < strategyEntities.length; i += BATCH_SIZE) {
       const batch = strategyEntities.slice(i, i + BATCH_SIZE);
-      await this.strategyRealtimeRepository.save(batch);
+      await this.strategyRealtimeRepository.upsert(batch, {
+        conflictPaths: ['blockchainType', 'exchangeId', 'strategyId'],
+        skipUpdateIfNoValuesChanged: true,
+      });
     }
   }
 
   private async markDeletedStrategies(currentStrategies: ContractStrategy[], deployment: Deployment): Promise<void> {
     const currentStrategyIds = currentStrategies.map((s) => s.id.toString());
 
-    // Get all existing strategy IDs for this deployment (only non-deleted ones)
     const existingStrategies = await this.strategyRealtimeRepository.find({
       where: {
         blockchainType: deployment.blockchainType,
@@ -308,7 +674,6 @@ export class StrategyRealtimeService {
       select: ['id', 'strategyId'],
     });
 
-    // Find strategies to mark as deleted
     const toMarkDeleted = existingStrategies.filter((s) => !currentStrategyIds.includes(s.strategyId));
 
     if (toMarkDeleted.length > 0) {

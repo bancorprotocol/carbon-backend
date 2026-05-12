@@ -62,6 +62,7 @@ export interface Deployment {
       ethereumAddress: string;
     };
   };
+  wssEndpoint?: string;
   contracts: {
     [contractName: string]: {
       address: string;
@@ -96,11 +97,37 @@ export class DeploymentService {
   }
 
   private initializeDeployments(): Deployment[] {
+    const previewDeployment = this.configService.get('PREVIEW_DEPLOYMENT');
+    const all = this.buildAllDeployments();
+
+    if (previewDeployment) {
+      const match = all.filter((d) => d.exchangeId === previewDeployment);
+      if (match.length === 0) {
+        throw new Error(`PREVIEW_DEPLOYMENT "${previewDeployment}" does not match any known exchangeId`);
+      }
+      return match;
+    }
+
+    return all;
+  }
+
+  // Returns the explicit `<CHAIN>_WSS_ENDPOINT` if set; otherwise derives one
+  // from `<CHAIN>_RPC_ENDPOINT` by swapping `https://` for `wss://`.
+  private resolveWssEndpoint(wssEnvKey: string, rpcEnvKey: string): string | undefined {
+    const explicit = this.configService.get<string>(wssEnvKey);
+    if (explicit) return explicit;
+    const rpc = this.configService.get<string>(rpcEnvKey);
+    if (rpc?.startsWith('https://')) return rpc.replace(/^https:\/\//, 'wss://');
+    return undefined;
+  }
+
+  private buildAllDeployments(): Deployment[] {
     return [
       {
         exchangeId: ExchangeId.OGEthereum,
         blockchainType: BlockchainType.Ethereum,
         rpcEndpoint: this.configService.get('ETHEREUM_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('ETHEREUM_WSS_ENDPOINT', 'ETHEREUM_RPC_ENDPOINT'),
         harvestEventsBatchSize: 100000,
         harvestConcurrency: 10,
         multicallAddress: '0x5Eb3fa2DFECdDe21C950813C665E9364fa609bD2',
@@ -163,7 +190,8 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGSei,
         blockchainType: BlockchainType.Sei,
         rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 200,
+        wssEndpoint: this.resolveWssEndpoint('SEI_WSS_ENDPOINT', 'SEI_RPC_ENDPOINT'),
+        harvestEventsBatchSize: 50,
         harvestConcurrency: 1,
         multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
         startBlock: 79146720,
@@ -211,6 +239,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGCelo,
         blockchainType: BlockchainType.Celo,
         rpcEndpoint: this.configService.get('CELO_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('CELO_WSS_ENDPOINT', 'CELO_RPC_ENDPOINT'),
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 1,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -256,6 +285,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.BaseGraphene,
         blockchainType: BlockchainType.Base,
         rpcEndpoint: this.configService.get('BASE_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('BASE_WSS_ENDPOINT', 'BASE_RPC_ENDPOINT'),
         harvestEventsBatchSize: 20000,
         harvestConcurrency: 10,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -301,6 +331,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.MantleGraphene,
         blockchainType: BlockchainType.Mantle,
         rpcEndpoint: this.configService.get('MANTLE_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('MANTLE_WSS_ENDPOINT', 'MANTLE_RPC_ENDPOINT'),
         harvestEventsBatchSize: 20000,
         harvestConcurrency: 10,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -346,6 +377,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.MantleSupernova,
         blockchainType: BlockchainType.Mantle,
         rpcEndpoint: this.configService.get('MANTLE_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('MANTLE_WSS_ENDPOINT', 'MANTLE_RPC_ENDPOINT'),
         harvestEventsBatchSize: 20000,
         harvestConcurrency: 10,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -382,6 +414,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.LineaXFai,
         blockchainType: BlockchainType.Linea,
         rpcEndpoint: this.configService.get('LINEA_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('LINEA_WSS_ENDPOINT', 'LINEA_RPC_ENDPOINT'),
         harvestEventsBatchSize: 20000,
         harvestConcurrency: 10,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -428,6 +461,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.BaseAlienBase,
         blockchainType: BlockchainType.Base,
         rpcEndpoint: this.configService.get('BASE_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('BASE_WSS_ENDPOINT', 'BASE_RPC_ENDPOINT'),
         harvestEventsBatchSize: 20000,
         harvestConcurrency: 10,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -464,6 +498,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.BerachainGraphene,
         blockchainType: BlockchainType.Berachain,
         rpcEndpoint: this.configService.get('BERACHAIN_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('BERACHAIN_WSS_ENDPOINT', 'BERACHAIN_RPC_ENDPOINT'),
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 3,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',
@@ -504,6 +539,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGCoti,
         blockchainType: BlockchainType.Coti,
         rpcEndpoint: this.configService.get('COTI_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('COTI_WSS_ENDPOINT', 'COTI_RPC_ENDPOINT'),
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 3,
         multicallAddress: '0x773B75CfB146bd5d1095fa9d6d45637f02B05119',
@@ -563,6 +599,7 @@ export class DeploymentService {
         exchangeId: ExchangeId.OGTac,
         blockchainType: BlockchainType.Tac,
         rpcEndpoint: this.configService.get('TAC_RPC_ENDPOINT'),
+        wssEndpoint: this.resolveWssEndpoint('TAC_WSS_ENDPOINT', 'TAC_RPC_ENDPOINT'),
         harvestEventsBatchSize: 1000,
         harvestConcurrency: 1,
         multicallAddress: '0xcA11bde05977b3631167028862bE2a173976CA11',

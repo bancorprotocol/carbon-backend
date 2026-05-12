@@ -39,6 +39,12 @@ export class UpdaterService {
   private isUpdatingAnalytics: Record<string, boolean> = {};
   private isUpdatingRealtime: Record<string, boolean> = {};
 
+  // Fallback polling interval used only when WSS isn't available (no
+  // wssEndpoint configured, or initWssRealtimeStrategy fails). When WSS is
+  // healthy, real-time updates flow through WSS event handlers and the 60s
+  // guarded full sync registered inside initWssRealtimeStrategy.
+  private static readonly REALTIME_FALLBACK_INTERVAL_MS = 30000;
+
   constructor(
     private configService: ConfigService,
     private harvesterService: HarvesterService,
@@ -79,10 +85,16 @@ export class UpdaterService {
         this.scheduleDeploymentUpdate(deployment, updateInterval);
       });
 
-      // Schedule realtime strategy updates on a separate, faster interval
+      // Real-time strategy sync: prefer WSS (push events + 60s guarded
+      // safety-net sync). Fall back to the periodic full sync only when WSS
+      // isn't configured for the deployment. If WSS init throws at runtime,
+      // initWssRealtimeStrategy itself registers the polling fallback.
       deployments.forEach((deployment) => {
-        const realtimeInterval = 3000; // Poll contract every 3 seconds for realtime data
-        this.scheduleRealtimeStrategyUpdate(deployment, realtimeInterval);
+        if (deployment.wssEndpoint) {
+          this.initWssRealtimeStrategy(deployment);
+        } else {
+          this.scheduleRealtimeStrategyUpdate(deployment, UpdaterService.REALTIME_FALLBACK_INTERVAL_MS);
+        }
       });
     }
   }
@@ -99,6 +111,35 @@ export class UpdaterService {
     }, interval);
   }
 
+  private async initWssRealtimeStrategy(deployment: Deployment): Promise<void> {
+    const deploymentKey = `${deployment.blockchainType}:${deployment.exchangeId}`;
+
+    try {
+      // Initial full sync to establish baseline
+      console.log(`CARBON SERVICE - WSS mode: running initial full sync for ${deploymentKey}`);
+      const tokens = await this.tokenService.allByAddress(deployment);
+      await this.strategyRealtimeService.update(deployment, tokens);
+      console.log(`CARBON SERVICE - WSS mode: initial full sync complete for ${deploymentKey}`);
+
+      // Start WSS event listener
+      await this.strategyRealtimeService.startEventListener(deployment, tokens);
+
+      // Schedule guarded full sync every 60s as safety net
+      setInterval(async () => {
+        await this.updateRealtimeStrategiesGuarded(deployment);
+      }, 60000);
+    } catch (error) {
+      // WSS init failed — fall back to periodic polling so the deployment
+      // still receives strategy updates. Without this fallback, a transient
+      // WSS error at startup would leave realtime data permanently stale.
+      console.log(
+        `CARBON SERVICE - WSS init failed for ${deploymentKey}, falling back to periodic sync:`,
+        error.message,
+      );
+      this.scheduleRealtimeStrategyUpdate(deployment, UpdaterService.REALTIME_FALLBACK_INTERVAL_MS);
+    }
+  }
+
   async updateRealtimeStrategies(deployment: Deployment): Promise<void> {
     const deploymentKey = `${deployment.blockchainType}:${deployment.exchangeId}`;
     if (this.isUpdatingRealtime[deploymentKey]) return;
@@ -112,10 +153,7 @@ export class UpdaterService {
       const lockDuration = parseInt(this.configService.get('CARBON_LOCK_DURATION')) || 30;
       await this.redis.client.setex(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`, lockDuration, 1);
 
-      // Get tokens for this deployment (needed for decimal info)
       const tokens = await this.tokenService.allByAddress(deployment);
-
-      // Update realtime strategies from contract
       await this.strategyRealtimeService.update(deployment, tokens);
 
       console.log(`CARBON SERVICE - Finished realtime strategy update for ${deploymentKey} in:`, Date.now() - t, 'ms');
@@ -125,6 +163,26 @@ export class UpdaterService {
       console.log(`error in realtime strategy updater for ${deploymentKey}`, error, Date.now() - t);
       this.isUpdatingRealtime[deploymentKey] = false;
       await this.redis.client.set(`${CARBON_IS_UPDATING_REALTIME}:${deploymentKey}`, 0);
+    }
+  }
+
+  private async updateRealtimeStrategiesGuarded(deployment: Deployment): Promise<void> {
+    const deploymentKey = `${deployment.blockchainType}:${deployment.exchangeId}`;
+    if (this.isUpdatingRealtime[deploymentKey]) return;
+
+    const t = Date.now();
+    try {
+      this.isUpdatingRealtime[deploymentKey] = true;
+
+      const tokens = await this.tokenService.allByAddress(deployment);
+      this.strategyRealtimeService.updateTokens(tokens);
+      await this.strategyRealtimeService.update(deployment, tokens, true);
+
+      console.log(`CARBON SERVICE - Finished guarded full sync for ${deploymentKey} in:`, Date.now() - t, 'ms');
+      this.isUpdatingRealtime[deploymentKey] = false;
+    } catch (error) {
+      console.log(`error in guarded full sync for ${deploymentKey}`, error.message, Date.now() - t);
+      this.isUpdatingRealtime[deploymentKey] = false;
     }
   }
 

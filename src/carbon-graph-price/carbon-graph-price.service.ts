@@ -71,7 +71,7 @@ export class CarbonGraphPriceService {
 
     this.logger.log(`Starting carbon-graph-price processing from block ${startBlock} to ${endBlock}`);
 
-    while (currentStartBlock < endBlock) {
+    while (currentStartBlock <= endBlock) {
       const batchEndBlock = Math.min(currentStartBlock + BATCH_SIZE, endBlock);
       const tradedEvents = await this.tokensTradedEventService.get(currentStartBlock, batchEndBlock, deployment);
 
