@@ -4,12 +4,14 @@ import { GradientRealtimeService, GradientRealtimeWithOwner } from './gradient-r
 import { GradientStrategyRealtime } from './gradient-strategy-realtime.entity';
 import { HarvesterService } from '../harvester/harvester.service';
 import { DeploymentService, BlockchainType, ExchangeId, Deployment } from '../deployment/deployment.service';
+import { TokenService } from '../token/token.service';
 
 describe('GradientRealtimeService', () => {
   let service: GradientRealtimeService;
   let mockRepository: any;
   let mockHarvesterService: any;
   let mockDeploymentService: any;
+  let mockTokenService: any;
   let mockRedis: any;
 
   const mockDeployment: Deployment = {
@@ -43,6 +45,14 @@ describe('GradientRealtimeService', () => {
       save: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockImplementation((data) => ({ ...data })),
       update: jest.fn().mockResolvedValue({}),
+      upsert: jest.fn().mockResolvedValue({}),
+      createQueryBuilder: jest.fn().mockReturnValue({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      }),
       manager: {
         query: jest.fn().mockResolvedValue([]),
       },
@@ -63,6 +73,10 @@ describe('GradientRealtimeService', () => {
       hasGradientSupport: jest.fn().mockReturnValue(true),
     };
 
+    mockTokenService = {
+      getOrCreateTokenByAddress: jest.fn().mockResolvedValue({ decimals: 18 }),
+    };
+
     mockRedis = {
       client: {
         get: jest.fn().mockResolvedValue(null),
@@ -76,6 +90,7 @@ describe('GradientRealtimeService', () => {
         { provide: getRepositoryToken(GradientStrategyRealtime), useValue: mockRepository },
         { provide: HarvesterService, useValue: mockHarvesterService },
         { provide: DeploymentService, useValue: mockDeploymentService },
+        { provide: TokenService, useValue: mockTokenService },
         { provide: 'REDIS', useValue: mockRedis },
       ],
     }).compile();
@@ -308,6 +323,105 @@ describe('GradientRealtimeService', () => {
       // Both start with the same initial price, but type 0 (increase) should give
       // a different marginal than type 1 (decrease) at the same elapsed time
       expect(order0.startPrice).toBe(order1.startPrice);
+    });
+  });
+
+  describe('WSS event handlers', () => {
+    const order0 = {
+      liquidity: '1000',
+      initialPrice: '3377704960',
+      tradingStartTime: 1700000000,
+      expiry: 1700086400,
+      multiFactor: '16777728',
+      gradientType: 0,
+    };
+    const order1 = { ...order0, liquidity: '2000', gradientType: 1 };
+
+    it('applyStrategyCreated writes via guardedWrite with create fallback', async () => {
+      await service.applyStrategyCreated(
+        { id: '42', owner: '0xOwner', token0: '0xToken0', token1: '0xToken1', order0, order1 },
+        12345,
+        mockDeployment,
+        { '0xToken0': { decimals: 18 } as any, '0xToken1': { decimals: 6 } as any },
+      );
+
+      expect(mockRepository.createQueryBuilder).toHaveBeenCalled();
+    });
+
+    it('applyStrategyDeleted marks the strategy deleted', async () => {
+      const setSpy = jest.fn().mockReturnThis();
+      mockRepository.createQueryBuilder.mockReturnValueOnce({
+        update: jest.fn().mockReturnThis(),
+        set: setSpy,
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      });
+
+      await service.applyStrategyDeleted({ id: '42' }, 12345, mockDeployment);
+
+      expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({ deleted: true, updatedAtBlock: 12345 }));
+    });
+
+    it('applyStrategyLiquidityUpdated updates only liquidity columns', async () => {
+      const setSpy = jest.fn().mockReturnThis();
+      mockRepository.createQueryBuilder.mockReturnValueOnce({
+        update: jest.fn().mockReturnThis(),
+        set: setSpy,
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      });
+
+      await service.applyStrategyLiquidityUpdated(
+        { id: '42', liquidity0: '999', liquidity1: '888' },
+        12345,
+        mockDeployment,
+      );
+
+      expect(setSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ order0Liquidity: '999', order1Liquidity: '888', updatedAtBlock: 12345 }),
+      );
+    });
+
+    it('applyVoucherTransfer updates owner', async () => {
+      const setSpy = jest.fn().mockReturnThis();
+      mockRepository.createQueryBuilder.mockReturnValueOnce({
+        update: jest.fn().mockReturnThis(),
+        set: setSpy,
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 1 }),
+      });
+
+      await service.applyVoucherTransfer({ tokenId: '42', to: '0xNewOwner' }, 12345, mockDeployment);
+
+      expect(setSpy).toHaveBeenCalledWith(expect.objectContaining({ owner: '0xNewOwner', updatedAtBlock: 12345 }));
+    });
+
+    it('guardedWrite skips when no row matches and no createFields supplied', async () => {
+      mockRepository.createQueryBuilder.mockReturnValueOnce({
+        update: jest.fn().mockReturnThis(),
+        set: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        execute: jest.fn().mockResolvedValue({ affected: 0 }),
+      });
+
+      const ok = await service.guardedWrite('42', mockDeployment, 100, { deleted: true });
+      expect(ok).toBe(false);
+    });
+
+    it('startEventListener bails when wssEndpoint is missing', async () => {
+      await service.startEventListener(mockDeployment, {});
+      // Without wssEndpoint, no provider is created. We simply assert no throw and no channel.
+      expect((service as any).channels.size).toBe(0);
+    });
+
+    it('startEventListener bails when deployment has no gradient support', async () => {
+      mockDeploymentService.hasGradientSupport.mockReturnValueOnce(false);
+      await service.startEventListener({ ...mockDeployment, wssEndpoint: 'wss://x' } as any, {});
+      expect((service as any).channels.size).toBe(0);
     });
   });
 });

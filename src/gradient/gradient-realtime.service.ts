@@ -1,14 +1,17 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, DataSource } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import Web3 from 'web3';
+import { WebSocketProvider } from 'web3-providers-ws';
 import Decimal from 'decimal.js';
 import { GradientStrategyRealtime } from './gradient-strategy-realtime.entity';
 import { Deployment, DeploymentService } from '../deployment/deployment.service';
 import { HarvesterService, ContractsNames } from '../harvester/harvester.service';
-import { TokensByAddress } from '../token/token.service';
+import { TokensByAddress, TokenService } from '../token/token.service';
 import { decodeGradientOrderPrices } from './gradient.math';
 import { GradientOrder } from './gradient.interfaces';
+import { GradientController as GradientControllerABI } from '../abis/GradientController.abi';
+import { CarbonVoucher as CarbonVoucherABI } from '../abis/CarbonVoucher.abi';
 
 const GRADIENT_REALTIME_BLOCK_KEY = 'gradient-realtime:block';
 
@@ -68,17 +71,34 @@ export interface GradientRealtimeWithOwner {
   order1GradientType: string;
 }
 
+interface WssChannel {
+  deployment: Deployment;
+  tokens: TokensByAddress;
+  provider: any;
+  web3: any;
+  subs: any[];
+  keepalive: ReturnType<typeof setInterval> | null;
+  connectedOnce: boolean;
+  resubscribing: boolean;
+}
+
 @Injectable()
-export class GradientRealtimeService {
+export class GradientRealtimeService implements OnModuleDestroy {
   private readonly logger = new Logger(GradientRealtimeService.name);
+  private channels = new Map<string, WssChannel>();
 
   constructor(
     @InjectRepository(GradientStrategyRealtime)
     private gradientRealtimeRepository: Repository<GradientStrategyRealtime>,
     private harvesterService: HarvesterService,
     private deploymentService: DeploymentService,
+    private tokenService: TokenService,
     @Inject('REDIS') private redis: any,
   ) {}
+
+  onModuleDestroy() {
+    this.stopAllEventListeners();
+  }
 
   private getDeploymentKey(deployment: Deployment): string {
     return `${deployment.blockchainType}-${deployment.exchangeId}`;
@@ -88,7 +108,420 @@ export class GradientRealtimeService {
     return `${GRADIENT_REALTIME_BLOCK_KEY}:${this.getDeploymentKey(deployment)}`;
   }
 
-  async update(deployment: Deployment, tokens: TokensByAddress): Promise<number> {
+  // ─── WSS Event Listener ──────────────────────────────────────────────
+
+  async startEventListener(deployment: Deployment, tokens: TokensByAddress): Promise<void> {
+    if (!this.deploymentService.hasGradientSupport(deployment)) {
+      return;
+    }
+    if (!deployment.wssEndpoint) {
+      this.logger.warn(
+        `[Gradient] No WSS endpoint configured for ${deployment.exchangeId}, skipping event listener`,
+      );
+      return;
+    }
+
+    const key = this.getDeploymentKey(deployment);
+    await this.stopChannel(key);
+
+    const channel: WssChannel = {
+      deployment,
+      tokens,
+      provider: null,
+      web3: null,
+      subs: [],
+      keepalive: null,
+      connectedOnce: false,
+      resubscribing: false,
+    };
+    this.channels.set(key, channel);
+
+    try {
+      channel.provider = new WebSocketProvider(
+        deployment.wssEndpoint,
+        {},
+        {
+          autoReconnect: true,
+          delay: 1000,
+          maxAttempts: Number.MAX_SAFE_INTEGER,
+        },
+      );
+
+      channel.web3 = new Web3(channel.provider);
+
+      channel.provider.on('connect', () => {
+        if (!channel.connectedOnce) {
+          channel.connectedOnce = true;
+          return;
+        }
+        this.logger.log(`[Gradient] WSS reconnected for ${deployment.exchangeId}, re-subscribing...`);
+        this.resubscribe(channel).catch((err) =>
+          this.logger.error(`[Gradient] WSS re-subscribe failed for ${deployment.exchangeId}: ${err.message}`),
+        );
+      });
+
+      channel.provider.on('disconnect', () => {
+        this.logger.warn(`[Gradient] WSS disconnected for ${deployment.exchangeId}, waiting for auto-reconnect...`);
+      });
+
+      await this.subscribe(channel);
+
+      channel.keepalive = setInterval(async () => {
+        try {
+          await channel.web3.eth.getBlockNumber();
+        } catch {
+          this.logger.warn(`[Gradient] WSS keepalive ping failed for ${deployment.exchangeId}`);
+        }
+      }, 30000);
+
+      this.logger.log(
+        `[Gradient] WSS event listener started for ${deployment.exchangeId} at ${deployment.wssEndpoint}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[Gradient] Failed to start WSS event listener for ${deployment.exchangeId}: ${error.message}`,
+      );
+      await this.stopChannel(key);
+    }
+  }
+
+  private async subscribe(channel: WssChannel): Promise<void> {
+    const { deployment, web3 } = channel;
+    const controllerAddress = deployment.contracts.GradientController?.address;
+    if (!controllerAddress) return;
+
+    const controllerContract = new web3.eth.Contract(GradientControllerABI, controllerAddress);
+
+    const voucherAddress = deployment.contracts.GradientVoucher?.address;
+    const voucherContract = voucherAddress ? new web3.eth.Contract(CarbonVoucherABI, voucherAddress) : null;
+
+    const createdSub = await (controllerContract.events as any).StrategyCreated();
+    createdSub.on('data', (event: any) => this.handleEvent('StrategyCreated', event, channel));
+    createdSub.on('error', (err: any) =>
+      this.logger.error(`[Gradient] WSS StrategyCreated error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(createdSub);
+
+    const updatedSub = await (controllerContract.events as any).StrategyUpdated();
+    updatedSub.on('data', (event: any) => this.handleEvent('StrategyUpdated', event, channel));
+    updatedSub.on('error', (err: any) =>
+      this.logger.error(`[Gradient] WSS StrategyUpdated error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(updatedSub);
+
+    const deletedSub = await (controllerContract.events as any).StrategyDeleted();
+    deletedSub.on('data', (event: any) => this.handleEvent('StrategyDeleted', event, channel));
+    deletedSub.on('error', (err: any) =>
+      this.logger.error(`[Gradient] WSS StrategyDeleted error for ${deployment.exchangeId}: ${err.message}`),
+    );
+    channel.subs.push(deletedSub);
+
+    const liquiditySub = await (controllerContract.events as any).StrategyLiquidityUpdated();
+    liquiditySub.on('data', (event: any) => this.handleEvent('StrategyLiquidityUpdated', event, channel));
+    liquiditySub.on('error', (err: any) =>
+      this.logger.error(
+        `[Gradient] WSS StrategyLiquidityUpdated error for ${deployment.exchangeId}: ${err.message}`,
+      ),
+    );
+    channel.subs.push(liquiditySub);
+
+    if (voucherContract) {
+      const transferSub = await (voucherContract.events as any).Transfer();
+      transferSub.on('data', (event: any) => this.handleEvent('Transfer', event, channel));
+      transferSub.on('error', (err: any) =>
+        this.logger.error(
+          `[Gradient] WSS GradientVoucher Transfer error for ${deployment.exchangeId}: ${err.message}`,
+        ),
+      );
+      channel.subs.push(transferSub);
+    }
+  }
+
+  private async resubscribe(channel: WssChannel): Promise<void> {
+    if (channel.resubscribing) return;
+    channel.resubscribing = true;
+
+    try {
+      for (const sub of channel.subs) {
+        try {
+          sub.unsubscribe?.();
+        } catch {
+          /* old subs may already be dead */
+        }
+      }
+      channel.subs = [];
+
+      await this.subscribe(channel);
+      this.logger.log(`[Gradient] WSS re-subscribed successfully for ${channel.deployment.exchangeId}`);
+    } finally {
+      channel.resubscribing = false;
+    }
+  }
+
+  async stopChannel(key: string): Promise<void> {
+    const channel = this.channels.get(key);
+    if (!channel) return;
+    this.channels.delete(key);
+
+    if (channel.keepalive) {
+      clearInterval(channel.keepalive);
+      channel.keepalive = null;
+    }
+
+    for (const sub of channel.subs) {
+      try {
+        sub.unsubscribe?.();
+      } catch {
+        /* ignore cleanup errors */
+      }
+    }
+    channel.subs = [];
+
+    if (channel.provider) {
+      try {
+        channel.provider.disconnect?.();
+      } catch {
+        /* ignore */
+      }
+      channel.provider = null;
+    }
+    channel.web3 = null;
+  }
+
+  stopAllEventListeners(): void {
+    for (const key of [...this.channels.keys()]) {
+      this.stopChannel(key).catch(() => undefined);
+    }
+  }
+
+  updateTokens(deployment: Deployment, tokens: TokensByAddress): void {
+    const channel = this.channels.get(this.getDeploymentKey(deployment));
+    if (channel) channel.tokens = tokens;
+  }
+
+  private async handleEvent(eventName: string, event: any, channel: WssChannel): Promise<void> {
+    const blockNumber = Number(event.blockNumber);
+    const returnValues = event.returnValues;
+    const { deployment, tokens } = channel;
+
+    try {
+      switch (eventName) {
+        case 'StrategyCreated':
+          await this.applyStrategyCreated(returnValues, blockNumber, deployment, tokens);
+          break;
+        case 'StrategyUpdated':
+          await this.applyStrategyUpdated(returnValues, blockNumber, deployment, tokens);
+          break;
+        case 'StrategyDeleted':
+          await this.applyStrategyDeleted(returnValues, blockNumber, deployment);
+          break;
+        case 'StrategyLiquidityUpdated':
+          await this.applyStrategyLiquidityUpdated(returnValues, blockNumber, deployment);
+          break;
+        case 'Transfer':
+          await this.applyVoucherTransfer(returnValues, blockNumber, deployment);
+          break;
+      }
+
+      await this.redis.client.set(this.getBlockRedisKey(deployment), blockNumber.toString());
+      this.logger.log(
+        `[Gradient] WSS ${eventName} processed at block ${blockNumber} for ${deployment.exchangeId}`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[Gradient] Error processing WSS ${eventName} at block ${blockNumber} for ${deployment.exchangeId}: ${error.message}`,
+      );
+    }
+  }
+
+  // ─── Token Resolution ──────────────────────────────────────────────
+
+  private async resolveToken(
+    address: string,
+    tokens: TokensByAddress,
+    deployment: Deployment,
+  ): Promise<{ decimals: number } | null> {
+    if (tokens[address]) return tokens[address];
+
+    try {
+      const token = await this.tokenService.getOrCreateTokenByAddress(address, deployment);
+      tokens[address] = token;
+      return token;
+    } catch (error) {
+      this.logger.error(`[Gradient] Failed to fetch token metadata for ${address}: ${error.message}`);
+      return null;
+    }
+  }
+
+  // ─── Event Handlers ──────────────────────────────────────────────────
+
+  private buildOrderFieldsFromEvent(rawOrder0: any, rawOrder1: any): Partial<GradientStrategyRealtime> {
+    const parse = (o: any) => ({
+      liquidity: (o.liquidity ?? o[0]).toString(),
+      initialPrice: (o.initialPrice ?? o[1]).toString(),
+      tradingStartTime: Number(o.tradingStartTime ?? o[2]),
+      expiry: Number(o.expiry ?? o[3]),
+      multiFactor: (o.multiFactor ?? o[4]).toString(),
+      gradientType: (o.gradientType ?? o[5]).toString(),
+    });
+
+    const o0 = parse(rawOrder0);
+    const o1 = parse(rawOrder1);
+
+    return {
+      order0Liquidity: o0.liquidity,
+      order0InitialPrice: o0.initialPrice,
+      order0TradingStartTime: o0.tradingStartTime,
+      order0Expiry: o0.expiry,
+      order0MultiFactor: o0.multiFactor,
+      order0GradientType: o0.gradientType,
+      order1Liquidity: o1.liquidity,
+      order1InitialPrice: o1.initialPrice,
+      order1TradingStartTime: o1.tradingStartTime,
+      order1Expiry: o1.expiry,
+      order1MultiFactor: o1.multiFactor,
+      order1GradientType: o1.gradientType,
+    };
+  }
+
+  async applyStrategyCreated(
+    returnValues: any,
+    blockNumber: number,
+    deployment: Deployment,
+    tokens: TokensByAddress,
+  ): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    const owner = returnValues.owner;
+    const token0Address = returnValues.token0;
+    const token1Address = returnValues.token1;
+
+    const token0 = await this.resolveToken(token0Address, tokens, deployment);
+    const token1 = await this.resolveToken(token1Address, tokens, deployment);
+    if (!token0 || !token1) {
+      this.logger.warn(`[Gradient] WSS StrategyCreated: unable to resolve token info for ${strategyId}`);
+      return false;
+    }
+
+    const orderFields = this.buildOrderFieldsFromEvent(returnValues.order0, returnValues.order1);
+
+    const updateFields: Partial<GradientStrategyRealtime> = {
+      owner,
+      token0Address,
+      token1Address,
+      ...orderFields,
+      deleted: false,
+    };
+
+    return this.guardedWrite(strategyId, deployment, blockNumber, updateFields, updateFields);
+  }
+
+  async applyStrategyUpdated(
+    returnValues: any,
+    blockNumber: number,
+    deployment: Deployment,
+    tokens: TokensByAddress,
+  ): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    const token0Address = returnValues.token0;
+    const token1Address = returnValues.token1;
+
+    const token0 = await this.resolveToken(token0Address, tokens, deployment);
+    const token1 = await this.resolveToken(token1Address, tokens, deployment);
+    if (!token0 || !token1) {
+      this.logger.warn(`[Gradient] WSS StrategyUpdated: unable to resolve token info for ${strategyId}`);
+      return false;
+    }
+
+    const orderFields = this.buildOrderFieldsFromEvent(returnValues.order0, returnValues.order1);
+
+    const updateFields: Partial<GradientStrategyRealtime> = {
+      token0Address,
+      token1Address,
+      ...orderFields,
+      deleted: false,
+    };
+
+    return this.guardedWrite(strategyId, deployment, blockNumber, updateFields);
+  }
+
+  async applyStrategyDeleted(returnValues: any, blockNumber: number, deployment: Deployment): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    return this.guardedWrite(strategyId, deployment, blockNumber, { deleted: true });
+  }
+
+  async applyStrategyLiquidityUpdated(
+    returnValues: any,
+    blockNumber: number,
+    deployment: Deployment,
+  ): Promise<boolean> {
+    const strategyId = returnValues.id.toString();
+    return this.guardedWrite(strategyId, deployment, blockNumber, {
+      order0Liquidity: (returnValues.liquidity0 ?? returnValues[3]).toString(),
+      order1Liquidity: (returnValues.liquidity1 ?? returnValues[4]).toString(),
+    });
+  }
+
+  async applyVoucherTransfer(returnValues: any, blockNumber: number, deployment: Deployment): Promise<boolean> {
+    const strategyId = returnValues.tokenId.toString();
+    const newOwner = returnValues.to;
+    return this.guardedWrite(strategyId, deployment, blockNumber, { owner: newOwner });
+  }
+
+  // ─── Guarded Write ───────────────────────────────────────────────────
+
+  /**
+   * Atomically update a gradient_strategy_realtime row only if the incoming
+   * blockNumber is >= the existing updatedAtBlock. If the row doesn't exist
+   * and createFields is provided, insert it.
+   * Returns true if a write occurred, false if skipped (DB had newer data).
+   */
+  async guardedWrite(
+    strategyId: string,
+    deployment: Deployment,
+    blockNumber: number,
+    updateFields: Partial<GradientStrategyRealtime>,
+    createFields?: Partial<GradientStrategyRealtime>,
+  ): Promise<boolean> {
+    const result = await this.gradientRealtimeRepository
+      .createQueryBuilder()
+      .update(GradientStrategyRealtime)
+      .set({ ...updateFields, updatedAtBlock: blockNumber })
+      .where('"blockchainType" = :blockchainType', { blockchainType: deployment.blockchainType })
+      .andWhere('"exchangeId" = :exchangeId', { exchangeId: deployment.exchangeId })
+      .andWhere('"strategyId" = :strategyId', { strategyId })
+      .andWhere('("updatedAtBlock" IS NULL OR "updatedAtBlock" <= :blockNumber)', { blockNumber })
+      .execute();
+
+    if (result.affected && result.affected > 0) {
+      return true;
+    }
+
+    if (createFields) {
+      try {
+        const entity = this.gradientRealtimeRepository.create({
+          ...createFields,
+          strategyId,
+          blockchainType: deployment.blockchainType,
+          exchangeId: deployment.exchangeId,
+          updatedAtBlock: blockNumber,
+        });
+        await this.gradientRealtimeRepository.save(entity);
+        return true;
+      } catch (e: any) {
+        if (e.code === '23505') {
+          // Row was inserted concurrently — retry the update (without createFields to avoid infinite loop)
+          return this.guardedWrite(strategyId, deployment, blockNumber, updateFields);
+        }
+        throw e;
+      }
+    }
+
+    return false;
+  }
+
+  // ─── Full Contract Sync (existing + guarded) ─────────────────────────
+
+  async update(deployment: Deployment, tokens: TokensByAddress, guarded = false): Promise<number> {
     if (!this.deploymentService.hasGradientSupport(deployment)) {
       return 0;
     }
@@ -116,8 +549,11 @@ export class GradientRealtimeService {
         gradientController.methods.strategiesByPairCount(token0, token1).encodeABI(),
       );
 
-      const { results: countResults, blockNumber: countBlockNumber } =
-        await this.harvesterService.genericMulticall(contractAddress, countCallsEncoded, deployment);
+      const { results: countResults, blockNumber: countBlockNumber } = await this.harvesterService.genericMulticall(
+        contractAddress,
+        countCallsEncoded,
+        deployment,
+      );
       lastBlockNumber = countBlockNumber;
 
       const pairsWithCounts: { pair: [string, string]; count: number }[] = [];
@@ -130,10 +566,14 @@ export class GradientRealtimeService {
         }
       }
 
-      this.logger.log(`[Gradient] Found ${pairsWithCounts.length} pairs with strategies for ${deployment.exchangeId}`);
+      this.logger.log(
+        `[Gradient] Found ${pairsWithCounts.length} pairs with strategies for ${deployment.exchangeId}`,
+      );
 
       if (pairsWithCounts.length === 0) {
-        await this.markDeletedStrategies([], deployment);
+        if (!guarded) {
+          await this.markDeletedStrategies([], deployment);
+        }
         return lastBlockNumber;
       }
 
@@ -203,17 +643,21 @@ export class GradientRealtimeService {
 
       this.logger.log(`[Gradient] Fetched ${allStrategies.length} strategies for ${deployment.exchangeId}`);
 
-      await this.saveStrategies(allStrategies, deployment);
-      await this.markDeletedStrategies(allStrategies, deployment);
-
       if (allStrategies.length === 0) {
         return lastBlockNumber;
       }
 
+      await this.saveStrategies(allStrategies, deployment, lastBlockNumber);
+
+      if (!guarded) {
+        await this.markDeletedStrategies(allStrategies, deployment);
+      }
+
       await this.redis.client.set(this.getBlockRedisKey(deployment), lastBlockNumber.toString());
 
+      const mode = guarded ? ' (guarded)' : '';
       this.logger.log(
-        `[Gradient] Successfully updated ${allStrategies.length} strategies at block ${lastBlockNumber} for ${deployment.exchangeId}`,
+        `[Gradient] Successfully updated ${allStrategies.length} strategies at block ${lastBlockNumber} for ${deployment.exchangeId}${mode}`,
       );
 
       return lastBlockNumber;
@@ -223,7 +667,11 @@ export class GradientRealtimeService {
     }
   }
 
-  private async saveStrategies(strategies: GradientContractStrategy[], deployment: Deployment): Promise<void> {
+  private async saveStrategies(
+    strategies: GradientContractStrategy[],
+    deployment: Deployment,
+    syncBlock?: number,
+  ): Promise<void> {
     const existingStrategies = await this.gradientRealtimeRepository.find({
       where: {
         blockchainType: deployment.blockchainType,
@@ -242,40 +690,55 @@ export class GradientRealtimeService {
       const strategyId = strategy.id.toString();
       const existingEntity = existingMap.get(strategyId);
 
-      const entity =
-        existingEntity ||
-        this.gradientRealtimeRepository.create({
-          blockchainType: deployment.blockchainType,
-          exchangeId: deployment.exchangeId,
-          strategyId,
-        });
+      // Skip rows that already have a more recent WSS update than this sync's
+      // block — same guarded semantics as StrategyRealtimeService.saveStrategies.
+      if (
+        syncBlock !== undefined &&
+        existingEntity?.updatedAtBlock != null &&
+        existingEntity.updatedAtBlock > syncBlock
+      ) {
+        continue;
+      }
 
-      entity.owner = strategy.owner;
-      entity.token0Address = strategy.tokens[0];
-      entity.token1Address = strategy.tokens[1];
+      // Always build a fresh entity (without the existing PK `id`) so the batched
+      // upsert below resolves conflicts on the unique key
+      // (blockchainType, exchangeId, strategyId) rather than on the PK. Keeps
+      // saveStrategies idempotent against concurrent writers (WSS event handlers
+      // writing via guardedWrite, the 60s guarded full sync, and the polling
+      // fallback).
+      const entity = this.gradientRealtimeRepository.create({
+        blockchainType: deployment.blockchainType,
+        exchangeId: deployment.exchangeId,
+        strategyId,
+        owner: strategy.owner,
+        token0Address: strategy.tokens[0],
+        token1Address: strategy.tokens[1],
+        order0Liquidity: strategy.orders[0].liquidity,
+        order0InitialPrice: strategy.orders[0].initialPrice,
+        order0TradingStartTime: strategy.orders[0].tradingStartTime,
+        order0Expiry: strategy.orders[0].expiry,
+        order0MultiFactor: strategy.orders[0].multiFactor,
+        order0GradientType: strategy.orders[0].gradientType.toString(),
+        order1Liquidity: strategy.orders[1].liquidity,
+        order1InitialPrice: strategy.orders[1].initialPrice,
+        order1TradingStartTime: strategy.orders[1].tradingStartTime,
+        order1Expiry: strategy.orders[1].expiry,
+        order1MultiFactor: strategy.orders[1].multiFactor,
+        order1GradientType: strategy.orders[1].gradientType.toString(),
+        deleted: false,
+        ...(syncBlock !== undefined ? { updatedAtBlock: syncBlock } : {}),
+      });
 
-      entity.order0Liquidity = strategy.orders[0].liquidity;
-      entity.order0InitialPrice = strategy.orders[0].initialPrice;
-      entity.order0TradingStartTime = strategy.orders[0].tradingStartTime;
-      entity.order0Expiry = strategy.orders[0].expiry;
-      entity.order0MultiFactor = strategy.orders[0].multiFactor;
-      entity.order0GradientType = strategy.orders[0].gradientType.toString();
-
-      entity.order1Liquidity = strategy.orders[1].liquidity;
-      entity.order1InitialPrice = strategy.orders[1].initialPrice;
-      entity.order1TradingStartTime = strategy.orders[1].tradingStartTime;
-      entity.order1Expiry = strategy.orders[1].expiry;
-      entity.order1MultiFactor = strategy.orders[1].multiFactor;
-      entity.order1GradientType = strategy.orders[1].gradientType.toString();
-
-      entity.deleted = false;
       entities.push(entity);
     }
 
     const BATCH_SIZE = 500;
     for (let i = 0; i < entities.length; i += BATCH_SIZE) {
       const batch = entities.slice(i, i + BATCH_SIZE);
-      await this.gradientRealtimeRepository.save(batch);
+      await this.gradientRealtimeRepository.upsert(batch, {
+        conflictPaths: ['blockchainType', 'exchangeId', 'strategyId'],
+        skipUpdateIfNoValuesChanged: true,
+      });
     }
   }
 
@@ -301,7 +764,9 @@ export class GradientRealtimeService {
         { id: In(toMarkDeleted.map((s) => s.id)) },
         { deleted: true },
       );
-      this.logger.log(`[Gradient] Marked ${toMarkDeleted.length} strategies as deleted for ${deployment.exchangeId}`);
+      this.logger.log(
+        `[Gradient] Marked ${toMarkDeleted.length} strategies as deleted for ${deployment.exchangeId}`,
+      );
     }
 
     await this.syncDeletionsFromEvents(deployment);
@@ -349,7 +814,9 @@ export class GradientRealtimeService {
     );
 
     await this.gradientRealtimeRepository.save(stubs);
-    this.logger.log(`[Gradient] Synced ${stubs.length} deleted strategies from events for ${deployment.exchangeId}`);
+    this.logger.log(
+      `[Gradient] Synced ${stubs.length} deleted strategies from events for ${deployment.exchangeId}`,
+    );
   }
 
   async getStrategiesWithOwners(

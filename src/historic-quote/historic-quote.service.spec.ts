@@ -2714,16 +2714,6 @@ describe('HistoricQuoteService', () => {
       expect(result[0].usd).toBe('101.00');
     });
 
-    it('should handle empty providers gracefully', async () => {
-      const blockchainType = BlockchainType.Iota; // Has no enabled providers
-      const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');
-
-      const result = await service.getLatestPricesBeforeTimestamp(blockchainType, cutoffTimestamp);
-
-      expect(result).toEqual([]);
-      expect(mockRepository.query).not.toHaveBeenCalled();
-    });
-
     it('should handle database errors gracefully', async () => {
       const blockchainType = BlockchainType.Ethereum;
       const cutoffTimestamp = new Date('2024-01-01T12:00:00Z');

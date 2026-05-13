@@ -28,6 +28,7 @@ import { MerklModule } from './merkl/merkl.module';
 import { WalletPairBalanceModule } from './wallet-pair-balance/wallet-pair-balance.module';
 import { StrategyRealtimeModule } from './strategy-realtime/strategy-realtime.module';
 import { GradientModule } from './gradient/gradient.module';
+import { PreviewModule } from './preview/preview.module';
 
 @Module({
   imports: [
@@ -116,6 +117,7 @@ import { GradientModule } from './gradient/gradient.module';
     WalletPairBalanceModule,
     StrategyRealtimeModule,
     GradientModule,
+    ...(process.env.ENABLE_PREVIEW_API === '1' ? [PreviewModule] : []),
   ],
 
   providers: [

@@ -4,8 +4,8 @@ import { Decimal } from 'decimal.js';
 export interface StrategyState {
   currentOwner: string;
   creationWallet: string;
-  order0: string;
-  order1: string;
+  order0: string | Record<string, any>;
+  order1: string | Record<string, any>;
   token0: Token;
   token1: Token;
   lastProcessedBlock?: number;

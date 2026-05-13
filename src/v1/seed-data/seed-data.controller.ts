@@ -20,8 +20,8 @@ export class SeedDataController {
   ) {}
 
   @Get()
-  @CacheTTL(10 * 1000)
-  @Header('Cache-Control', 'public, max-age=10')
+  @CacheTTL(1 * 1000) // Cache for 1 second (WSS keeps the underlying data fresh)
+  @Header('Cache-Control', 'public, max-age=1')
   @ApiExchangeIdParam()
   @ApiOperation({
     summary: 'Get seed data for SDK cache initialization',

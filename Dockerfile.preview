@@ -1,0 +1,54 @@
+FROM node:22-alpine3.21 AS node
+
+FROM timescale/timescaledb:latest-pg16 AS builder
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+WORKDIR /usr/src/app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM timescale/timescaledb:latest-pg16
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+RUN apk --no-cache add \
+    redis \
+    supervisor \
+    python3 py3-pip \
+    bash curl \
+    && python3 -m venv /venv \
+    && /venv/bin/pip install --no-cache-dir pandas tabulate
+
+ENV PATH="/venv/bin:$PATH"
+ENV NODE_ENV=production
+
+WORKDIR /usr/src/app
+
+COPY package.json package-lock.json ./
+RUN npm install --omit=dev \
+    && NODE_ENV=development npm install --no-save --legacy-peer-deps ts-node typescript tsconfig-paths \
+    && node -e "require('ts-node')" \
+    && rm -rf /root/.npm /tmp/*
+
+COPY --from=builder /usr/src/app/dist ./dist
+COPY . .
+
+COPY src/preview/docker/supervisord.conf /etc/supervisord.conf
+COPY src/preview/docker/prewarm.sql /usr/src/app/prewarm.sql
+COPY src/preview/docker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+ENV PGDATA=/var/lib/postgresql/data
+ENV REDIS_URL=redis://localhost:6379
+
+EXPOSE 3000
+
+ENTRYPOINT ["/entrypoint.sh"]

@@ -31,6 +31,7 @@ import { HarvesterModule } from '../harvester/harvester.module';
 import { DeploymentModule } from '../deployment/deployment.module';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { BlockModule } from '../block/block.module';
+import { TokenModule } from '../token/token.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { BlockModule } from '../block/block.module';
     DeploymentModule,
     LastProcessedBlockModule,
     BlockModule,
+    TokenModule,
   ],
   providers: [
     GradientRealtimeService,

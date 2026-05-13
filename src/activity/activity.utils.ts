@@ -15,13 +15,13 @@ Decimal.set({
   toExpPos: 100,
 });
 
-export function parseOrder(orderJson: string): OrderData {
-  const order = JSON.parse(orderJson);
+export function parseOrder(orderJson: string | object): OrderData {
+  const order = typeof orderJson === 'object' ? orderJson : JSON.parse(orderJson);
   return {
-    y: new Decimal(order.y || 0),
-    z: new Decimal(order.z || 0),
-    A: new Decimal(order.A || 0),
-    B: new Decimal(order.B || 0),
+    y: new Decimal((order as any).y || 0),
+    z: new Decimal((order as any).z || 0),
+    A: new Decimal((order as any).A || 0),
+    B: new Decimal((order as any).B || 0),
   };
 }
 

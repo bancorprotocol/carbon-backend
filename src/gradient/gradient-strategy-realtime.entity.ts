@@ -72,6 +72,9 @@ export class GradientStrategyRealtime {
   @Column()
   order1GradientType: string;
 
+  @Column({ type: 'integer', nullable: true })
+  updatedAtBlock: number | null;
+
   @Column({ default: false })
   deleted: boolean;
 

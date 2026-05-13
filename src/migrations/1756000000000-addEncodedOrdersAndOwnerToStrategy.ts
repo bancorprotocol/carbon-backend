@@ -15,4 +15,3 @@ export class AddEncodedOrdersAndOwnerToStrategy1756000000000 implements Migratio
     await queryRunner.query(`ALTER TABLE "strategies" DROP COLUMN "encodedOrder0"`);
   }
 }
-

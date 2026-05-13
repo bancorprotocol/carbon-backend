@@ -58,6 +58,9 @@ export class StrategyRealtime {
   @Column({ type: 'text', nullable: true })
   encodedOrder1: string;
 
+  @Column({ type: 'integer', nullable: true })
+  updatedAtBlock: number | null;
+
   @Column({ default: false })
   deleted: boolean;
 

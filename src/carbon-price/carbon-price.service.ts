@@ -57,7 +57,7 @@ export class CarbonPriceService {
     const deploymentRates = await this.historicQuoteService.getLatest(deployment.blockchainType);
 
     // Process in batches to avoid memory issues
-    while (currentStartBlock < endBlock) {
+    while (currentStartBlock <= endBlock) {
       const batchEndBlock = Math.min(currentStartBlock + BATCH_SIZE, endBlock);
 
       // Get events for this batch

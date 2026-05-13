@@ -1,6 +1,6 @@
 // coinmarketcap.dto.ts
 
-import { IsNumber } from 'class-validator';
+import { IsNumber, IsNumberString } from 'class-validator';
 import { IsAddress } from '../../isAddress.validator';
 import { Transform, Type } from 'class-transformer';
 
@@ -19,29 +19,23 @@ export class SimulatorDto {
   @Type(() => Number)
   end: number;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  sellBudget: number;
+  @IsNumberString()
+  sellBudget: string;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  buyBudget: number;
+  @IsNumberString()
+  buyBudget: string;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  sellMax: number;
+  @IsNumberString()
+  sellMax: string;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  sellMin: number;
+  @IsNumberString()
+  sellMin: string;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  buyMax: number;
+  @IsNumberString()
+  buyMax: string;
 
-  @Transform(({ value }) => parseFloat(value))
-  @IsNumber()
-  buyMin: number;
+  @IsNumberString()
+  buyMin: string;
 
   @Transform(({ value }) => (value !== undefined ? value : undefined))
   buyMarginal?: string;

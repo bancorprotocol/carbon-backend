@@ -23,8 +23,8 @@ export class StrategiesController {
   ) {}
 
   @Get()
-  @CacheTTL(10 * 1000)
-  @Header('Cache-Control', 'public, max-age=10')
+  @CacheTTL(1 * 1000) // Cache for 1 second (WSS keeps the underlying data fresh)
+  @Header('Cache-Control', 'public, max-age=1')
   @ApiExchangeIdParam()
   async getStrategies(
     @ExchangeIdParam() exchangeId: ExchangeId,
@@ -33,6 +33,8 @@ export class StrategiesController {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { strategies: allStrategies } = await this.strategyRealtimeService.getStrategiesWithOwners(deployment);
 
+    // Map regular strategies. buy = order1 (quote-side), sell = order0 (base-side).
+    // `encoded` carries the raw on-chain orders for SDK consumers.
     const regularStrategies: Strategy[] = allStrategies.map(
       (strategy): RegularStrategy => ({
         type: 'regular',
@@ -52,14 +54,17 @@ export class StrategiesController {
           max: strategy.highestRate0,
           marginal: strategy.marginalRate0,
         },
+        encoded: {
+          order0: JSON.parse(strategy.order0),
+          order1: JSON.parse(strategy.order1),
+        },
       }),
     );
 
     let gradientStrategies: Strategy[] = [];
     if (this.deploymentService.hasGradientSupport(deployment)) {
       const tokens = await this.tokenService.allByAddress(deployment);
-      const { strategies: gradientRaw } =
-        await this.gradientRealtimeService.getStrategiesWithOwners(deployment);
+      const { strategies: gradientRaw } = await this.gradientRealtimeService.getStrategiesWithOwners(deployment);
 
       gradientStrategies = gradientRaw
         .map((strategy): GradientStrategyDto | null => {
@@ -73,16 +78,8 @@ export class StrategiesController {
             owner: strategy.owner,
             base: strategy.token0Address,
             quote: strategy.token1Address,
-            sell: GradientRealtimeService.toGradientOrder(
-              strategy,
-              0,
-              token0.decimals,
-            ),
-            buy: GradientRealtimeService.toGradientOrder(
-              strategy,
-              1,
-              token1.decimals,
-            ),
+            sell: GradientRealtimeService.toGradientOrder(strategy, 0, token0.decimals),
+            buy: GradientRealtimeService.toGradientOrder(strategy, 1, token1.decimals),
           };
         })
         .filter(Boolean);
@@ -90,6 +87,7 @@ export class StrategiesController {
 
     const mappedStrategies = [...regularStrategies, ...gradientStrategies];
 
+    // Apply pagination if requested
     const page = query.page ?? 0;
     const pageSize = query.pageSize ?? 0;
 
