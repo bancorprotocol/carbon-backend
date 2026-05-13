@@ -1,6 +1,7 @@
 import { IsOptional, IsNumber, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty } from '@nestjs/swagger';
+import { IsAddress } from '../../isAddress.validator';
 
 export class StrategiesQueryDto {
   @ApiProperty({
@@ -24,6 +25,15 @@ export class StrategiesQueryDto {
   @IsNumber()
   @Min(0)
   pageSize?: number = 0;
+
+  @ApiProperty({
+    description: 'Filter strategies by owner address (case-insensitive)',
+    required: false,
+    example: '0x4EbbE0a1a6C9896d02D1b7F3891a75f484c77a91',
+  })
+  @IsOptional()
+  @IsAddress()
+  owner?: string;
 }
 
 export interface Order {

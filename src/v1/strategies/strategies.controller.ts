@@ -20,10 +20,15 @@ export class StrategiesController {
     const deployment = this.deploymentService.getDeploymentByExchangeId(exchangeId);
     const { strategies: allStrategies } = await this.strategyRealtimeService.getStrategiesWithOwners(deployment);
 
+    // Apply owner filter (case-insensitive) if provided
+    const filteredStrategies = query.owner
+      ? allStrategies.filter((strategy) => strategy.owner?.toLowerCase() === query.owner.toLowerCase())
+      : allStrategies;
+
     // Map strategies to the response format using already-decoded values
     // Note: buy = order1 (uses quote token), sell = order0 (uses base token)
     // base = token0 (budget for sell order), quote = token1 (budget for buy order)
-    const mappedStrategies: Strategy[] = allStrategies.map((strategy) => ({
+    const mappedStrategies: Strategy[] = filteredStrategies.map((strategy) => ({
       id: strategy.strategyId,
       owner: strategy.owner,
       base: strategy.token0Address,
