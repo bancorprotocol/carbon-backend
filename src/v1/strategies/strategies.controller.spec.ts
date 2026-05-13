@@ -255,6 +255,138 @@ describe('StrategiesController', () => {
     });
   });
 
+  describe('Owner filter', () => {
+    const filterStrategies: StrategyRealtimeWithOwner[] = [
+      {
+        strategyId: '1',
+        owner: '0x4EbbE0a1a6C9896d02D1b7F3891a75f484c77a91',
+        token0Address: '0xToken1Address',
+        token1Address: '0xToken2Address',
+        order0: JSON.stringify({ y: '10', z: '10', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '20', z: '20', A: '0', B: '0' }),
+        liquidity0: '10',
+        lowestRate0: '1',
+        highestRate0: '1',
+        marginalRate0: '1',
+        liquidity1: '20',
+        lowestRate1: '1',
+        highestRate1: '1',
+        marginalRate1: '1',
+      },
+      {
+        strategyId: '2',
+        owner: '0xAAAaaAAAaAaAAaAaaAaAAAaaAaaAAaAAaAaAaaAa',
+        token0Address: '0xToken1Address',
+        token1Address: '0xToken2Address',
+        order0: JSON.stringify({ y: '10', z: '10', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '20', z: '20', A: '0', B: '0' }),
+        liquidity0: '10',
+        lowestRate0: '1',
+        highestRate0: '1',
+        marginalRate0: '1',
+        liquidity1: '20',
+        lowestRate1: '1',
+        highestRate1: '1',
+        marginalRate1: '1',
+      },
+      {
+        strategyId: '3',
+        owner: '0x4EbbE0a1a6C9896d02D1b7F3891a75f484c77a91',
+        token0Address: '0xToken1Address',
+        token1Address: '0xToken2Address',
+        order0: JSON.stringify({ y: '10', z: '10', A: '0', B: '0' }),
+        order1: JSON.stringify({ y: '20', z: '20', A: '0', B: '0' }),
+        liquidity0: '10',
+        lowestRate0: '1',
+        highestRate0: '1',
+        marginalRate0: '1',
+        liquidity1: '20',
+        lowestRate1: '1',
+        highestRate1: '1',
+        marginalRate1: '1',
+      },
+    ];
+
+    it('should return only strategies owned by the specified address', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: filterStrategies,
+        blockNumber: 12345678,
+      });
+
+      const query: StrategiesQueryDto = { owner: '0x4EbbE0a1a6C9896d02D1b7F3891a75f484c77a91' };
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(2);
+      expect(result.strategies.map((s) => s.id)).toEqual(['1', '3']);
+    });
+
+    it('should match owner address case-insensitively', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: filterStrategies,
+        blockNumber: 12345678,
+      });
+
+      const query: StrategiesQueryDto = { owner: '0x4ebbe0a1a6c9896d02d1b7f3891a75f484c77a91' };
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(2);
+      expect(result.strategies.map((s) => s.id)).toEqual(['1', '3']);
+    });
+
+    it('should return empty array when no strategies match owner', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: filterStrategies,
+        blockNumber: 12345678,
+      });
+
+      const query: StrategiesQueryDto = { owner: '0x0000000000000000000000000000000000000001' };
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(0);
+    });
+
+    it('should return all strategies when owner is not provided', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: filterStrategies,
+        blockNumber: 12345678,
+      });
+
+      const query: StrategiesQueryDto = {};
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(3);
+    });
+
+    it('should combine owner filter with pagination', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      strategyRealtimeService.getStrategiesWithOwners.mockResolvedValue({
+        strategies: filterStrategies,
+        blockNumber: 12345678,
+      });
+
+      const query: StrategiesQueryDto = {
+        owner: '0x4EbbE0a1a6C9896d02D1b7F3891a75f484c77a91',
+        page: 0,
+        pageSize: 1,
+      };
+      const result = await controller.getStrategies(ExchangeId.OGEthereum, query);
+
+      expect(result.strategies).toHaveLength(1);
+      expect(result.strategies[0].id).toBe('1');
+      expect(result.pagination).toEqual({
+        page: 0,
+        pageSize: 1,
+        totalStrategies: 2,
+        totalPages: 2,
+        hasMore: true,
+      });
+    });
+  });
+
   describe('Pagination', () => {
     const manyStrategies: StrategyRealtimeWithOwner[] = Array.from({ length: 25 }, (_, i) => ({
       strategyId: `${i + 1}`,
