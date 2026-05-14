@@ -12,7 +12,11 @@ export interface ChainConfig {
 }
 
 const RAW: Array<ChainConfig> = [
-  { exchangeId: 'ethereum', blockchainType: 'ethereum', carbonController: '0xc537e898cd774e2dcba3b14ea6f34c93d5ea45e1' },
+  {
+    exchangeId: 'ethereum',
+    blockchainType: 'ethereum',
+    carbonController: '0xc537e898cd774e2dcba3b14ea6f34c93d5ea45e1',
+  },
   { exchangeId: 'sei', blockchainType: 'sei-network', carbonController: '0xe4816658ad10bf215053c533cceae3f59e1f1087' },
   { exchangeId: 'celo', blockchainType: 'celo', carbonController: '0x6619871118d144c1c28ec3b23036fc1f0829ed3a' },
   {

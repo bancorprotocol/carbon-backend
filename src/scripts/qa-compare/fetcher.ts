@@ -174,11 +174,7 @@ export class Semaphore {
 /**
  * Limit concurrency for an array of async tasks.
  */
-export async function pMap<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
+export async function pMap<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   const results: R[] = new Array(items.length);
   let next = 0;
   const workers: Promise<void>[] = [];

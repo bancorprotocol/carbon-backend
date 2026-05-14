@@ -4,6 +4,7 @@ import { DexScreenerV2Service } from '../dex-screener/dex-screener-v2.service';
 import { TokenService } from '../../token/token.service';
 import { DeploymentService, ExchangeId, BlockchainType, Deployment } from '../../deployment/deployment.service';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
+import { PairService } from '../../pair/pair.service';
 
 describe('GeckoTerminalController', () => {
   let controller: GeckoTerminalController;
@@ -11,6 +12,7 @@ describe('GeckoTerminalController', () => {
   let tokenService: jest.Mocked<TokenService>;
   let deploymentService: jest.Mocked<DeploymentService>;
   let lastProcessedBlockService: jest.Mocked<LastProcessedBlockService>;
+  let pairService: jest.Mocked<PairService>;
 
   const mockDeployment: Deployment = {
     blockchainType: BlockchainType.Ethereum,
@@ -62,6 +64,12 @@ describe('GeckoTerminalController', () => {
             getState: jest.fn(),
           },
         },
+        {
+          provide: PairService,
+          useValue: {
+            all: jest.fn(),
+          },
+        },
       ],
     }).compile();
 
@@ -70,6 +78,7 @@ describe('GeckoTerminalController', () => {
     tokenService = module.get(TokenService);
     deploymentService = module.get(DeploymentService);
     lastProcessedBlockService = module.get(LastProcessedBlockService);
+    pairService = module.get(PairService);
   });
 
   afterEach(() => {
@@ -127,6 +136,54 @@ describe('GeckoTerminalController', () => {
           decimals: 18,
         },
       });
+    });
+  });
+
+  describe('pairs', () => {
+    it('should return all pairs with formatted pairId, base_currency, target_currency and ticker_id', async () => {
+      const mockPairs = [
+        {
+          id: 123,
+          token0: { address: '0xTokenA' },
+          token1: { address: '0xTokenB' },
+        },
+        {
+          id: 456,
+          token0: { address: '0xTokenC' },
+          token1: { address: '0xTokenD' },
+        },
+      ];
+
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      pairService.all.mockResolvedValue(mockPairs as any);
+
+      const result = await controller.pairs(ExchangeId.OGEthereum);
+
+      expect(deploymentService.getDeploymentByExchangeId).toHaveBeenCalledWith(ExchangeId.OGEthereum);
+      expect(pairService.all).toHaveBeenCalledWith(mockDeployment);
+      expect(result).toEqual([
+        {
+          base_currency: '0xTokenA',
+          target_currency: '0xTokenB',
+          ticker_id: '0xTokenA_0xTokenB',
+          pairId: '0xCarbonControllerAddress-123',
+        },
+        {
+          base_currency: '0xTokenC',
+          target_currency: '0xTokenD',
+          ticker_id: '0xTokenC_0xTokenD',
+          pairId: '0xCarbonControllerAddress-456',
+        },
+      ]);
+    });
+
+    it('should return an empty array when there are no pairs', async () => {
+      deploymentService.getDeploymentByExchangeId.mockReturnValue(mockDeployment);
+      pairService.all.mockResolvedValue([] as any);
+
+      const result = await controller.pairs(ExchangeId.OGEthereum);
+
+      expect(result).toEqual([]);
     });
   });
 

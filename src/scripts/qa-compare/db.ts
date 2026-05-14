@@ -26,7 +26,10 @@ export function getExternalDb(): Promise<Client | null> {
       return c;
     } catch (err) {
       // eslint-disable-next-line no-console
-      console.warn('[qa-compare] external DB unavailable, falling back to API-only derivation:', (err as Error).message);
+      console.warn(
+        '[qa-compare] external DB unavailable, falling back to API-only derivation:',
+        (err as Error).message,
+      );
       return null;
     }
   })();
@@ -82,9 +85,7 @@ export async function dbPickAnyPair(
  * Returns null when there is no active campaign so the merkle/data and
  * merkle/rewards probes can be skipped instead of producing 400 FAILs.
  */
-export async function dbPickMerklPair(
-  exchangeId: string,
-): Promise<{ token0: string; token1: string } | null> {
+export async function dbPickMerklPair(exchangeId: string): Promise<{ token0: string; token1: string } | null> {
   const cfg = getChainConfig(exchangeId);
   if (!cfg) return null;
   const c = await getExternalDb();

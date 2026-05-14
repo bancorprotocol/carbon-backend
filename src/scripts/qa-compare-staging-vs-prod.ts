@@ -183,7 +183,9 @@ async function main() {
   const elapsed = Math.round((Date.now() - start) / 1000);
   console.log('');
   console.log(color('=== Run complete ===', 'cyan'));
-  console.log(`PASS=${run.totals.PASS}  WARN=${run.totals.WARN}  FAIL=${run.totals.FAIL}  SKIP=${run.totals.SKIP}  in ${elapsed}s`);
+  console.log(
+    `PASS=${run.totals.PASS}  WARN=${run.totals.WARN}  FAIL=${run.totals.FAIL}  SKIP=${run.totals.SKIP}  in ${elapsed}s`,
+  );
   console.log(`Summary: ${summaryPath}`);
   console.log(`Details: ${jsonPath}`);
 

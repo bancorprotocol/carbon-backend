@@ -330,9 +330,7 @@ export function snapshotById(opts: {
     let worst: Verdict = 'PASS';
     const reasons: string[] = [];
     if (inStagingNotProd.length > 0) {
-      reasons.push(
-        `${inStagingNotProd.length} ids only on staging (e.g. ${inStagingNotProd.slice(0, 3).join(',')})`,
-      );
+      reasons.push(`${inStagingNotProd.length} ids only on staging (e.g. ${inStagingNotProd.slice(0, 3).join(',')})`);
       worst = worse(worst, inStagingNotProd.length > 5 ? 'FAIL' : 'WARN');
     }
     if (inProdNotStaging.length > 0) {
@@ -357,8 +355,14 @@ export function topKRank(opts: {
   return withGate((staging, prod) => {
     const sArr = arrayOrPath(staging.body, opts.itemPath);
     const pArr = arrayOrPath(prod.body, opts.itemPath);
-    const sKeys = sArr.map(opts.rankKey).filter((x): x is string => !!x).slice(0, k);
-    const pKeys = pArr.map(opts.rankKey).filter((x): x is string => !!x).slice(0, k);
+    const sKeys = sArr
+      .map(opts.rankKey)
+      .filter((x): x is string => !!x)
+      .slice(0, k);
+    const pKeys = pArr
+      .map(opts.rankKey)
+      .filter((x): x is string => !!x)
+      .slice(0, k);
     const inter = sKeys.filter((x) => pKeys.includes(x));
     const overlap = inter.length / Math.max(1, Math.min(sKeys.length, pKeys.length));
     const metrics: ProbeMetrics = {
@@ -424,7 +428,8 @@ export function shapeStrictById(opts: { keyFn: (e: any) => string | null; itemPa
       const sampleS = onlyS.slice(0, 3);
       const sampleP = onlyP.slice(0, 3);
       const tail: string[] = [];
-      if (sampleS.length) tail.push(`+staging: ${sampleS.join(', ')}${onlyS.length > 3 ? ` (+${onlyS.length - 3})` : ''}`);
+      if (sampleS.length)
+        tail.push(`+staging: ${sampleS.join(', ')}${onlyS.length > 3 ? ` (+${onlyS.length - 3})` : ''}`);
       if (sampleP.length) tail.push(`+prod: ${sampleP.join(', ')}${onlyP.length > 3 ? ` (+${onlyP.length - 3})` : ''}`);
       reasons.push(`set diff: +${onlyS.length}staging / +${onlyP.length}prod [${tail.join('; ')}]`);
       worst = worse(worst, onlyS.length + onlyP.length > 3 ? 'FAIL' : 'WARN');
@@ -508,9 +513,12 @@ export const seedDataComparator: Comparator = withGate((staging, prod, ctx) => {
   const collectIds = (m: Record<string, any>) => {
     const ids: string[] = [];
     for (const v of Object.values(m)) {
-      if (Array.isArray(v)) for (const s of v) if (s?.id) ids.push(String(s.id));
-      else if (isPlainObject(v))
-        for (const s of Object.values(v as Record<string, any>)) if ((s as any)?.id) ids.push(String((s as any).id));
+      if (Array.isArray(v))
+        for (const s of v)
+          if (s?.id) ids.push(String(s.id));
+          else if (isPlainObject(v))
+            for (const s of Object.values(v as Record<string, any>))
+              if ((s as any)?.id) ids.push(String((s as any).id));
     }
     return ids;
   };
@@ -549,7 +557,9 @@ export const seedDataComparator: Comparator = withGate((staging, prod, ctx) => {
   if (onlyS.length || onlyP.length) {
     worst = worse(worst, onlyS.length + onlyP.length > 5 ? 'FAIL' : 'WARN');
     reasons.push(
-      `strategy id diff: +${onlyS.length}staging${onlyS.length ? ` (${onlyS.slice(0, 2).join(',')})` : ''} / +${onlyP.length}prod${onlyP.length ? ` (${onlyP.slice(0, 2).join(',')})` : ''}`,
+      `strategy id diff: +${onlyS.length}staging${onlyS.length ? ` (${onlyS.slice(0, 2).join(',')})` : ''} / +${
+        onlyP.length
+      }prod${onlyP.length ? ` (${onlyP.slice(0, 2).join(',')})` : ''}`,
     );
   }
   if (onlySFee.length || onlyPFee.length) {
@@ -647,7 +657,10 @@ export function exactJson(opts: { path?: string } = {}): Comparator {
     return {
       verdict: 'WARN',
       reason: firstDiffField
-        ? `bodies differ at field "${firstDiffField}" (${trim(stableStringify(a?.[firstDiffField]), 80)} vs ${trim(stableStringify(b?.[firstDiffField]), 80)})`
+        ? `bodies differ at field "${firstDiffField}" (${trim(stableStringify(a?.[firstDiffField]), 80)} vs ${trim(
+            stableStringify(b?.[firstDiffField]),
+            80,
+          )})`
         : `bodies differ (${trim(aS, 80)} vs ${trim(bS, 80)})`,
     };
   });
@@ -737,8 +750,17 @@ export const baselineSize: Comparator = withGate((staging, prod) => {
     sizePctDiff: Number(d.toFixed(3)),
   };
   if (d <= 5) return { verdict: 'PASS', reason: `size within ${d.toFixed(1)}%`, metrics };
-  if (d <= 25) return { verdict: 'WARN', reason: `size differs ${d.toFixed(1)}% (${staging.sizeBytes} vs ${prod.sizeBytes})`, metrics };
-  return { verdict: 'WARN', reason: `size differs ${d.toFixed(1)}% (${staging.sizeBytes} vs ${prod.sizeBytes})`, metrics };
+  if (d <= 25)
+    return {
+      verdict: 'WARN',
+      reason: `size differs ${d.toFixed(1)}% (${staging.sizeBytes} vs ${prod.sizeBytes})`,
+      metrics,
+    };
+  return {
+    verdict: 'WARN',
+    reason: `size differs ${d.toFixed(1)}% (${staging.sizeBytes} vs ${prod.sizeBytes})`,
+    metrics,
+  };
 });
 
 // ===== helpers =====
