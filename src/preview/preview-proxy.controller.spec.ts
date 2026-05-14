@@ -246,7 +246,7 @@ describe('PreviewProxyController', () => {
           'content-type': 'text/html',
           'set-cookie': 'session=evil; Path=/',
           location: 'https://evil.example.com/',
-          'content-security-policy': "default-src *",
+          'content-security-policy': 'default-src *',
           'x-content-type-options': 'sniff-it-please',
         },
       }),

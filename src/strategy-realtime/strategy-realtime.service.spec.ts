@@ -768,5 +768,4 @@ describe('StrategyRealtimeService', () => {
       expect(() => service.updateTokens(mockDeployment, mockTokens)).not.toThrow();
     });
   });
-
 });

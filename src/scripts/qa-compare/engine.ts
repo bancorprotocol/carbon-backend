@@ -94,12 +94,7 @@ export async function runChain(
     }
     const stagingUrl = buildUrl(args.staging, chain, spec, query);
     const prodUrl = buildUrl(args.prod, chain, spec, query);
-    const { staging, prod } = await fetchPair(
-      stagingUrl,
-      prodUrl,
-      { timeoutMs: spec.timeoutMs ?? 20000 },
-      globalSem,
-    );
+    const { staging, prod } = await fetchPair(stagingUrl, prodUrl, { timeoutMs: spec.timeoutMs ?? 20000 }, globalSem);
 
     let verdict: Verdict;
     let reason: string;

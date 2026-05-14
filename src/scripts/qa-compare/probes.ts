@@ -145,9 +145,7 @@ export const ENDPOINT_SPECS: EndpointSpec[] = [
     comparator: topKRank({ rankKey: (e) => `${e?.address ?? ''}_${e?.timestamp ?? ''}`, k: 200 }),
     needs: ['tokens'],
     buildQuery: (ctx) =>
-      ctx.tokens.length > 0
-        ? { ...defaultRange(), addresses: ctx.tokens.slice(0, 30).join(','), limit: '500' }
-        : null,
+      ctx.tokens.length > 0 ? { ...defaultRange(), addresses: ctx.tokens.slice(0, 30).join(','), limit: '500' } : null,
     timeoutMs: 60000,
   },
   {
@@ -179,9 +177,7 @@ export const ENDPOINT_SPECS: EndpointSpec[] = [
     pathSuffix: '/analytics/volume/tokens',
     needs: ['tokens'],
     buildQuery: (ctx) =>
-      ctx.tokens.length > 0
-        ? { ...defaultRange(), addresses: ctx.tokens.slice(0, 30).join(','), limit: '500' }
-        : null,
+      ctx.tokens.length > 0 ? { ...defaultRange(), addresses: ctx.tokens.slice(0, 30).join(','), limit: '500' } : null,
     comparator: topKRank({ rankKey: (e) => `${e?.address ?? ''}_${e?.timestamp ?? ''}`, k: 200 }),
     timeoutMs: 60000,
   },
@@ -368,8 +364,7 @@ export const ENDPOINT_SPECS: EndpointSpec[] = [
     classifier: 'merkl',
     pathSuffix: '/merkle/data',
     needs: ['merklPair'],
-    buildQuery: (ctx) =>
-      ctx.merklPair ? { pair: `${ctx.merklPair.token0}_${ctx.merklPair.token1}` } : null,
+    buildQuery: (ctx) => (ctx.merklPair ? { pair: `${ctx.merklPair.token0}_${ctx.merklPair.token1}` } : null),
     comparator: merklAllDataComparator, // fall back to baseline campaign comparator (still gates 200 + body shape)
     timeoutMs: 45000,
   },
@@ -379,8 +374,7 @@ export const ENDPOINT_SPECS: EndpointSpec[] = [
     classifier: 'merkl',
     pathSuffix: '/merkle/rewards',
     needs: ['merklPair'],
-    buildQuery: (ctx) =>
-      ctx.merklPair ? { pair: `${ctx.merklPair.token0}_${ctx.merklPair.token1}` } : null,
+    buildQuery: (ctx) => (ctx.merklPair ? { pair: `${ctx.merklPair.token0}_${ctx.merklPair.token1}` } : null),
     comparator: baselineSize,
     timeoutMs: 60000,
   },
