@@ -5,13 +5,14 @@ import { DexScreenerV2Service } from '../dex-screener/dex-screener-v2.service';
 import { AssetQueryDto, AssetResponse } from './asset.dto';
 import { TokenService } from '../../token/token.service';
 import { toChecksumAddress } from 'web3-utils';
-import { PairQueryDto, PairResponse } from './pair.dto';
+import { PairQueryDto, PairResponse, PairsResponse } from './pair.dto';
 import { EventsQueryDto, EventsResponse } from './events.dto';
 import { LatestBlockResponse } from './latest-block.dto';
 import { DeploymentService, ExchangeId } from '../../deployment/deployment.service';
 import { Deployment } from '../../deployment/deployment.service';
 import { ApiExchangeIdParam, ExchangeIdParam } from '../../exchange-id-param.decorator';
 import { LastProcessedBlockService } from '../../last-processed-block/last-processed-block.service';
+import { PairService } from '../../pair/pair.service';
 
 @Controller({ version: '1', path: ':exchangeId?/gecko-terminal' })
 export class GeckoTerminalController {
@@ -20,6 +21,7 @@ export class GeckoTerminalController {
     private tokenService: TokenService,
     private deploymentService: DeploymentService,
     private lastProcessedBlockService: LastProcessedBlockService,
+    private pairService: PairService,
   ) {}
 
   @Get('latest-block')
@@ -56,6 +58,23 @@ export class GeckoTerminalController {
         decimals: token.decimals,
       },
     };
+  }
+
+  @Get('pairs')
+  @CacheTTL(1 * 1000)
+  @Header('Cache-Control', 'public, max-age=60, s-max-age=60')
+  @ApiExchangeIdParam()
+  async pairs(@ExchangeIdParam() exchangeId: ExchangeId): Promise<PairsResponse> {
+    const deployment: Deployment = await this.deploymentService.getDeploymentByExchangeId(exchangeId);
+    const pairs = await this.pairService.all(deployment);
+    const carbonControllerAddress = deployment.contracts.CarbonController.address;
+
+    return pairs.map((p) => ({
+      base_currency: p.token0.address,
+      target_currency: p.token1.address,
+      ticker_id: `${p.token0.address}_${p.token1.address}`,
+      pairId: `${carbonControllerAddress}-${p.id}`,
+    }));
   }
 
   @Get('pair')

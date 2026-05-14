@@ -28,3 +28,12 @@ export interface Pair {
   };
   metadata?: Record<string, string>;
 }
+
+export interface PairsListItem {
+  base_currency: string;
+  target_currency: string;
+  ticker_id: string;
+  pairId: string;
+}
+
+export type PairsResponse = PairsListItem[];
