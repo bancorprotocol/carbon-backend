@@ -6,10 +6,6 @@ export interface NetworkMapping {
   blockchainType: BlockchainType;
   rpcEnvVar: string;
   wssEnvVar: string;
-  // Optional env vars used to plumb gradient contract addresses into the
-  // preview backend. Only set on chains where gradient is supported.
-  gradientControllerEnvVar?: string;
-  gradientVoucherEnvVar?: string;
   name: string;
 }
 
@@ -20,8 +16,6 @@ export const NETWORK_MAPPINGS: NetworkMapping[] = [
     blockchainType: BlockchainType.Ethereum,
     rpcEnvVar: 'ETHEREUM_RPC_ENDPOINT',
     wssEnvVar: 'ETHEREUM_WSS_ENDPOINT',
-    gradientControllerEnvVar: 'ETHEREUM_GRADIENT_CONTROLLER_ADDRESS',
-    gradientVoucherEnvVar: 'ETHEREUM_GRADIENT_VOUCHER_ADDRESS',
     name: 'Ethereum',
   },
   {

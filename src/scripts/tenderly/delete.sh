@@ -1,37 +1,38 @@
 #!/bin/bash
 #
-# Deletes a Tenderly VNet that was created by gradient/testnet/create.sh.
+# Deletes a Tenderly VNet that was created by tenderly/create.sh.
 #
 # Usage:
-#   npm run gradient:testnet:delete -- <testnet-id>
-#   (or: bash src/scripts/gradient/testnet/delete.sh <testnet-id>)
+#   npm run tenderly:delete -- <testnet-id>
+#   (or: bash src/scripts/tenderly/delete.sh <testnet-id>)
 #
 # Prerequisites:
 #   - TENDERLY_ACCESS_KEY, TENDERLY_USERNAME, TENDERLY_PROJECT set
-#     (in shell env or in ../carbon-gradients-contracts/.env)
+#     (in shell env or in any sourced .env)
 #
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-CONTRACTS_DIR="$(cd "$PROJECT_DIR/../carbon-gradients-contracts" 2>/dev/null && pwd || echo "")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Load .env so TENDERLY_* vars are available without manual export.
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-if [ -f "$CONTRACTS_DIR/.env" ]; then
-  set -a
-  source "$CONTRACTS_DIR/.env"
-  set +a
-fi
-
 TESTNET_ID="$1"
 
 if [ -z "$TESTNET_ID" ]; then
-  echo -e "${RED}Usage: npm run gradient:testnet:delete -- <testnet-id>${NC}"
+  echo -e "${RED}Usage: npm run tenderly:delete -- <testnet-id>${NC}"
   echo
   echo "The testnet ID is printed when you create a testnet, and also stored in .env.tenderly"
   if [ -f "$PROJECT_DIR/.env.tenderly" ]; then

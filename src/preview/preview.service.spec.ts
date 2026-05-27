@@ -181,31 +181,7 @@ describe('PreviewService', () => {
       expect(envArg).not.toHaveProperty('ETHEREUM_WSS_ENDPOINT');
     });
 
-    it('should forward gradient addresses as ETHEREUM_GRADIENT_* env vars', async () => {
-      repo.findOneBy.mockResolvedValue(null);
-      tenderlyClient.getVnet.mockResolvedValue(mockVnet);
-      tenderlyClient.getAdminRpcUrl.mockReturnValue('https://admin.rpc.tenderly.co/test');
-      tenderlyClient.getWssUrl.mockReturnValue('wss://virtual.mainnet.rpc.tenderly.co/wss-test');
-      tenderlyClient.getCurrentBlock.mockResolvedValue(20000050);
-      gceProvider.createInstance.mockResolvedValue({ instanceId: 'instance-1', url: 'http://1.2.3.4:3000' });
-
-      await service.create('abc-123-def-456', {
-        gradientControllerAddress: '0xAAA',
-        gradientVoucherAddress: '0xBBB',
-      });
-
-      const envArg = gceProvider.createInstance.mock.calls[0][1];
-      expect(envArg).toMatchObject({
-        ETHEREUM_GRADIENT_CONTROLLER_ADDRESS: '0xAAA',
-        ETHEREUM_GRADIENT_VOUCHER_ADDRESS: '0xBBB',
-      });
-
-      const saved = repo.save.mock.calls[0][0];
-      expect(saved.gradientControllerAddress).toBe('0xAAA');
-      expect(saved.gradientVoucherAddress).toBe('0xBBB');
-    });
-
-    it('should not set gradient env vars when only the voucher address is provided', async () => {
+    it('should not set gradient env vars (they are hardcoded in deployment config now)', async () => {
       repo.findOneBy.mockResolvedValue(null);
       tenderlyClient.getVnet.mockResolvedValue(mockVnet);
       tenderlyClient.getAdminRpcUrl.mockReturnValue('https://admin.rpc.tenderly.co/test');
@@ -213,11 +189,11 @@ describe('PreviewService', () => {
       tenderlyClient.getCurrentBlock.mockResolvedValue(20000050);
       gceProvider.createInstance.mockResolvedValue({ instanceId: 'instance-1', url: 'http://1.2.3.4:3000' });
 
-      await service.create('abc-123-def-456', { gradientVoucherAddress: '0xBBB' });
+      await service.create('abc-123-def-456');
 
       const envArg = gceProvider.createInstance.mock.calls[0][1];
       expect(envArg).not.toHaveProperty('ETHEREUM_GRADIENT_CONTROLLER_ADDRESS');
-      expect(envArg).toHaveProperty('ETHEREUM_GRADIENT_VOUCHER_ADDRESS', '0xBBB');
+      expect(envArg).not.toHaveProperty('ETHEREUM_GRADIENT_VOUCHER_ADDRESS');
     });
   });
 

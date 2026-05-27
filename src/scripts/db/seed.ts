@@ -1,15 +1,24 @@
 /**
- * Targeted DB seed for preview environments.
+ * Local DB Seed
  *
- * Connects to the production readonly DB (EXTERNAL_DATABASE_*) and copies
- * only the data needed for a single deployment up to the fork block.
+ * Fast targeted import from the prod readonly DB (EXTERNAL_DATABASE_*) into
+ * the local DATABASE_URL for ONE deployment. Modeled on the preview seeder
+ * but with no fork-block filtering — copies the full row set for the chosen
+ * deployment so the local backend behaves identically to prod.
  *
- * Usage: npx ts-node -r tsconfig-paths/register src/preview/seed-preview.ts
+ * Replaces the old `src/scripts/seed.js` (full pg_dump). Assumes the local
+ * schema already exists — run `npm start` once or `npm run migration:run`
+ * first.
  *
- * Required env vars:
+ * Usage:
+ *   npm run db:seed                            # defaults to --deployment=ethereum
+ *   npm run db:seed -- --deployment=celo
+ *   npm run db:seed -- --deployment=sei
+ *   (or: npx ts-node -r tsconfig-paths/register src/scripts/db/seed.ts --deployment=coti)
+ *
+ * Required env (loaded from .env if NODE_ENV !== 'production'):
  *   EXTERNAL_DATABASE_HOST, EXTERNAL_DATABASE_USERNAME,
- *   EXTERNAL_DATABASE_PASSWORD, EXTERNAL_DATABASE_NAME,
- *   DATABASE_URL, PREVIEW_DEPLOYMENT, FORK_BLOCK_NUMBER
+ *   EXTERNAL_DATABASE_PASSWORD, EXTERNAL_DATABASE_NAME, DATABASE_URL
  */
 
 import * as dotenv from 'dotenv';
@@ -21,37 +30,41 @@ import {
   createLocalClient,
   getTableColumns,
   resetSequences,
-} from '../scripts/db/seed-helpers';
+} from './seed-helpers';
 
 if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-interface SeedConfig {
-  exchangeId: string;
-  blockchainType: string;
-  forkBlock: number;
+function parseDeploymentArg(): string {
+  const arg = process.argv.find((a) => a.startsWith('--deployment='));
+  const value = arg ? arg.split('=')[1] : 'ethereum';
+  if (!DEPLOYMENT_TO_BLOCKCHAIN[value]) {
+    const valid = Object.keys(DEPLOYMENT_TO_BLOCKCHAIN).join(', ');
+    console.error(`Unknown --deployment="${value}". Valid values: ${valid}`);
+    process.exit(1);
+  }
+  return value;
 }
 
-async function getConfig(): Promise<SeedConfig> {
-  const exchangeId = process.env.PREVIEW_DEPLOYMENT;
-  if (!exchangeId) throw new Error('PREVIEW_DEPLOYMENT is required');
+async function assertSchema(local: any): Promise<void> {
+  const required = ['tokens', 'pairs', 'strategies', 'blocks', 'last_processed_block'];
+  for (const t of required) {
+    const cols = await getTableColumns(local, t);
+    if (!cols) {
+      console.error(
+        `Local schema is missing table "${t}". Run \`npm start\` once (or \`npm run migration:run\`) to create the schema, then re-run db:seed.`,
+      );
+      process.exit(1);
+    }
+  }
+}
 
+async function main(): Promise<void> {
+  const exchangeId = parseDeploymentArg();
   const blockchainType = DEPLOYMENT_TO_BLOCKCHAIN[exchangeId];
-  if (!blockchainType) throw new Error(`Unknown PREVIEW_DEPLOYMENT: ${exchangeId}`);
 
-  const raw = process.env.FORK_BLOCK_NUMBER;
-  const forkBlock = raw?.startsWith('0x') ? parseInt(raw, 16) : parseInt(raw, 10);
-  if (isNaN(forkBlock)) throw new Error('FORK_BLOCK_NUMBER must be a valid integer');
-
-  return { exchangeId, blockchainType, forkBlock };
-}
-
-async function seed(): Promise<void> {
-  const config = await getConfig();
-  const { exchangeId, blockchainType, forkBlock } = config;
-
-  console.log(`Seeding preview: deployment=${exchangeId}, chain=${blockchainType}, forkBlock=${forkBlock}`);
+  console.log(`Seeding local DB: deployment=${exchangeId}, chain=${blockchainType}`);
 
   const ext = createExternalClient();
   const local = createLocalClient();
@@ -60,26 +73,33 @@ async function seed(): Promise<void> {
     await ext.connect();
     await local.connect();
 
+    await assertSchema(local);
+
     await local.query("SET session_replication_role = 'replica'");
 
-    // 1. Blocks — only copy blocks that the deployment actually references
-    const startBlockResult = await ext.query(
-      `SELECT MIN(b) FROM (
+    // 1. Blocks — copy every block the deployment ever references.
+    const blockRangeResult = await ext.query(
+      `SELECT MIN(b) AS min_block, MAX(b) AS max_block FROM (
          SELECT MIN("blockId") as b FROM pairs WHERE "blockchainType" = $1 AND "exchangeId" = $2
          UNION ALL
+         SELECT MAX("blockId") as b FROM pairs WHERE "blockchainType" = $1 AND "exchangeId" = $2
+         UNION ALL
          SELECT MIN("blockId") as b FROM strategies WHERE "blockchainType" = $1 AND "exchangeId" = $2
+         UNION ALL
+         SELECT MAX("blockId") as b FROM strategies WHERE "blockchainType" = $1 AND "exchangeId" = $2
        ) sub`,
       [blockchainType, exchangeId],
     );
-    const startBlock = startBlockResult.rows[0]?.min || 0;
-    console.log(`  Copying blocks (from ${startBlock} to ${forkBlock})...`);
+    const startBlock = blockRangeResult.rows[0]?.min_block || 0;
+    const endBlock = blockRangeResult.rows[0]?.max_block || 0;
+    console.log(`  Copying blocks (from ${startBlock} to ${endBlock})...`);
     const blockCount = await copyRowsBatched(
       ext,
       local,
       `SELECT id, "blockchainType", timestamp, "createdAt", "updatedAt"
        FROM blocks
        WHERE "blockchainType" = $1 AND id >= $2 AND id <= $3`,
-      [blockchainType, startBlock, forkBlock],
+      [blockchainType, startBlock, endBlock],
       'blocks',
     );
     console.log(`    ${blockCount} blocks copied`);
@@ -97,7 +117,6 @@ async function seed(): Promise<void> {
     );
     console.log(`    ${tokenCount} tokens copied`);
 
-    // Get token IDs and addresses for later use (lowercase addresses for historic-quotes matching)
     const tokenResult = await ext.query(
       `SELECT id, address FROM tokens WHERE "blockchainType" = $1 AND "exchangeId" = $2`,
       [blockchainType, exchangeId],
@@ -112,27 +131,25 @@ async function seed(): Promise<void> {
       local,
       `SELECT p.id, p."blockchainType", p."exchangeId", p."blockId", p."token0Id", p."token1Id", p.name, p."createdAt", p."updatedAt"
        FROM pairs p
-       WHERE p."blockchainType" = $1 AND p."exchangeId" = $2 AND p."blockId" <= $3`,
-      [blockchainType, exchangeId, forkBlock],
+       WHERE p."blockchainType" = $1 AND p."exchangeId" = $2`,
+      [blockchainType, exchangeId],
       'pairs',
     );
     console.log(`    ${pairCount} pairs copied`);
 
-    // 4. Strategies — copy ALL for the deployment, capping blockId to forkBlock
-    //    so the FK to blocks is valid (strategies updated on mainnet after forkBlock
-    //    still exist on the fork but their latest blockId might exceed forkBlock).
+    // 4. Strategies
     console.log('  Copying strategies...');
     const strategyCount = await copyRows(
       ext,
       local,
       `SELECT s.id, s."blockchainType", s."exchangeId", s."strategyId",
-              LEAST(s."blockId", $3) AS "blockId", s."pairId",
-              s."token0Id", s."token1Id", s.deleted, s.liquidity0, s."lowestRate0", s."highestRate0",
-              s."marginalRate0", s.liquidity1, s."lowestRate1", s."highestRate1", s."marginalRate1",
+              s."blockId", s."pairId", s."token0Id", s."token1Id", s.deleted,
+              s.liquidity0, s."lowestRate0", s."highestRate0", s."marginalRate0",
+              s.liquidity1, s."lowestRate1", s."highestRate1", s."marginalRate1",
               s."encodedOrder0", s."encodedOrder1", s.owner, s."createdAt", s."updatedAt"
        FROM strategies s
        WHERE s."blockchainType" = $1 AND s."exchangeId" = $2`,
-      [blockchainType, exchangeId, forkBlock],
+      [blockchainType, exchangeId],
       'strategies',
     );
     console.log(`    ${strategyCount} strategies copied`);
@@ -153,7 +170,7 @@ async function seed(): Promise<void> {
     );
     console.log(`    ${realtimeCount} strategy-realtime rows copied`);
 
-    // 5b. Event tables with "blockId" FK (reference blocks.id)
+    // 6. Event tables with "blockId" FK
     const blockIdEventTables = [
       'strategy-created-events',
       'strategy-updated-events',
@@ -169,7 +186,6 @@ async function seed(): Promise<void> {
       'vortex-tokens-traded-events',
       'vortex-trading-reset-events',
       // Gradient event tables — only present on chains with gradient support.
-      // Each copy gracefully no-ops when the source table doesn't exist.
       'gradient_strategy_created_events',
       'gradient_strategy_updated_events',
       'gradient_strategy_deleted_events',
@@ -187,18 +203,17 @@ async function seed(): Promise<void> {
           ext,
           local,
           `SELECT ${cols} FROM "${table}"
-           WHERE "blockchainType" = $1 AND "exchangeId" = $2 AND "blockId" <= $3`,
-          [blockchainType, exchangeId, forkBlock],
+           WHERE "blockchainType" = $1 AND "exchangeId" = $2`,
+          [blockchainType, exchangeId],
           table,
         );
         if (count > 0) console.log(`    ${table}: ${count} rows`);
       } catch (err) {
-        // Table may not exist on this deployment (e.g. gradient_* on non-gradient chains).
         console.log(`    ${table}: skipped (${(err as Error).message})`);
       }
     }
 
-    // 5b-bis. Gradient snapshot tables (current state, no blockId filter).
+    // 7. Gradient snapshot tables (current state)
     console.log('  Copying gradient snapshot tables...');
     for (const table of ['gradient_strategies', 'gradient_strategy_realtime']) {
       try {
@@ -218,29 +233,29 @@ async function seed(): Promise<void> {
       }
     }
 
-    // 5c. Event tables with "blockNumber" column (plain integer, no FK)
-    // Note: tvl, total-tvl, volume are skipped — they're computed data the app regenerates
-    const blockNumberEventTables = [
+    // 8. Event tables keyed by "blockNumber" (plain integer, no FK)
+    const blockNumberEventTables: { name: string; blockCol: string }[] = [
       { name: 'activities', blockCol: '"blockNumber"' },
       { name: 'activities-v2', blockCol: '"blockNumber"' },
       { name: 'dex-screener-events-v2', blockCol: '"blockNumber"' },
     ];
 
     console.log('  Copying event tables (blockNumber)...');
-    for (const { name: table, blockCol } of blockNumberEventTables) {
+    for (const { name: table } of blockNumberEventTables) {
       const cols = await getTableColumns(local, table);
+      if (!cols) continue;
       const count = await copyRowsBatched(
         ext,
         local,
         `SELECT ${cols} FROM "${table}"
-         WHERE "blockchainType" = $1 AND "exchangeId" = $2 AND ${blockCol} <= $3`,
-        [blockchainType, exchangeId, forkBlock],
+         WHERE "blockchainType" = $1 AND "exchangeId" = $2`,
+        [blockchainType, exchangeId],
         table,
       );
       if (count > 0) console.log(`    ${table}: ${count} rows`);
     }
 
-    // 6. Historic-quotes (sampled 1/day per token, last 30 days — lowercase address matching)
+    // 9. Historic-quotes (sampled 1/day per token, last 30 days)
     if (tokenAddresses.length > 0) {
       console.log(`  Copying historic-quotes (1/day, 30 days, ${tokenAddresses.length} tokens)...`);
       const addressPlaceholders = tokenAddresses.map((_, i) => `$${i + 2}`).join(', ');
@@ -259,7 +274,7 @@ async function seed(): Promise<void> {
       );
       console.log(`    ${hqCount} historic-quote rows copied`);
 
-      // 7. Quotes (latest for each token)
+      // 10. Quotes (latest for each token)
       console.log('  Copying latest quotes...');
       const tokenIdPlaceholders = tokenIds.map((_, i) => `$${i + 2}`).join(', ');
       const quoteCount = await copyRows(
@@ -276,127 +291,46 @@ async function seed(): Promise<void> {
       console.log(`    ${quoteCount} quote rows copied`);
     }
 
-    // 8. Set last_processed_block to forkBlock for this deployment
-    console.log('  Setting last_processed_block entries...');
+    // 11. last_processed_block — copy verbatim from prod so the local harvester
+    //     resumes exactly where prod is at (no clamping, no fork-block magic).
+    console.log('  Copying last_processed_block entries...');
     const paramPrefix = `${blockchainType}-${exchangeId}-`;
-
     const lpbResult = await ext.query(
       `SELECT id, param, block, "createdAt", "updatedAt"
        FROM last_processed_block
-       WHERE param LIKE $1`,
-      [`${paramPrefix}%`],
+       WHERE param LIKE $1
+          OR param = $2
+          OR param = $3`,
+      [`${paramPrefix}%`, `carbon-price-${blockchainType}-${exchangeId}`, `carbon-graph-price-${blockchainType}-${exchangeId}`],
     );
-
     if (lpbResult.rows.length > 0) {
       for (const row of lpbResult.rows) {
         await local.query(
           `INSERT INTO last_processed_block (id, param, block, "createdAt", "updatedAt")
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (id) DO UPDATE SET block = $3, "updatedAt" = now()`,
-          [row.id, row.param, forkBlock, row.createdAt, row.updatedAt],
+          [row.id, row.param, row.block, row.createdAt, row.updatedAt],
         );
       }
-      console.log(`    ${lpbResult.rows.length} last_processed_block entries set to ${forkBlock}`);
+      console.log(`    ${lpbResult.rows.length} last_processed_block entries copied`);
     } else {
       console.log('    No last_processed_block entries found for this deployment');
     }
 
-    // 8b. Seed last_processed_block for services with non-standard key prefixes
-    //     These keys don't match the ${blockchainType}-${exchangeId}- pattern above.
-    //     Use explicit IDs above current max to avoid PK collisions (sequences reset later in step 9).
-    const maxIdResult = await local.query(`SELECT COALESCE(MAX(id), 0) AS max_id FROM last_processed_block`);
-    let nextId = parseInt(maxIdResult.rows[0].max_id, 10) + 1;
-    const extraKeys = [
-      `carbon-price-${blockchainType}-${exchangeId}`,
-      `carbon-graph-price-${blockchainType}-${exchangeId}`,
-    ];
-    for (const extraParam of extraKeys) {
-      await local.query(
-        `INSERT INTO last_processed_block (id, param, block, "createdAt", "updatedAt")
-         VALUES ($1, $2, $3, now(), now())`,
-        [nextId++, extraParam, forkBlock],
-      );
-    }
-    console.log(
-      `    Set ${extraKeys.length} extra last_processed_block entries (carbon-price, carbon-graph-price) to ${forkBlock}`,
-    );
-
-    // 9. Reset SERIAL sequences so new inserts don't collide with seeded IDs
+    // 12. Reset SERIAL sequences so new inserts don't collide with seeded IDs
     console.log('  Resetting sequences...');
     await resetSequences(local);
     console.log('    Sequences reset');
 
-    // 10. Delete any data with block > forkBlock (safety net)
-    console.log('  Cleaning data beyond fork block...');
-    const blockIdTables = [
-      'strategies',
-      'pairs',
-      'strategy-created-events',
-      'strategy-updated-events',
-      'strategy-deleted-events',
-      'pair-created-events',
-      'pair-trading-fee-ppm-updated-events',
-      'trading-fee-ppm-updated-events',
-      'tokens-traded-events',
-      'voucher-transfer-events',
-      'arbitrage-executed-events',
-      'arbitrage-executed-events-v2',
-      'vortex-funds-withdrawn-events',
-      'vortex-tokens-traded-events',
-      'vortex-trading-reset-events',
-      'gradient_strategy_created_events',
-      'gradient_strategy_updated_events',
-      'gradient_strategy_deleted_events',
-      'gradient_strategy_liquidity_updated_events',
-      'gradient_trading_fee_ppm_events',
-      'gradient_pair_trading_fee_ppm_events',
-    ];
-    for (const table of blockIdTables) {
-      try {
-        const delResult = await local.query(`DELETE FROM "${table}" WHERE "blockId" > $1`, [forkBlock]);
-        if (delResult.rowCount > 0) {
-          console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockId > ${forkBlock})`);
-        }
-      } catch {
-        /* table may not exist yet */
-      }
-    }
-    const blockNumTables = ['activities', 'activities-v2', 'dex-screener-events-v2', 'volume'];
-    for (const table of blockNumTables) {
-      try {
-        const delResult = await local.query(`DELETE FROM "${table}" WHERE "blockNumber" > $1`, [forkBlock]);
-        if (delResult.rowCount > 0) {
-          console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockNumber > ${forkBlock})`);
-        }
-      } catch {
-        /* table may not exist yet */
-      }
-    }
-    try {
-      const delResult = await local.query(`DELETE FROM tvl WHERE "evt_block_number" > $1`, [forkBlock]);
-      if (delResult.rowCount > 0) {
-        console.log(`    Deleted ${delResult.rowCount} rows from tvl (evt_block_number > ${forkBlock})`);
-      }
-    } catch {
-      /* skip */
-    }
-    const blockDelResult = await local.query(`DELETE FROM blocks WHERE id > $1 AND "blockchainType" = $2`, [
-      forkBlock,
-      blockchainType,
-    ]);
-    if (blockDelResult.rowCount > 0) {
-      console.log(`    Deleted ${blockDelResult.rowCount} blocks with id > ${forkBlock}`);
-    }
-
     await local.query("SET session_replication_role = 'origin'");
-    console.log('Seed complete!');
+    console.log(`\nSeed complete: deployment=${exchangeId}, chain=${blockchainType}`);
   } finally {
     await ext.end().catch(() => undefined);
     await local.end().catch(() => undefined);
   }
 }
 
-seed().catch((err) => {
+main().catch((err) => {
   console.error('Seed failed:', err);
   process.exit(1);
 });

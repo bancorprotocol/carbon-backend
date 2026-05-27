@@ -161,10 +161,10 @@ export class DeploymentService {
             address: '0xf5FAB5DBD2f3bf675dE4cB76517d4767013cfB55',
           },
           GradientController: {
-            address: this.configService.get('ETHEREUM_GRADIENT_CONTROLLER_ADDRESS') || '',
+            address: '0x37A65Dda75A4C32959834C9b391a24dCa17eeC10',
           },
           GradientVoucher: {
-            address: this.configService.get('ETHEREUM_GRADIENT_VOUCHER_ADDRESS') || '',
+            address: '0x63e353AE90f95C72bf1E78e45456fb78B0c97525',
           },
         },
         gradientTimestampOffset: 60,

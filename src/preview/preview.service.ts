@@ -33,10 +33,7 @@ export class PreviewService {
       'europe-west2-docker.pkg.dev/bancor-api/carbon-multi/carbon-preview:latest';
   }
 
-  async create(
-    tenderlyId: string,
-    opts?: { gradientControllerAddress?: string; gradientVoucherAddress?: string },
-  ): Promise<PreviewResponseDto> {
+  async create(tenderlyId: string): Promise<PreviewResponseDto> {
     const existing = await this.repo.findOneBy({ tenderlyId });
     if (existing) {
       const healthy = await this.gceProvider.instanceExists(existing.instanceName);
@@ -52,16 +49,13 @@ export class PreviewService {
 
     this.creatingLocks.add(tenderlyId);
     try {
-      return await this.createPreview(tenderlyId, opts);
+      return await this.createPreview(tenderlyId);
     } finally {
       this.creatingLocks.delete(tenderlyId);
     }
   }
 
-  private async createPreview(
-    tenderlyId: string,
-    opts?: { gradientControllerAddress?: string; gradientVoucherAddress?: string },
-  ): Promise<PreviewResponseDto> {
+  private async createPreview(tenderlyId: string): Promise<PreviewResponseDto> {
     const vnet = await this.tenderlyClient.getVnet(tenderlyId);
     if (!vnet) {
       throw new NotFoundException(`Tenderly vnet ${tenderlyId} not found in the organization`);
@@ -98,10 +92,7 @@ export class PreviewService {
     const shortId = tenderlyId.substring(0, 8);
     const instanceName = `${PREVIEW_APP_PREFIX}-${shortId}`;
 
-    const env = this.buildEnvVars(mapping, adminRpcUrl, wssUrl, forkBlock, {
-      gradientControllerAddress: opts?.gradientControllerAddress,
-      gradientVoucherAddress: opts?.gradientVoucherAddress,
-    });
+    const env = this.buildEnvVars(mapping, adminRpcUrl, wssUrl, forkBlock);
     const { instanceId, url } = await this.gceProvider.createInstance(instanceName, env, this.previewImageUri);
 
     const record = this.repo.create({
@@ -116,15 +107,11 @@ export class PreviewService {
       currentBlock,
       rpcUrl: adminRpcUrl,
       status: 'creating',
-      gradientControllerAddress: opts?.gradientControllerAddress,
-      gradientVoucherAddress: opts?.gradientVoucherAddress,
     });
     await this.repo.save(record);
 
     this.logger.log(
-      `Created preview backend: ${instanceName} for vnet ${tenderlyId} (${mapping.name}, fork@${forkBlock}` +
-        (opts?.gradientControllerAddress ? ', gradient enabled' : '') +
-        ')',
+      `Created preview backend: ${instanceName} for vnet ${tenderlyId} (${mapping.name}, fork@${forkBlock})`,
     );
 
     return this.toResponse(record, 'creating');
@@ -270,7 +257,6 @@ export class PreviewService {
     rpcUrl: string,
     wssUrl: string | undefined,
     forkBlock: number,
-    gradient?: { gradientControllerAddress?: string; gradientVoucherAddress?: string },
   ): Record<string, string> {
     const passthrough = [
       'PREVIEW_DB_PASSWORD',
@@ -300,16 +286,6 @@ export class PreviewService {
 
     if (wssUrl) {
       env[mapping.wssEnvVar] = wssUrl;
-    }
-
-    // Inject gradient contract addresses only when both the mapping supports
-    // gradient (chain has gradientControllerEnvVar/gradientVoucherEnvVar) and
-    // the caller supplied addresses from the Tenderly fork deployment.
-    if (mapping.gradientControllerEnvVar && gradient?.gradientControllerAddress) {
-      env[mapping.gradientControllerEnvVar] = gradient.gradientControllerAddress;
-    }
-    if (mapping.gradientVoucherEnvVar && gradient?.gradientVoucherAddress) {
-      env[mapping.gradientVoucherEnvVar] = gradient.gradientVoucherAddress;
     }
 
     for (const key of passthrough) {

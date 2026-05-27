@@ -36,17 +36,6 @@ export class PreviewController {
           description: 'Tenderly Virtual TestNet ID',
           example: 'd64732df-58d7-48c5-9408-71e77cfe99a4',
         },
-        gradientControllerAddress: {
-          type: 'string',
-          description:
-            'Optional address of a GradientController deployed on the fork. Required to enable gradient support inside the preview backend.',
-          example: '0x0000000000000000000000000000000000000000',
-        },
-        gradientVoucherAddress: {
-          type: 'string',
-          description: 'Optional address of the GradientVoucher deployed on the fork (paired with gradientControllerAddress).',
-          example: '0x0000000000000000000000000000000000000000',
-        },
       },
     },
   })
@@ -55,10 +44,7 @@ export class PreviewController {
   @ApiResponse({ status: 400, description: 'Network not supported' })
   @ApiResponse({ status: 409, description: 'Preview creation already in progress' })
   async create(@Body() dto: CreatePreviewDto): Promise<PreviewResponseDto> {
-    return this.previewService.create(dto.tenderlyId, {
-      gradientControllerAddress: dto.gradientControllerAddress,
-      gradientVoucherAddress: dto.gradientVoucherAddress,
-    });
+    return this.previewService.create(dto.tenderlyId);
   }
 
   @Get(':tenderlyId')

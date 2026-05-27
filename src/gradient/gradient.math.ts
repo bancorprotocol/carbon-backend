@@ -38,10 +38,8 @@ const check = (val: BigNumber, max: BigNumber): BigNumber => {
 
 const add = (a: BigNumber, b: BigNumber) => check(a.add(b), MAX_UINT256);
 const mul = (a: BigNumber, b: BigNumber) => check(a.mul(b), MAX_UINT256);
-const mulDivF = (a: BigNumber, b: BigNumber, c: BigNumber) =>
-  check(a.mul(b).div(c), MAX_UINT256);
-const mulDivC = (a: BigNumber, b: BigNumber, c: BigNumber) =>
-  check(a.mul(b).add(c).sub(1).div(c), MAX_UINT256);
+const mulDivF = (a: BigNumber, b: BigNumber, c: BigNumber) => check(a.mul(b).div(c), MAX_UINT256);
+const mulDivC = (a: BigNumber, b: BigNumber, c: BigNumber) => check(a.mul(b).add(c).sub(1).div(c), MAX_UINT256);
 const minFactor = (a: BigNumber, b: BigNumber) => mulDivC(a, b, MAX_UINT256);
 
 const sub = (one: BigNumber, mt: BigNumber): BigNumber => {
@@ -52,9 +50,7 @@ const sub = (one: BigNumber, mt: BigNumber): BigNumber => {
 };
 
 const bitLength = (value: BigNumber): number => {
-  return value.gt(0)
-    ? Decimal.log2(value.toString()).add(1).floor().toNumber()
-    : 0;
+  return value.gt(0) ? Decimal.log2(value.toString()).add(1).floor().toNumber() : 0;
 };
 
 const encodeRate = (value: Decimal): BigNumber => {
@@ -83,25 +79,17 @@ const decodeFloat = (value: BigNumber, one: number): BigNumber => {
   return value.mod(one).shl(value.div(one).toNumber());
 };
 
-export const encodeScaleInitialRate = (value: Decimal) =>
-  encodeScale(value.sqrt(), ONE_48);
-export const decodeScaleInitialRate = (value: Decimal) =>
-  decodeScale(value, ONE_48).pow(2);
+export const encodeScaleInitialRate = (value: Decimal) => encodeScale(value.sqrt(), ONE_48);
+export const decodeScaleInitialRate = (value: Decimal) => decodeScale(value, ONE_48).pow(2);
 
-export const encodeScaleMultiFactor = (value: Decimal) =>
-  encodeScale(value.mul(ONE_24), ONE_24);
-export const decodeScaleMultiFactor = (value: Decimal) =>
-  decodeScale(value, ONE_24).div(ONE_24);
+export const encodeScaleMultiFactor = (value: Decimal) => encodeScale(value.mul(ONE_24), ONE_24);
+export const decodeScaleMultiFactor = (value: Decimal) => decodeScale(value, ONE_24).div(ONE_24);
 
-export const encodeFloatInitialRate = (value: BigNumber) =>
-  encodeFloat(value, ONE_48);
-export const decodeFloatInitialRate = (value: BigNumber) =>
-  decodeFloat(value, ONE_48);
+export const encodeFloatInitialRate = (value: BigNumber) => encodeFloat(value, ONE_48);
+export const decodeFloatInitialRate = (value: BigNumber) => decodeFloat(value, ONE_48);
 
-export const encodeFloatMultiFactor = (value: BigNumber) =>
-  encodeFloat(value, ONE_24);
-export const decodeFloatMultiFactor = (value: BigNumber) =>
-  decodeFloat(value, ONE_24);
+export const encodeFloatMultiFactor = (value: BigNumber) => encodeFloat(value, ONE_24);
+export const decodeFloatMultiFactor = (value: BigNumber) => decodeFloat(value, ONE_24);
 
 export enum GradientType {
   LINEAR_INCREASE,
@@ -313,42 +301,19 @@ export const calculateGradientPrice = (
   offsetData: GradientOffsetData,
   orderIndex: number,
 ): BigNumber => {
-  const initialRate =
-    orderIndex === 0
-      ? strategy.order0InitialPrice
-      : strategy.order1InitialPrice;
-  const multiFactorRaw =
-    orderIndex === 0
-      ? strategy.order0MultiFactor
-      : strategy.order1MultiFactor;
-  const gradientTypeStr =
-    orderIndex === 0
-      ? strategy.order0GradientType
-      : strategy.order1GradientType;
-  const tradingStartTime =
-    orderIndex === 0
-      ? strategy.order0TradingStartTime
-      : strategy.order1TradingStartTime;
+  const initialRate = orderIndex === 0 ? strategy.order0InitialPrice : strategy.order1InitialPrice;
+  const multiFactorRaw = orderIndex === 0 ? strategy.order0MultiFactor : strategy.order1MultiFactor;
+  const gradientTypeStr = orderIndex === 0 ? strategy.order0GradientType : strategy.order1GradientType;
+  const tradingStartTime = orderIndex === 0 ? strategy.order0TradingStartTime : strategy.order1TradingStartTime;
 
   const timeElapsed = new Decimal(offsetData.now - tradingStartTime).add(
-    parseInt(gradientTypeStr) % 2 === 0
-      ? offsetData.increaseOffset
-      : offsetData.decreaseOffset,
+    parseInt(gradientTypeStr) % 2 === 0 ? offsetData.increaseOffset : offsetData.decreaseOffset,
   );
 
-  const rateDecoded = decodeScaleInitialRate(
-    BnToDec(decodeFloatInitialRate(BigNumber.from(initialRate))),
-  );
-  const mfDecoded = decodeScaleMultiFactor(
-    BnToDec(decodeFloatMultiFactor(BigNumber.from(multiFactorRaw))),
-  );
+  const rateDecoded = decodeScaleInitialRate(BnToDec(decodeFloatInitialRate(BigNumber.from(initialRate))));
+  const mfDecoded = decodeScaleMultiFactor(BnToDec(decodeFloatMultiFactor(BigNumber.from(multiFactorRaw))));
 
-  const rate = expectedCurrentRate(
-    parseInt(gradientTypeStr),
-    rateDecoded,
-    mfDecoded,
-    timeElapsed,
-  );
+  const rate = expectedCurrentRate(parseInt(gradientTypeStr), rateDecoded, mfDecoded, timeElapsed);
 
   const encodedRate = encodeFloat(encodeRate(rate), ONE_48);
   return encodedRate;
@@ -366,12 +331,8 @@ export const decodeGradientOrderPrices = (
   expiry: number,
   nowTimestamp: number,
 ): { startPrice: Decimal; endPrice: Decimal; marginalPrice: Decimal } => {
-  const rateDecoded = decodeScaleInitialRate(
-    BnToDec(decodeFloatInitialRate(BigNumber.from(initialPriceRaw))),
-  );
-  const mfDecoded = decodeScaleMultiFactor(
-    BnToDec(decodeFloatMultiFactor(BigNumber.from(multiFactorRaw))),
-  );
+  const rateDecoded = decodeScaleInitialRate(BnToDec(decodeFloatInitialRate(BigNumber.from(initialPriceRaw))));
+  const mfDecoded = decodeScaleMultiFactor(BnToDec(decodeFloatMultiFactor(BigNumber.from(multiFactorRaw))));
 
   const gradientType = parseInt(gradientTypeStr);
   const startPrice = rateDecoded;
@@ -386,8 +347,8 @@ export const decodeGradientOrderPrices = (
     elapsed.gt(0) && nowTimestamp <= expiry
       ? expectedCurrentRate(gradientType, rateDecoded, mfDecoded, elapsed)
       : elapsed.lte(0)
-        ? rateDecoded
-        : endPrice;
+      ? rateDecoded
+      : endPrice;
 
   return { startPrice, endPrice, marginalPrice };
 };

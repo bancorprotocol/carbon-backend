@@ -1,19 +1,19 @@
 #!/bin/bash
 #
-# Gradient Testnet Launcher
+# Tenderly Testnet Launcher
 #
-# Creates a Tenderly VNet (mainnet fork), deploys GradientController + Voucher,
-# and outputs all env vars needed to run the backend (or a preview backend)
-# against it.
+# Creates a Tenderly VNet (mainnet fork) and outputs all env vars needed to
+# run the backend (or a preview backend) against it. The fork inherits the
+# mainnet CarbonController + GradientController state, so no contracts need
+# to be deployed onto it.
 #
 # Usage:
-#   npm run gradient:testnet:create         # create testnet, print env vars + preview curl, exit
-#   npm run gradient:testnet:create -- --run  # create testnet + start the backend locally
+#   npm run tenderly:create              # create testnet, print env vars + preview curl, exit
+#   npm run tenderly:create -- --run     # create testnet + start the backend locally
 #
 # Prerequisites:
-#   - ../carbon-gradients-contracts with node_modules installed
 #   - TENDERLY_ACCESS_KEY, TENDERLY_USERNAME, TENDERLY_PROJECT set
-#     (in shell env or in ../carbon-gradients-contracts/.env)
+#     (in shell env or in any sourced .env)
 #   - jq and curl available
 #   - Local PostgreSQL + Redis running (for --run mode)
 #
@@ -21,10 +21,19 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PROJECT_DIR="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-CONTRACTS_DIR="$(cd "$PROJECT_DIR/../carbon-gradients-contracts" 2>/dev/null && pwd || echo "")"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 cd "$PROJECT_DIR"
+
+# Load .env so TENDERLY_*, ETHEREUM_RPC_ENDPOINT etc. are available without
+# the caller having to export them manually. Mirrors what the TS scripts do
+# via dotenv.config().
+if [ -f "$PROJECT_DIR/.env" ]; then
+  set -a
+  # shellcheck source=/dev/null
+  source "$PROJECT_DIR/.env"
+  set +a
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -40,14 +49,6 @@ for arg in "$@"; do
 done
 
 SERVER_PID=""
-
-# ─── Load Tenderly env from contracts repo if not already set ─────────────────
-
-if [ -f "$CONTRACTS_DIR/.env" ]; then
-  set -a
-  source "$CONTRACTS_DIR/.env"
-  set +a
-fi
 
 # ─── Cleanup (only kills the backend server, never deletes the testnet) ───────
 
@@ -68,7 +69,7 @@ fi
 # ─── Validate prerequisites ──────────────────────────────────────────────────
 
 echo -e "${CYAN}==========================================${NC}"
-echo -e "${CYAN}  Gradient Testnet Launcher               ${NC}"
+echo -e "${CYAN}  Tenderly Testnet Launcher               ${NC}"
 echo -e "${CYAN}==========================================${NC}"
 echo
 
@@ -84,20 +85,15 @@ if [ -z "$TENDERLY_PROJECT" ]; then
   echo -e "${RED}Error: TENDERLY_PROJECT not set${NC}"
   exit 1
 fi
-if [ -z "$CONTRACTS_DIR" ] || [ ! -d "$CONTRACTS_DIR/node_modules" ]; then
-  echo -e "${RED}Error: ../carbon-gradients-contracts not found or node_modules missing${NC}"
-  echo "  Run: cd ../carbon-gradients-contracts && pnpm install"
-  exit 1
-fi
 
 if [ "$RUN_BACKEND" = true ]; then
   lsof -ti:3000 | xargs kill -9 2>/dev/null || true
   sleep 1
 fi
 
-# ─── Phase 1: Create Tenderly VNet ───────────────────────────────────────────
+# ─── Create Tenderly VNet ────────────────────────────────────────────────────
 
-echo -e "${YELLOW}Phase 1: Creating Tenderly virtual testnet (mainnet fork)...${NC}"
+echo -e "${YELLOW}Creating Tenderly virtual testnet (mainnet fork)...${NC}"
 
 TENDERLY_TESTNET_API="https://api.tenderly.co/api/v1/account/${TENDERLY_USERNAME}/project/${TENDERLY_PROJECT}/vnets"
 TIMESTAMP=$(date +"%s")
@@ -140,61 +136,15 @@ INITIAL_FORK_BLOCK=$(curl -sX POST "$RPC_URL" \
 echo "  Initial fork block: $INITIAL_FORK_BLOCK"
 echo
 
-# ─── Phase 2: Deploy GradientController ──────────────────────────────────────
-
-echo -e "${YELLOW}Phase 2: Deploying GradientController...${NC}"
-
-DEPLOYER_ADDR="0x5bEBA4D3533a963Dedb270a95ae5f7752fA0Fe22"
-
-echo "  Funding deployer ${DEPLOYER_ADDR} with ETH..."
-curl -sX POST "$RPC_URL" \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"tenderly_setBalance","params":[["'"$DEPLOYER_ADDR"'"],"0x56BC75E2D63100000"],"id":1}' > /dev/null
-
-cd "$CONTRACTS_DIR"
-
-mkdir -p deployments/mainnet
-echo "1" > deployments/mainnet/.chainId
-if [ ! -d "deploy/scripts/mainnet" ]; then
-  rsync -a --delete deploy/scripts/network/ deploy/scripts/mainnet/
-fi
-rm -rf deployments/tenderly && cp -rf deployments/mainnet/. deployments/tenderly
-
-echo "  Running hardhat deploy..."
-HARDHAT_NETWORK=tenderly \
-TENDERLY_TESTNET_PROVIDER_URL="$RPC_URL" \
-TENDERLY_NETWORK_NAME=mainnet \
-npx hardhat deploy --no-compile 2>&1 | while IFS= read -r line; do echo "    $line"; done
-
-if [ ! -f "deployments/tenderly/GradientController.json" ]; then
-  echo -e "${RED}GradientController.json not found after deployment${NC}"
-  cd "$PROJECT_DIR"
-  exit 1
-fi
-
-CONTROLLER_ADDR=$(jq -r '.address' deployments/tenderly/GradientController.json)
-echo -e "  ${GREEN}GradientController deployed: ${CONTROLLER_ADDR}${NC}"
-
-VOUCHER_ADDR=""
-if [ -f "deployments/tenderly/Voucher.json" ]; then
-  VOUCHER_ADDR=$(jq -r '.address' deployments/tenderly/Voucher.json)
-  echo -e "  ${GREEN}GradientVoucher deployed: ${VOUCHER_ADDR}${NC}"
-fi
-
-cd "$PROJECT_DIR"
-echo
-
 # ─── Write .env.tenderly ─────────────────────────────────────────────────────
 
 ENV_FILE="$PROJECT_DIR/.env.tenderly"
 
 cat > "$ENV_FILE" <<EOF
-# Generated by gradient/testnet/create.sh at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+# Generated by tenderly/create.sh at $(date -u +"%Y-%m-%dT%H:%M:%SZ")
 # Testnet ID: ${TESTNET_ID}
 
 ETHEREUM_RPC_ENDPOINT=${RPC_URL}
-ETHEREUM_GRADIENT_CONTROLLER_ADDRESS=${CONTROLLER_ADDR}
-ETHEREUM_GRADIENT_VOUCHER_ADDRESS=${VOUCHER_ADDR}
 IS_FORK=1
 SHOULD_HARVEST=1
 SHOULD_UPDATE_ANALYTICS=1
@@ -217,46 +167,30 @@ echo
 echo -e "  Testnet ID:  ${GREEN}${TESTNET_ID}${NC}"
 echo -e "  RPC URL:     ${GREEN}${RPC_URL}${NC}"
 echo -e "  Fork block:  ${INITIAL_FORK_BLOCK}"
-echo -e "  Controller:  ${CONTROLLER_ADDR}"
-echo -e "  Voucher:     ${VOUCHER_ADDR:-N/A}"
 echo
 echo "  Env vars (copy to .env or source .env.tenderly):"
 echo
 echo "    ETHEREUM_RPC_ENDPOINT=${RPC_URL}"
-echo "    ETHEREUM_GRADIENT_CONTROLLER_ADDRESS=${CONTROLLER_ADDR}"
-echo "    ETHEREUM_GRADIENT_VOUCHER_ADDRESS=${VOUCHER_ADDR}"
 echo "    IS_FORK=1"
 echo "    SHOULD_HARVEST=1"
 echo "    SHOULD_UPDATE_ANALYTICS=1"
 echo
 echo -e "  To delete this testnet later:"
-echo -e "    ${YELLOW}npm run gradient:testnet:delete -- ${TESTNET_ID}${NC}"
+echo -e "    ${YELLOW}npm run tenderly:delete -- ${TESTNET_ID}${NC}"
 echo
 
 # ─── Print ready-to-paste curl for creating a preview backend ────────────────
 
 PREVIEW_API_URL="${PREVIEW_API_URL:-http://localhost:3000}"
-PREVIEW_BODY="{\"tenderlyId\":\"${TESTNET_ID}\",\"gradientControllerAddress\":\"${CONTROLLER_ADDR}\",\"gradientVoucherAddress\":\"${VOUCHER_ADDR}\"}"
 
 echo -e "${CYAN}To boot a preview backend against this Tenderly fork:${NC}"
 echo
 echo "  curl -X POST ${PREVIEW_API_URL}/preview/backends \\"
 echo "    -H 'content-type: application/json' \\"
-echo "    -d '${PREVIEW_BODY}'"
+echo "    -d '{\"tenderlyId\":\"${TESTNET_ID}\"}'"
 echo
 echo -e "  (override the host with PREVIEW_API_URL=https://api... before re-running this script)"
 echo
-
-# ─── Clean gradient DB state (--run only) ─────────────────────────────────────
-
-if [ "$RUN_BACKEND" = true ]; then
-  echo -e "${YELLOW}Cleaning gradient DB state for fresh Tenderly harvesting...${NC}"
-
-  SYNC_BLOCK=$((INITIAL_FORK_BLOCK - 1))
-
-  TZ=UTC npx ts-node -r tsconfig-paths/register src/scripts/gradient/testnet/clean-state.ts "$SYNC_BLOCK"
-  echo
-fi
 
 # ─── Optionally start the backend ────────────────────────────────────────────
 
@@ -267,8 +201,6 @@ if [ "$RUN_BACKEND" = true ]; then
   SHOULD_UPDATE_ANALYTICS=1 \
   IS_FORK=1 \
   ETHEREUM_RPC_ENDPOINT="$RPC_URL" \
-  ETHEREUM_GRADIENT_CONTROLLER_ADDRESS="$CONTROLLER_ADDR" \
-  ETHEREUM_GRADIENT_VOUCHER_ADDRESS="$VOUCHER_ADDR" \
   TZ=UTC \
   npx nest start &
   SERVER_PID=$!

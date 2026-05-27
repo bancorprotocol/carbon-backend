@@ -39,12 +39,6 @@ export class PreviewBackend {
   @Column({ default: 'creating' })
   status: string;
 
-  @Column({ nullable: true })
-  gradientControllerAddress?: string;
-
-  @Column({ nullable: true })
-  gradientVoucherAddress?: string;
-
   @CreateDateColumn()
   createdAt: Date;
 
