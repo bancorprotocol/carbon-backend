@@ -264,7 +264,7 @@ export class DeploymentService {
             address: '0x20216f3056BF98E245562940E6c9c65aD9B31271',
           },
           CarbonVortex: {
-            address: '0xa15E3295465439A361dBcac79C1DBCE6Cd01E562',
+            address: '0xD9D89e8A0dfE549e5B424D5b511cB3b84A764857',
           },
         },
         notifications: {
