@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { LastProcessedBlockModule } from '../last-processed-block/last-processed-block.module';
 import { RedisModule } from '../redis/redis.module';
 import { Strategy } from './strategy.entity';
+import { StrategyRealtime } from '../strategy-realtime/strategy-realtime.entity';
 import { StrategyService } from './strategy.service';
 import { StrategyCreatedEventModule } from '../events/strategy-created-event/strategy-created-event.module';
 import { StrategyUpdatedEventModule } from '../events/strategy-updated-event/strategy-updated-event.module';
@@ -12,7 +13,7 @@ import { VoucherTransferEventModule } from '../events/voucher-transfer-event/vou
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Strategy]),
+    TypeOrmModule.forFeature([Strategy, StrategyRealtime]),
     LastProcessedBlockModule,
     RedisModule,
     StrategyCreatedEventModule,

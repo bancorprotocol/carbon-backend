@@ -44,6 +44,7 @@
     "generate-erd": "ts-node -r tsconfig-paths/register --compilerOptions '{\"module\":\"CommonJS\"}' src/scripts/generate-erd.ts && npm run generate-erd-svg",
     "generate-erd-svg": "mmdc -i erd.mmd -o erd.svg",
     "db:seed": "node src/scripts/seed.js",
+    "db:seed:fast": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/seed-dev.ts",
     "generate-merkl-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/generate-csv.ts",
     "compare-csv": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/compare-csv-files.ts",
     "analyze-csv-differences": "TZ=UTC ts-node -r tsconfig-paths/register src/scripts/analyze-differences.ts",

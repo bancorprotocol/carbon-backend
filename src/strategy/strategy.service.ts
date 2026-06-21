@@ -2,6 +2,7 @@ import { Repository, In } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Injectable } from '@nestjs/common';
 import { Strategy } from './strategy.entity';
+import { StrategyRealtime } from '../strategy-realtime/strategy-realtime.entity';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import Decimal from 'decimal.js';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
@@ -20,6 +21,7 @@ import { parseOrder, processOrders } from '../activity/activity.utils';
 export class StrategyService {
   constructor(
     @InjectRepository(Strategy) private strategyRepository: Repository<Strategy>,
+    @InjectRepository(StrategyRealtime) private strategyRealtimeRepository: Repository<StrategyRealtime>,
     private lastProcessedBlockService: LastProcessedBlockService,
     private strategyCreatedEventService: StrategyCreatedEventService,
     private strategyUpdatedEventService: StrategyUpdatedEventService,
@@ -67,6 +69,36 @@ export class StrategyService {
         rangeEnd,
       );
     }
+
+    // Reconcile deletions into the realtime table that the API serves from.
+    // The realtime table is fed by WSS push events, which can silently drop a
+    // StrategyDeleted during a reconnect gap and never recover (the periodic
+    // safety-net sync intentionally never deletes). The harvested deletion
+    // state below comes from getLogs and is authoritative, so propagating it
+    // can only ever remove strategies that were genuinely burned on-chain.
+    await this.reconcileRealtimeDeletions(deployment);
+  }
+
+  /**
+   * Mark realtime strategies as deleted when the authoritative harvested
+   * `strategies` table has already recorded their on-chain deletion. Safe by
+   * construction: it only ever flips realtime rows whose deletion is confirmed
+   * in the getLogs-harvested state, so it cannot false-delete a live strategy.
+   */
+  async reconcileRealtimeDeletions(deployment: Deployment): Promise<void> {
+    await this.strategyRealtimeRepository.query(
+      `UPDATE "strategy-realtime" sr
+       SET deleted = true, "updatedAt" = now()
+       FROM "strategies" s
+       WHERE sr."strategyId" = s."strategyId"
+         AND sr."blockchainType" = s."blockchainType"
+         AND sr."exchangeId" = s."exchangeId"
+         AND s.deleted = true
+         AND sr.deleted = false
+         AND sr."blockchainType" = $1
+         AND sr."exchangeId" = $2`,
+      [deployment.blockchainType, deployment.exchangeId],
+    );
   }
 
   async updateOwnersFromTransferEvents(transferEvents: any[], deployment: Deployment) {

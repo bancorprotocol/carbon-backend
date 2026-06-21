@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StrategyService } from './strategy.service';
 import { Strategy } from './strategy.entity';
+import { StrategyRealtime } from '../strategy-realtime/strategy-realtime.entity';
 import { LastProcessedBlockService } from '../last-processed-block/last-processed-block.service';
 import { StrategyCreatedEventService } from '../events/strategy-created-event/strategy-created-event.service';
 import { StrategyUpdatedEventService } from '../events/strategy-updated-event/strategy-updated-event.service';
@@ -63,6 +64,13 @@ describe('StrategyService', () => {
             find: jest.fn().mockResolvedValue([]),
             save: jest.fn().mockImplementation((batch) => Promise.resolve(batch)),
             create: jest.fn().mockImplementation((data) => ({ ...data })),
+          },
+        },
+        {
+          provide: getRepositoryToken(StrategyRealtime),
+          useValue: {
+            query: jest.fn().mockResolvedValue([]),
+            update: jest.fn().mockResolvedValue({ affected: 0 }),
           },
         },
         { provide: LastProcessedBlockService, useValue: { getOrInit: jest.fn(), update: jest.fn() } },

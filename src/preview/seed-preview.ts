@@ -19,14 +19,14 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-const DEPLOYMENT_TO_BLOCKCHAIN: Record<string, string> = {
+export const DEPLOYMENT_TO_BLOCKCHAIN: Record<string, string> = {
   ethereum: 'ethereum',
   sei: 'sei-network',
   celo: 'celo',
   coti: 'coti',
 };
 
-interface SeedConfig {
+export interface SeedConfig {
   exchangeId: string;
   blockchainType: string;
   forkBlock: number;
@@ -46,7 +46,7 @@ async function getConfig(): Promise<SeedConfig> {
   return { exchangeId, blockchainType, forkBlock };
 }
 
-function createExternalClient(): Client {
+export function createExternalClient(): Client {
   return new Client({
     host: process.env.EXTERNAL_DATABASE_HOST,
     user: process.env.EXTERNAL_DATABASE_USERNAME,
@@ -57,7 +57,7 @@ function createExternalClient(): Client {
   });
 }
 
-function createLocalClient(): Client {
+export function createLocalClient(): Client {
   return new Client({ connectionString: process.env.DATABASE_URL });
 }
 
@@ -130,14 +130,18 @@ async function getTableColumns(client: Client, table: string): Promise<string> {
   return result.rows.map((r) => `"${r.column_name}"`).join(', ');
 }
 
-async function seed(): Promise<void> {
-  const config = await getConfig();
+interface RunSeedOptions {
+  createExternal?: () => Client;
+  createLocal?: () => Client;
+}
+
+export async function runSeed(config: SeedConfig, opts: RunSeedOptions = {}): Promise<void> {
   const { exchangeId, blockchainType, forkBlock } = config;
 
-  console.log(`Seeding preview: deployment=${exchangeId}, chain=${blockchainType}, forkBlock=${forkBlock}`);
+  console.log(`Seeding: deployment=${exchangeId}, chain=${blockchainType}, forkBlock=${forkBlock}`);
 
-  const ext = createExternalClient();
-  const local = createLocalClient();
+  const ext = (opts.createExternal ?? createExternalClient)();
+  const local = (opts.createLocal ?? createLocalClient)();
 
   try {
     await ext.connect();
@@ -387,6 +391,10 @@ async function seed(): Promise<void> {
     console.log('    Sequences reset');
 
     // 10. Delete any data with block > forkBlock (safety net)
+    //     Scoped to THIS deployment (blockchainType + exchangeId) so seeding a second
+    //     deployment into the same DB doesn't wipe another deployment's data — a chain
+    //     with a low block height (e.g. coti) would otherwise delete every higher-block
+    //     row belonging to ethereum.
     console.log('  Cleaning data beyond fork block...');
     const blockIdTables = [
       'strategies',
@@ -407,7 +415,10 @@ async function seed(): Promise<void> {
     ];
     for (const table of blockIdTables) {
       try {
-        const delResult = await local.query(`DELETE FROM "${table}" WHERE "blockId" > $1`, [forkBlock]);
+        const delResult = await local.query(
+          `DELETE FROM "${table}" WHERE "blockId" > $1 AND "blockchainType" = $2 AND "exchangeId" = $3`,
+          [forkBlock, blockchainType, exchangeId],
+        );
         if (delResult.rowCount > 0) {
           console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockId > ${forkBlock})`);
         }
@@ -418,7 +429,10 @@ async function seed(): Promise<void> {
     const blockNumTables = ['activities', 'activities-v2', 'dex-screener-events-v2', 'volume'];
     for (const table of blockNumTables) {
       try {
-        const delResult = await local.query(`DELETE FROM "${table}" WHERE "blockNumber" > $1`, [forkBlock]);
+        const delResult = await local.query(
+          `DELETE FROM "${table}" WHERE "blockNumber" > $1 AND "blockchainType" = $2 AND "exchangeId" = $3`,
+          [forkBlock, blockchainType, exchangeId],
+        );
         if (delResult.rowCount > 0) {
           console.log(`    Deleted ${delResult.rowCount} rows from ${table} (blockNumber > ${forkBlock})`);
         }
@@ -427,7 +441,10 @@ async function seed(): Promise<void> {
       }
     }
     try {
-      const delResult = await local.query(`DELETE FROM tvl WHERE "evt_block_number" > $1`, [forkBlock]);
+      const delResult = await local.query(
+        `DELETE FROM tvl WHERE "evt_block_number" > $1 AND "blockchainType" = $2 AND "exchangeId" = $3`,
+        [forkBlock, blockchainType, exchangeId],
+      );
       if (delResult.rowCount > 0) {
         console.log(`    Deleted ${delResult.rowCount} rows from tvl (evt_block_number > ${forkBlock})`);
       }
@@ -450,7 +467,14 @@ async function seed(): Promise<void> {
   }
 }
 
-seed().catch((err) => {
-  console.error('Seed failed:', err);
-  process.exit(1);
-});
+async function seed(): Promise<void> {
+  const config = await getConfig();
+  await runSeed(config);
+}
+
+if (require.main === module) {
+  seed().catch((err) => {
+    console.error('Seed failed:', err);
+    process.exit(1);
+  });
+}
