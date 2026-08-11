@@ -184,6 +184,7 @@ export class DeploymentService {
           '0x251ee69eB945B79fb991B268690f1A43eD2A859d',
           '0x3cda61B56278842876e7fDD56123d83DBAFAe16C',
           '0xe2ec2b77a30743ebd746e4e18c5bfe665cd70222',
+          '0xD0b3A986FfF305854a7238A8e099Cce1ced01a3d',
         ],
       },
       {
