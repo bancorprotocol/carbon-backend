@@ -11,11 +11,14 @@ export function isRetryableRpcError(error: unknown): boolean {
 /**
  * Retry an RPC call that failed because the provider is rate limiting or briefly unreachable.
  * Other errors propagate immediately.
+ *
+ * Accepts a Promise or any thenable (web3's getPastEvents returns a Web3PromiEvent, not a Promise).
+ * Typing the callback as Promise<T> made that call infer T as unknown and fail the build.
  */
 export async function retryRpc<T>(
-  fn: () => Promise<T>,
+  fn: () => T | PromiseLike<T>,
   options?: { attempts?: number; baseDelayMs?: number; sleepFn?: (ms: number) => Promise<void> },
-): Promise<T> {
+): Promise<Awaited<T>> {
   const attempts = options?.attempts ?? 6;
   const sleepFn = options?.sleepFn ?? sleep;
   let delay = options?.baseDelayMs ?? 500;
