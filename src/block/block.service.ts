@@ -6,6 +6,7 @@ import * as _ from 'lodash';
 import Web3 from 'web3';
 import { Deployment } from '../deployment/deployment.service';
 import { sleep } from '../utilities';
+import { retryRpc } from '../rpc-retry';
 
 export interface BlocksDictionary {
   [id: number]: Date;
@@ -17,10 +18,22 @@ export class BlockService {
 
   private async update(blockNumbers: number[], deployment: Deployment): Promise<void> {
     let missingBlocks = await this.getMissingBlocks(blockNumbers, deployment);
+    let stalledPasses = 0;
 
     while (missingBlocks.length > 0) {
+      const before = missingBlocks.length;
       await this.fetchAndStore(missingBlocks, deployment);
       missingBlocks = await this.getMissingBlocks(blockNumbers, deployment);
+      if (missingBlocks.length >= before) {
+        stalledPasses++;
+        if (stalledPasses >= 3) {
+          throw new Error(
+            `Failed to fetch ${missingBlocks.length} blocks for ${deployment.blockchainType}:${deployment.exchangeId}`,
+          );
+        }
+      } else {
+        stalledPasses = 0;
+      }
     }
   }
 
@@ -69,7 +82,7 @@ export class BlockService {
 
   private async getBlockchainData(blockNumber: number, deployment: Deployment): Promise<any> {
     const web3 = new Web3(deployment.rpcEndpoint);
-    return web3.eth.getBlock(blockNumber);
+    return retryRpc(() => web3.eth.getBlock(blockNumber));
   }
 
   async getBlocks(from: number, to: number, deployment: Deployment): Promise<any> {
@@ -127,7 +140,7 @@ export class BlockService {
 
   async getLastBlockFromBlockchain(deployment: Deployment): Promise<number> {
     const web3 = new Web3(deployment.rpcEndpoint);
-    const blockNumber = await web3.eth.getBlockNumber();
+    const blockNumber = await retryRpc(() => web3.eth.getBlockNumber());
     return Number(blockNumber);
   }
 
