@@ -192,8 +192,10 @@ export class DeploymentService {
         blockchainType: BlockchainType.Sei,
         rpcEndpoint: this.configService.get('SEI_RPC_ENDPOINT'),
         wssEndpoint: this.resolveWssEndpoint('SEI_WSS_ENDPOINT', 'SEI_RPC_ENDPOINT'),
-        harvestEventsBatchSize: 25,
-        harvestConcurrency: 10,
+        // Alchemy allows 2000-block getLogs ranges and caps compute units per second.
+        // 25-block windows at concurrency 10 exceeded that cap and aborted the Sei cycle.
+        harvestEventsBatchSize: 1000,
+        harvestConcurrency: 1,
         multicallAddress: '0x51aA24A9230e62CfaF259c47DE3133578cE36317',
         startBlock: 79146720,
         gasToken: {

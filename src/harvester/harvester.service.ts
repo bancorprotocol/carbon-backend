@@ -22,6 +22,7 @@ import { BigNumber } from '@ethersproject/bignumber';
 import { BlockchainType, Deployment } from '../deployment/deployment.service';
 import { ConfigService } from '@nestjs/config';
 import { sleep } from '../utilities';
+import { retryRpc } from '../rpc-retry';
 import { LiquidityProtectionStore } from '../abis/LiquidityProtectionStore.abi';
 export const VERSIONS = {
   // PoolMigrator: [{ terminatesAt: 14830503, version: 1 }, { version: 2 }],
@@ -172,10 +173,12 @@ export class HarvesterService {
         const endBlock = Math.min(startBlock + deployment.harvestEventsBatchSize - 1, range.rangeEnd, toBlock);
         tasks.push(
           concurrency(async () => {
-            const _events = await contract.getPastEvents(eventName, {
-              fromBlock: startBlock,
-              toBlock: endBlock,
-            });
+            const _events = await retryRpc(() =>
+              contract.getPastEvents(eventName, {
+                fromBlock: startBlock,
+                toBlock: endBlock,
+              }),
+            );
             if (_events.length > 0) {
               _events.forEach((e) => events.push(e));
             }
@@ -326,7 +329,7 @@ export class HarvesterService {
             if (args.fetchCallerId) {
               await concurrencyLimit(async () => {
                 const web3 = new Web3(deployment.rpcEndpoint);
-                const transaction = await web3.eth.getTransaction(e.transactionHash);
+                const transaction = await retryRpc(() => web3.eth.getTransaction(e.transactionHash));
                 newEvent['callerId'] = transaction.from;
 
                 await sleep(deployment.harvestSleep || 0);
@@ -370,7 +373,7 @@ export class HarvesterService {
 
   async latestBlock(deployment: Deployment): Promise<number> {
     const web3 = new Web3(deployment.rpcEndpoint);
-    const blockNumber = (await web3.eth.getBlockNumber()).toString();
+    const blockNumber = (await retryRpc(() => web3.eth.getBlockNumber())).toString();
     return parseInt(blockNumber);
   }
 
