@@ -144,6 +144,9 @@ export class QuoteService implements OnModuleInit {
         newPrices = { ...newPrices, ...gasTokenPrice };
       } else {
         newPrices = await this.codexService.getLatestPrices(deployment, addresses);
+        if (deployment.blockchainType === BlockchainType.Sei && newPrices) {
+          newPrices = await this.applySeiGasTokenPrice(deployment, newPrices);
+        }
       }
 
       if (newPrices && Object.entries(newPrices).length > 0) {
@@ -404,6 +407,35 @@ export class QuoteService implements OnModuleInit {
     const tokensByAddress = {};
     result.forEach((q) => (tokensByAddress[q.token.address.toLowerCase()] = q));
     return tokensByAddress;
+  }
+
+  /**
+   * Codex prices SEI off Noble USDC, so both SEI and WSEI come back ~2.8x too high.
+   * CoinGecko's sei-network id matches the pool price. Keep Codex if that call fails.
+   */
+  private async applySeiGasTokenPrice(
+    deployment: Deployment,
+    newPrices: Record<string, any>,
+  ): Promise<Record<string, any>> {
+    try {
+      const gasPrices = await this.coingeckoService.getLatestGasTokenPrice(deployment);
+      const gasAddress = deployment.gasToken.address.toLowerCase();
+      const gasPrice = gasPrices?.[gasAddress];
+      if (gasPrice?.usd == null || gasPrice.usd === '') {
+        return newPrices;
+      }
+
+      const priced = { ...gasPrice, provider: 'coingecko' };
+      const next = { ...newPrices, [gasAddress]: { ...priced, address: gasAddress } };
+      if (deployment.nativeTokenAlias) {
+        const alias = deployment.nativeTokenAlias.toLowerCase();
+        next[alias] = { ...priced, address: alias };
+      }
+      return next;
+    } catch (error) {
+      this.logger.warn(`CoinGecko SEI price unavailable, keeping Codex price: ${error.message}`);
+      return newPrices;
+    }
   }
 
   private async updateQuotes(tokens: Token[], newPrices: Record<string, any>, deployment: Deployment): Promise<void> {
