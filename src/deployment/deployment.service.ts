@@ -223,6 +223,12 @@ export class DeploymentService {
         },
         mapEthereumTokens: {
           '0x9151434b16b9763660705744891fA906F660EcC5': '0xdac17f958d2ee523a2206206994597c13d831ec7', // usdt0
+          // Codex pegs USD to thin Noble USDC, which marks the liquid USDC ~2.8x too high
+          // and drags every asset priced through it. Read the Ethereum quote instead.
+          '0xe15fC38F6D8c56aF07bbCBe3BAf5708A2Bf42392': '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', // usdc
+          '0x160345fC359604fC6e70E3c5fAcbdE5F7A9342d8': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
+          '0xdf26208d8e2d7EAD3ef4e9a5a3Cad8A3c9143934': '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', // weth
+          '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c': '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', // wbtc
         },
         notifications: {
           explorerUrl: this.configService.get('SEI_EXPLORER_URL'),

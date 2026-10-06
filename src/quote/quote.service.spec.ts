@@ -1436,6 +1436,89 @@ describe('QuoteService', () => {
       expect(latestPricesCall[1]).not.toContain(ignoredTokenAddress);
     });
 
+    it('replaces Codex SEI and WSEI prices with the CoinGecko sei-network price', async () => {
+      const sei = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      const wsei = '0xe30fedd158a2e3b13e9badaeabafc5516e95e8c7';
+      const usdc = '0xe15fc38f6d8c56af07bbcbe3baf5708a2bf42392';
+      const tokens = [sei, wsei, usdc].map((address, id) => ({
+        id: id + 1,
+        address,
+        name: address,
+        symbol: address,
+        decimals: 18,
+        blockchainType: BlockchainType.Sei,
+        exchangeId: ExchangeId.OGSei,
+      })) as Token[];
+
+      const deployment = createMockDeployment(BlockchainType.Sei);
+      deployment.gasToken = { name: 'Sei', symbol: 'SEI', address: sei };
+      deployment.nativeTokenAlias = wsei;
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [sei]: { usd: 0.208, provider: 'codex' },
+        [wsei]: { usd: 0.208, provider: 'codex' },
+        [usdc]: { usd: 2.83, provider: 'codex' },
+      });
+      mockCoinGeckoService.getLatestGasTokenPrice.mockResolvedValue({
+        [sei]: { usd: 0.0737, provider: 'coingecko' },
+      });
+      mockQuoteRepository.create.mockImplementation((quote) => quote);
+      mockQuoteRepository.createQueryBuilder.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      });
+
+      await service.pollForDeployment(deployment);
+
+      const saved = mockQuoteRepository.save.mock.calls[0][0];
+      const byAddress = Object.fromEntries(saved.map((quote) => [quote.token.address, quote]));
+      expect(byAddress[sei].usd).toBe('0.0737');
+      expect(byAddress[sei].provider).toBe('coingecko');
+      expect(byAddress[wsei].usd).toBe('0.0737');
+      expect(byAddress[wsei].provider).toBe('coingecko');
+      expect(byAddress[usdc].usd).toBe('2.83');
+      expect(byAddress[usdc].provider).toBe('codex');
+    });
+
+    it('keeps the Codex SEI price when CoinGecko is unavailable', async () => {
+      const sei = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+      const tokens = [
+        {
+          id: 1,
+          address: sei,
+          name: 'SEI',
+          symbol: 'SEI',
+          decimals: 18,
+          blockchainType: BlockchainType.Sei,
+          exchangeId: ExchangeId.OGSei,
+        } as Token,
+      ];
+      const deployment = createMockDeployment(BlockchainType.Sei);
+      deployment.gasToken = { name: 'Sei', symbol: 'SEI', address: sei };
+
+      mockTokenService.getTokensByBlockchainType.mockResolvedValue(tokens);
+      mockCodexService.getLatestPrices.mockResolvedValue({
+        [sei]: { usd: 0.208, provider: 'codex' },
+      });
+      mockCoinGeckoService.getLatestGasTokenPrice.mockRejectedValue(new Error('coingecko down'));
+      mockQuoteRepository.create.mockImplementation((quote) => quote);
+      mockQuoteRepository.createQueryBuilder.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([]),
+      });
+
+      await service.pollForDeployment(deployment);
+
+      const saved = mockQuoteRepository.save.mock.calls[0][0];
+      expect(saved[0].usd).toBe('0.208');
+      expect(saved[0].provider).toBe('codex');
+    });
+
     it('should work with Ethereum deployment and CoinGecko service', async () => {
       const ignoredTokenAddress = '0xignoredtoken';
       const allowedTokenAddress = '0xallowedtoken';
